@@ -18,8 +18,8 @@ def on_tag_event(name: str, tag_data: dict):
 
 def on_x714_event(name: str, event_type: str, event_data=None):
     """General event handler for X714 events"""
-    print("="*60)
-    if event_type == 'tag':
+    print("=" * 60)
+    if event_type == "tag":
         on_tag_event(name, event_data)
         return
     print(f"{name} -> Event: {event_type}, Data: {event_data}")
@@ -36,7 +36,7 @@ async def main():
     )
     x714_ble.on_event = on_x714_event
     asyncio.create_task(x714_ble.connect())
-    
+
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)

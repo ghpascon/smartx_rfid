@@ -9,11 +9,7 @@ password = "00000000"
 
 # === WRITE EXAMPLE ===
 print("=== X714 SERIAL Example ===")
-x714_serial = X714(
-    name="X714",
-    start_reading=True,
-    session=0
-)
+x714_serial = X714(name="X714", start_reading=True, session=0)
 
 # Configure logging to show INFO level messages
 logging.basicConfig(
@@ -27,20 +23,14 @@ def on_tag_event(name: str, tag_data: dict):
     """Callback for when a tag is read"""
     print(f"🏷️  Tag Read: {tag_data}")
     print()
-    if tag_data['epc'] == target_epc:
-        x714_serial.write_epc(
-            target_identifier,
-            target_epc,
-            new_epc,
-            password
-        )
-
+    if tag_data["epc"] == target_epc:
+        x714_serial.write_epc(target_identifier, target_epc, new_epc, password)
 
 
 def on_x714_event(name: str, event_type: str, event_data=None):
     """General event handler for X714 events"""
-    print("="*60)
-    if event_type == 'tag':
+    print("=" * 60)
+    if event_type == "tag":
         on_tag_event(name, event_data)
         return
     print(f"{name} -> Event: {event_type}, Data: {event_data}")
@@ -50,7 +40,7 @@ def on_x714_event(name: str, event_type: str, event_data=None):
 async def main():
     x714_serial.on_event = on_x714_event
     asyncio.create_task(x714_serial.connect())
-    
+
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)

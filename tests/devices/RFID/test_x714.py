@@ -105,11 +105,7 @@ class TestX714:
     def test_antenna_configuration_custom_active(self):
         """Test custom active antenna configuration"""
         with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
-            x714_device = X714(
-                active_ant=[1, 2, 3],
-                read_power=25,
-                read_rssi=-100
-            )
+            x714_device = X714(active_ant=[1, 2, 3], read_power=25, read_rssi=-100)
 
             # Check antenna configuration
             assert x714_device.ant_dict["1"]["active"] is True
@@ -125,9 +121,9 @@ class TestX714:
         """Test custom antenna dictionary configuration"""
         custom_ant_dict = {
             "1": {"active": True, "power": 30, "rssi": -90},
-            "2": {"active": True, "power": 28, "rssi": -95}
+            "2": {"active": True, "power": 28, "rssi": -95},
         }
-        
+
         with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
             x714_device = X714(ant_dict=custom_ant_dict)
 
@@ -211,7 +207,7 @@ class TestX714:
 
     def test_on_connected_callback(self):
         """Test on_connected callback"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()) as mock_on_event:
+        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
             x714_device = X714()
             x714_device.config_reader = Mock()
             x714_device.on_event = Mock()

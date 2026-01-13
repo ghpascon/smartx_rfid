@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from smartx_rfid.devices import TCP
 
@@ -40,6 +40,7 @@ class TestTCP:
             assert tcp_device.ip == "192.168.1.100"
             assert tcp_device.port == 4001
             assert tcp_device.is_connected is False
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
