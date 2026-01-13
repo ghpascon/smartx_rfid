@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "smartx-rfid"
-version = "0.1.1"
-description = "Smarxt Rfid lib"
+version = "0.1.2"
+description = "SmartX RFID library"
 authors = ["Gabriel Henrique Pascon <gh.pascon@gmail.com>"]
 license = "MIT"
 readme = "README.md"
@@ -13,6 +13,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 packages = [{include = "smartx_rfid", from = "src"}]
