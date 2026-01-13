@@ -3,7 +3,15 @@ import logging
 
 
 class OnReceive:
+    """Handle incoming data from X714 reader."""
+    
     def on_receive(self, data, verbose: bool = False):
+        """Process data received from reader.
+        
+        Args:
+            data: Raw data from reader
+            verbose: Show received data in logs
+        """
         if not isinstance(data, str):
             data = data.decode(errors="ignore")
         data = data.replace("\r", "").replace("\n", "")
@@ -39,13 +47,25 @@ class OnReceive:
             self.on_event(self.name, "tags_cleared", True)
 
     def on_start(self):
+        """Called when reader starts reading tags."""
         self.clear_tags()
         self.on_event(self.name, "reading", True)
 
     def on_stop(self):
+        """Called when reader stops reading tags."""
         self.on_event(self.name, "reading", False)
 
     def on_tag(self, tag: dict):
+        """Process detected RFID tag data.
+        
+        Args:
+            tag: Tag information dictionary
+        """
+        """Process detected RFID tag data.
+        
+        Args:
+            tag: Tag information dictionary
+        """
         try:
             tag_data = TagSchema(**tag)
             tag = tag_data.model_dump()

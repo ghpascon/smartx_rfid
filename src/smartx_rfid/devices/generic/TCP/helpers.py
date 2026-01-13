@@ -3,7 +3,10 @@ import logging
 
 
 class Helpers:
+    """Helper functions for TCP connection management."""
+
     async def monitor_connection(self):
+        """Check if TCP connection is still alive."""
         while self.is_connected:
             await asyncio.sleep(3)
             if (self.writer and self.writer.is_closing()) or (self.reader and self.reader.at_eof()):
@@ -14,6 +17,7 @@ class Helpers:
             await self.write("ping", verbose=False)
 
     async def receive_data(self):
+        """Receive and process incoming TCP data."""
         buffer = ""
         try:
             while True:

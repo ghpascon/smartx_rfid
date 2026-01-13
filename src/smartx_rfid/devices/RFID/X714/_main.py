@@ -21,6 +21,8 @@ ant_default_config = {
 
 
 class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, TCPProtocol):
+    """RFID reader that supports SERIAL, TCP and BLE connections."""
+
     def __init__(
         self,
         name: str = "X714",
@@ -56,6 +58,37 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
         read_power: int = 22,
         read_rssi: int = -120,
     ):
+        """
+        Create X714 RFID reader.
+        
+        Args:
+            name: Device name
+            connection_type: How to connect (SERIAL, TCP, BLE)
+            port: Serial port or AUTO to detect
+            baudrate: Serial speed
+            vid: USB vendor ID for auto-detect
+            pid: USB product ID for auto-detect
+            ip: IP address for TCP connection
+            tcp_port: TCP port number
+            ble_name: Bluetooth device name
+            buzzer: Make sound when reading tags
+            session: EPC session number (0-3)
+            start_reading: Start reading tags automatically
+            gpi_start: Use GPI input to start reading
+            ignore_read: Skip duplicate tags
+            always_send: Send all tag events
+            simple_send: Use simple tag format
+            keyboard: Act like keyboard input
+            decode_gtin: Decode GTIN barcodes
+            hotspot: Enable hotspot mode
+            reconnection_time: Seconds to wait before reconnect
+            prefix: Text to add before tag data
+            protected_inventory_password: Password for protected reading
+            ant_dict: Custom antenna settings
+            active_ant: Which antennas to use
+            read_power: TX power in dBm
+            read_rssi: RSSI threshold in dBm
+        """
         # Name
         self.name = name
         self.device_type = "rfid"
@@ -125,6 +158,12 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
         self.on_event: Callable = on_event
 
     def write(self, to_send, verbose=True):
+        """Send data to reader using current connection type.
+        
+        Args:
+            to_send: Data to send
+            verbose: Show sent data in logs
+        """
         if self.connection_type == "SERIAL":
             self.write_serial(to_send, verbose)
         elif self.connection_type == "BLE":
@@ -133,6 +172,7 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
             asyncio.create_task(self.write_tcp(to_send, verbose))
 
     async def connect(self):
+        """Connect to reader using configured connection type."""
         if self.connection_type == "SERIAL":
             await self.connect_serial()
         elif self.connection_type == "BLE":
@@ -141,6 +181,6 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
             await self.connect_tcp(self.ip, self.tcp_port)
 
     def on_connected(self):
-        """Callback chamado quando a conexão é estabelecida."""
+        """Called when connection is established. Sets up reader."""
         self.config_reader()
         self.on_event(self.name, "connected", True)

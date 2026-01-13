@@ -137,13 +137,11 @@ class SERIAL(asyncio.Protocol):
 
     def write(self, to_send, verbose=True):
         """
-        Send data through the serial connection.
-
-        Automatically adds newline to strings and calculates CRC16 for bytes.
+        Send data through serial port.
 
         Args:
-                to_send: Data to send (str or bytes)
-                verbose: Enable logging of sent data
+            to_send: Data to send (string or bytes)
+            verbose: Show sent data in logs
         """
         if self.transport:
             if isinstance(to_send, str):
@@ -167,6 +165,7 @@ class SERIAL(asyncio.Protocol):
             logging.warning("❌ Send attempt failed: connection not established.")
 
     async def connect(self):
+        """Connect to serial port and keep connection alive."""
         """
         Establish and maintain serial connection with automatic reconnection.
 
@@ -216,6 +215,16 @@ class SERIAL(asyncio.Protocol):
             await asyncio.sleep(3)
 
     def crc16(self, data: bytes, poly=0x8408):
+        """
+        Calculate CRC16 checksum for data validation.
+
+        Args:
+            data: Input bytes to calculate checksum
+            poly: CRC polynomial value
+
+        Returns:
+            int: 16-bit checksum value
+        """
         """
         Calculate CRC-16/CCITT-FALSE checksum.
 

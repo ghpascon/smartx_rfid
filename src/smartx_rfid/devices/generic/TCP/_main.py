@@ -7,12 +7,22 @@ from typing import Callable
 
 
 class TCP(Helpers):
+    """TCP connection handler for network communication."""
+
     def __init__(
         self,
         name: str = "GENERIC_TCP",
         ip: str = "192.168.1.101",
         port: int = 23,
     ):
+        """
+        Create TCP connection.
+        
+        Args:
+            name: Device name
+            ip: IP address to connect
+            port: TCP port number
+        """
         self.name = name
         self.device_type = "generic"
 
@@ -26,6 +36,7 @@ class TCP(Helpers):
         self.on_event: Callable = on_event
 
     async def connect(self):
+        """Connect to TCP server and keep connection alive."""
         while True:
             try:
                 logging.info(f"Connecting: {self.name} - {self.ip}:{self.port}")
@@ -59,6 +70,13 @@ class TCP(Helpers):
             await asyncio.sleep(3)
 
     async def write(self, data: str, verbose=True):
+        """
+        Send data through TCP connection.
+        
+        Args:
+            data: Text to send
+            verbose: Show sent data in logs
+        """
         if self.is_connected and self.writer:
             try:
                 data = data + "\n"

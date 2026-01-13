@@ -2,16 +2,22 @@ import asyncio
 
 
 class RfidCommands:
+    """RFID reader control commands for X714."""
+    
     def start_inventory(self):
+        """Start reading RFID tags."""
         self.write("#READ:ON")
 
     def stop_inventory(self):
+        """Stop reading RFID tags."""
         self.write("#READ:OFF")
 
     def clear_tags(self):
+        """Clear all stored tags from memory."""
         self.write("#CLEAR")
 
     def config_reader(self):
+        """Configure reader settings like antennas, session, etc."""
         set_cmd = "#set_cmd:"
 
         # ANTENNAS

@@ -4,7 +4,17 @@ import httpx
 
 
 class WriteCommands:
+    """RFID tag write commands for R700 reader."""
+    
     async def get_write_cmd(self, tag):
+        """Generate write command for tag programming.
+        
+        Args:
+            tag: Tag data with target and new EPC
+            
+        Returns:
+            dict: Write command for R700 API
+        """
         identifier = tag.target_identifier
         target = tag.target_value
         epc = tag.new_epc

@@ -13,6 +13,8 @@ from .reader_config_example import R700_IOT_config_example
 
 
 class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
+    """Impinj R700 RFID reader using HTTP REST API."""
+
     def __init__(
         self,
         # READER CONFIG
@@ -26,6 +28,18 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         # Firmware Version
         firmware_version: str = "8.4.1",
     ):
+        """
+        Create R700 RFID reader.
+        
+        Args:
+            reading_config: Configuration for tag reading
+            name: Device name
+            ip: IP address of reader
+            username: Login username
+            password: Login password
+            start_reading: Start reading tags automatically
+            firmware_version: Expected firmware version
+        """
         self.name = name
         self.device_type = "rfid"
 
@@ -62,6 +76,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         self.on_event = on_event
 
     async def disconnect(self):
+        """Safely disconnect from reader and stop reading."""
         """Desconecta o reader de forma segura."""
         logging.info(f"{self.name} 🔌 Disconnecting reader")
         self._stop_connection = True
@@ -79,6 +94,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         self.on_event(self.name, "connection", False)
 
     async def connect(self):
+        """Connect to R700 reader and start tag reading."""
         self._stop_connection = False
         while not self._stop_connection:
             async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
@@ -130,6 +146,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
                 await self.get_tag_list(session)
 
     async def clear_tags(self):
+        """Clear all stored tags from memory."""
         self.tags = {}
 
     async def write_gpo(
@@ -141,6 +158,15 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         *args,
         **kwargs,
     ):
+        """
+        Control GPO (output) pins on reader.
+        
+        Args:
+            pin: GPO pin number
+            state: Turn pin on (True) or off (False)
+            control: Control type (static or pulse)
+            time: Pulse duration in milliseconds
+        """
         gpo_command = await self.get_gpo_command(pin=pin, state=state, control=control, time=time)
         try:
             async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
@@ -149,6 +175,15 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
             logging.warning(f"{self.name} - Failed to set GPO: {e}")
 
     def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
+        """
+        Write new EPC code to RFID tag.
+        
+        Args:
+            target_identifier: How to find tag (epc, tid, user)
+            target_value: Current tag value to match
+            new_epc: New EPC code to write
+            password: Tag access password
+        """
         """
         Writes a new EPC (Electronic Product Code) to RFID tags.
         """
