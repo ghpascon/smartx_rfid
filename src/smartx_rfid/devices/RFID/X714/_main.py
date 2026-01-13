@@ -39,6 +39,7 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
 	def __init__(
 			self, 
 			name: str = "X714",
+
 			connection_type: str = "SERIAL", #SERIAL, BLE or TCP
 
 			# SERIAL
@@ -75,10 +76,10 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
 			active_ant: list[int]|None = [1],
 			read_power: int = 22,
 			read_rssi: int = -120,
-
 		):
 		# Name
 		self.name = name
+		self.device_type = "rfid"
 
 		# CONNECTION TYPE
 		if connection_type in ['SERIAL', 'BLE', 'TCP']:

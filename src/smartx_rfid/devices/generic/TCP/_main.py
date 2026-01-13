@@ -14,6 +14,7 @@ class TCP(Helpers):
         port: int = 23,
     ):
         self.name = name
+        self.device_type = "generic"
 
         self.ip = ip
         self.port = port

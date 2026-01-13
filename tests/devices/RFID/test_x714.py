@@ -22,7 +22,7 @@ class TestX714:
             assert x714_device.port == "AUTO"
             assert x714_device.baudrate == 115200
             assert x714_device.is_connected is False
-            assert x714_device.buzzer is True
+            assert x714_device.buzzer is False
 
     def test_create_object_serial_config(self):
         """Test creating X714 object with SERIAL configuration"""

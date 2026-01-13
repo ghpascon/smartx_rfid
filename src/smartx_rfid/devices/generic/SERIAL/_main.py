@@ -45,6 +45,8 @@ class SERIAL(asyncio.Protocol):
                 reconnection_time: Delay between reconnection attempts
         """
         self.name = name
+        self.device_type = "generic"
+
         self.port = port
         self.baudrate = baudrate
         self.vid = vid
