@@ -1,0 +1,71 @@
+import asyncio
+import logging
+
+from .helpers import Helpers
+from smartx_rfid.utils.event import on_event
+from typing import Callable
+
+
+class TCP(Helpers):
+    def __init__(
+        self,
+        name: str = "GENERIC_TCP",
+        ip: str = "192.168.1.101",
+        port: int = 23,
+    ):
+        self.name = name
+
+        self.ip = ip
+        self.port = port
+
+        self.reader = None
+        self.writer = None
+
+        self.is_connected = False
+        self.on_event: Callable = on_event
+
+    async def connect(self):
+        while True:
+            try:
+                logging.info(f"Connecting: {self.name} - {self.ip}:{self.port}")
+                self.reader, self.writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.ip, self.port), timeout=3
+                )
+                self.is_connected = True
+                self.on_event(self.name, "connection", True)
+
+                # Start the receive and monitor tasks
+                tasks = [
+                    asyncio.create_task(self.receive_data()),
+                    asyncio.create_task(self.monitor_connection()),
+                ]
+
+                # Wait until one of the tasks completes (e.g. disconnection)
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                # Cancel any remaining tasks
+                for task in pending:
+                    task.cancel()
+
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
+
+            except Exception as e:
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
+                logging.error(f"[CONNECTION ERROR] {e}")
+
+            await asyncio.sleep(3)
+
+    async def write(self, data: str, verbose=True):
+        if self.is_connected and self.writer:
+            try:
+                data = data + "\n"
+                self.writer.write(data.encode())
+                await self.writer.drain()
+                if verbose:
+                    logging.info(f"[SENT] {data.strip()}")
+            except Exception as e:
+                logging.warning(f"[SEND ERROR] {e}")
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)

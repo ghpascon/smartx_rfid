@@ -37,6 +37,7 @@ asyncio.run(main())
 ## Development Status
 
 This library is actively under development. Current focus areas include:
+
 - Core device communication protocols
 - External device integration
 - Enhanced error handling

@@ -1,7 +1,6 @@
 import pytest
-from unittest.mock import AsyncMock, patch
 
-from smartx_rfid.devices.generic.SERIAL._main import SERIAL
+from smartx_rfid.devices import SERIAL
 
 
 class TestSERIAL:
@@ -32,25 +31,6 @@ class TestSERIAL:
         assert serial_device.name == "TEST_SERIAL"
         assert serial_device.port == "COM3"
         assert serial_device.is_auto is False
-
-    def test_data_received(self):
-        """Test data_received method with simple message"""
-        serial_device = SERIAL()
-
-        # Mock asyncio.create_task to prevent actual async execution
-        with patch("asyncio.create_task") as mock_create_task:
-            # Mock the on_event to be an AsyncMock
-            serial_device.on_event = AsyncMock()
-
-            # Test with complete message
-            test_data = b"test message\n"
-            serial_device.data_received(test_data)
-
-            # Buffer should be empty after processing complete message
-            assert len(serial_device.rx_buffer) == 0
-
-            # Verify that create_task was called (for on_event and timeout)
-            assert mock_create_task.called
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import time
 import serial.tools.list_ports
 import serial_asyncio
 from typing import Callable
+from smartx_rfid.utils.event import on_event
 
 
 class SERIAL(asyncio.Protocol):
@@ -59,7 +60,7 @@ class SERIAL(asyncio.Protocol):
         self.is_connected = False
         self.is_reading = False
 
-        self.on_event: Callable = self._on_event
+        self.on_event: Callable = on_event
 
     def connection_made(self, transport):
         """
@@ -70,7 +71,7 @@ class SERIAL(asyncio.Protocol):
         """
         self.transport = transport
         self.is_connected = True
-        self.on_event("connection", True)
+        self.on_event(self.name, "connection", True)
 
     def data_received(self, data):
         """
@@ -114,7 +115,7 @@ class SERIAL(asyncio.Protocol):
             self.rx_buffer = self.rx_buffer[pos + 1 :]
 
             if message:
-                self.on_event("receive", message)
+                self.on_event(self.name, "receive", message)
 
     def connection_lost(self, exc):
         """
@@ -130,7 +131,7 @@ class SERIAL(asyncio.Protocol):
 
         if self.on_con_lost:
             self.on_con_lost.set()
-        self.on_event("connection", False)
+        self.on_event(self.name, "connection", False)
 
     def write(self, to_send, verbose=True):
         """
@@ -232,16 +233,3 @@ class SERIAL(asyncio.Protocol):
                 else:
                     crc >>= 1
         return crc & 0xFFFF
-
-    def _on_event(self, event_type: str, event_data=None):
-        """
-        Default event handler for protocol events.
-
-        This method can be overridden to handle specific events like
-        connection status changes or received messages.
-
-        Args:
-                event_type: Type of event ('connection', 'receive', etc.)
-                event_data: Associated data with the event
-        """
-        logging.info(f"{self.name} -> 🔔 Event: {event_type}, Data: {event_data}")
