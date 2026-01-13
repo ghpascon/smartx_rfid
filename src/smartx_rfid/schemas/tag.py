@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field, field_validator
 
 class TagSchema(BaseModel):
     epc: str = Field("000000000000000000000001")
-    tid: Optional[str | None] = Field("E28000000000000000000001")
-    ant: Optional[int | None] = 0
-    rssi: Optional[int | None] = 0
+    tid: Optional[str | None] = Field(None)
+    ant: Optional[int | None] = None
+    rssi: Optional[int | None] = None
 
     @field_validator("epc", "tid")
     def validate_epc_length_and_hex(cls, v, field):

@@ -17,7 +17,7 @@ class TCP(Helpers):
     ):
         """
         Create TCP connection.
-        
+
         Args:
             name: Device name
             ip: IP address to connect
@@ -72,7 +72,7 @@ class TCP(Helpers):
     async def write(self, data: str, verbose=True):
         """
         Send data through TCP connection.
-        
+
         Args:
             data: Text to send
             verbose: Show sent data in logs

@@ -1,6 +1,6 @@
 class OnEvent:
     """Handle R700 reader events."""
-    
+
     async def on_start(self):
         """Called when reader starts reading tags."""
         self.is_reading = True
@@ -13,7 +13,7 @@ class OnEvent:
 
     async def on_tag(self, tag):
         """Process detected RFID tag data.
-        
+
         Args:
             tag: Raw tag data from reader API
         """

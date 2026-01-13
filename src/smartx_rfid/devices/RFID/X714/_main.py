@@ -60,7 +60,7 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
     ):
         """
         Create X714 RFID reader.
-        
+
         Args:
             name: Device name
             connection_type: How to connect (SERIAL, TCP, BLE)
@@ -159,7 +159,7 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
 
     def write(self, to_send, verbose=True):
         """Send data to reader using current connection type.
-        
+
         Args:
             to_send: Data to send
             verbose: Show sent data in logs

@@ -7,13 +7,13 @@ import httpx
 
 class ReaderHelpers:
     """Helper methods for R700 reader management."""
-    
+
     async def check_firmware_version(self, session: httpx.AsyncClient | None = None):
         """Check if reader firmware version is compatible.
-        
+
         Args:
             session: HTTP session to use
-            
+
         Returns:
             bool: True if firmware is compatible
         """

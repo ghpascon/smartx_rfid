@@ -4,10 +4,10 @@ import logging
 
 class OnReceive:
     """Handle incoming data from X714 reader."""
-    
+
     def on_receive(self, data, verbose: bool = False):
         """Process data received from reader.
-        
+
         Args:
             data: Raw data from reader
             verbose: Show received data in logs
@@ -57,7 +57,7 @@ class OnReceive:
 
     def on_tag(self, tag: dict):
         """Process detected RFID tag data.
-        
+
         Args:
             tag: Tag information dictionary
         """

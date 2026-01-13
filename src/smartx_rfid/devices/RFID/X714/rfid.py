@@ -3,7 +3,7 @@ import asyncio
 
 class RfidCommands:
     """RFID reader control commands for X714."""
-    
+
     def start_inventory(self):
         """Start reading RFID tags."""
         self.write("#READ:ON")

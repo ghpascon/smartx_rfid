@@ -30,7 +30,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
     ):
         """
         Create R700 RFID reader.
-        
+
         Args:
             reading_config: Configuration for tag reading
             name: Device name
@@ -160,7 +160,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
     ):
         """
         Control GPO (output) pins on reader.
-        
+
         Args:
             pin: GPO pin number
             state: Turn pin on (True) or off (False)
@@ -177,7 +177,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
     def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
         """
         Write new EPC code to RFID tag.
-        
+
         Args:
             target_identifier: How to find tag (epc, tid, user)
             target_value: Current tag value to match

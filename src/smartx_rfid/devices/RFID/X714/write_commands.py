@@ -4,10 +4,10 @@ from smartx_rfid.schemas.tag import WriteTagValidator
 
 class WriteCommands:
     """RFID tag write commands for X714."""
-    
+
     def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
         """Write new EPC code to RFID tag.
-        
+
         Args:
             target_identifier: How to find tag (epc, tid, user)
             target_value: Current tag value to match
