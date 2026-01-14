@@ -27,18 +27,14 @@ class TagList:
         self._tags: Dict[str, Dict[str, Any]] = {}
         self._lock = Lock()
 
-    def add(
-        self,
-        tag: Dict[str, Any],
-        device: str = "Unknown"
-    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    def add(self, tag: Dict[str, Any], device: str = "Unknown") -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
         Add or update a tag.
 
         Returns:
-            (True, tag_dict)   if the tag is new
-            (False, tag_dict)  if the tag already exists
-            (False, None)      if an error occurs
+            (True, tag_dict)   if the tag is new;
+            (False, tag_dict)  if the tag already exists;
+            (False, None)      if an error occurs;
         """
         try:
             identifier_value = tag.get(self.unique_identifier)
@@ -149,10 +145,7 @@ class TagList:
             timestamp: Minimum timestamp to keep.
         """
         with self._lock:
-            self._tags = {
-                k: v for k, v in self._tags.items()
-                if v.get("timestamp") and v["timestamp"] >= timestamp
-            }
+            self._tags = {k: v for k, v in self._tags.items() if v.get("timestamp") and v["timestamp"] >= timestamp}
 
     def remove_tags_by_device(self, device: str) -> None:
         """
@@ -162,10 +155,23 @@ class TagList:
             device: Device identifier.
         """
         with self._lock:
-            self._tags = {
-                k: v for k, v in self._tags.items()
-                if v.get("device") != device
-            }
+            self._tags = {k: v for k, v in self._tags.items() if v.get("device") != device}
+
+    def get_tid_from_epc(self, epc: str) -> Optional[str]:
+        """
+        Retrieve the TID associated with a given EPC.
+
+        Args:
+            epc: EPC value.
+
+        Returns:
+            The TID if found, otherwise None.
+        """
+        with self._lock:
+            tag = self._tags.get(epc)
+            if tag:
+                return tag.get("tid")
+            return None
 
     def __len__(self) -> int:
         """

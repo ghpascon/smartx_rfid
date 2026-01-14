@@ -57,6 +57,12 @@ class TestSERIAL:
         tags.add({"epc": "000000000000000000000001"})
         assert len(tags) == 1
 
+    def test_get_tid_from_epc(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001", "tid": "e28000000000000000000001"})
+        tid = tags.get_tid_from_epc("000000000000000000000001")
+        assert tid == "e28000000000000000000001"
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

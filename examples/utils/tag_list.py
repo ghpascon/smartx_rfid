@@ -18,6 +18,7 @@ def on_tag(device: str, tag_data: dict):
         tag["descricao"] = "product ABC"  # Example of adding extra info to new tags
         logging.info(f"[ NEW TAG ] {tag}")
 
+
 def on_event(name: str, event_type: str, data):
     if event_type == "tag":
         on_tag(name, data)
