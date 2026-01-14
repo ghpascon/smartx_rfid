@@ -215,5 +215,5 @@ class TagList:
                 if gtin is None:
                     gtin = "UNKNOWN"
                 gtin_counts[gtin] = gtin_counts.get(gtin, 0) + 1
-                
+
         return gtin_counts

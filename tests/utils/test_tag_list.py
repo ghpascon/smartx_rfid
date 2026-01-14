@@ -67,8 +67,11 @@ class TestSERIAL:
         tags = TagList()
         tags.add({"epc": "3074257bf7194e4000001a85"})
         tags.add({"epc": "3074257bf7194e4000001a86"})
+        tags.add({"epc": "000000000000000000000001"})
         gtin_counts = tags.get_gtin_counts()
         assert gtin_counts.get("80614141123458") == 2
+        assert gtin_counts.get("UNKNOWN") == 1
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
