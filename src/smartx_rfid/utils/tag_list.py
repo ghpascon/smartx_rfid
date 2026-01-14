@@ -135,18 +135,26 @@ class TagList:
         with self._lock:
             return list(self._tags.values())
 
-    def get_by_identifier(self, identifier: str) -> Optional[Dict[str, Any]]:
+    def get_by_identifier(self, identifier_value: str, identifier_type: str = "epc") -> Optional[Dict[str, Any]]:
         """
-        Retrieve a tag by its unique identifier.
-
+        Retrieve a tag by its identifier.
         Args:
-            identifier: EPC or TID value.
-
+            identifier_value: The value of the identifier (EPC or TID).
+            identifier_type: The type of identifier ("epc" or "tid").
         Returns:
             The tag dictionary if found, otherwise None.
         """
-        with self._lock:
-            return self._tags.get(identifier)
+        if identifier_type not in ("epc", "tid"):
+            identifier_type = "epc"
+
+        if self.unique_identifier == identifier_type:
+            return self._tags.get(identifier_value)
+        
+        for tag in self._tags.values():
+            if tag.get(identifier_type) == identifier_value:
+                return tag
+            
+        return None
 
     def clear(self) -> None:
         """
