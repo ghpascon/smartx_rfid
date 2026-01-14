@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "smartx-rfid"
-version = "0.5.3"
+version = "0.5.4"
 description = "SmartX RFID library"
 authors = ["Gabriel Henrique Pascon <gh.pascon@gmail.com>"]
 license = "MIT"
@@ -24,7 +24,6 @@ pyserial-asyncio = "0.6"
 pyserial = "3.5"
 pyepc = "0.5.0"
 httpx = "0.28.1"
-ruff = "^0.14.11"
 bleak = "^1.1.1"
 pydantic = "^2.12.5"
 
@@ -33,6 +32,7 @@ pytest = "^7.4.0"
 pytest-cov = "^4.1.0"
 pytest-asyncio = "^0.21.0"
 twine = "^4.0.0"
+ruff = "^0.14.11"
 
 [tool.poetry.group.build.dependencies]
 build = "^1.0.0"
