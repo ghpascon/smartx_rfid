@@ -200,3 +200,19 @@ class TagList:
         """
         with self._lock:
             return [tag["epc"] for tag in self._tags.values() if "epc" in tag]
+
+    def get_gtin_counts(self) -> Dict[str, int]:
+        """
+        Retrieve counts of tags grouped by GTIN.
+
+        Returns:
+            A dictionary mapping GTINs to their respective counts.
+        """
+        gtin_counts: Dict[str, int] = {}
+        with self._lock:
+            for tag in self._tags.values():
+                gtin = tag.get("gtin")
+                if gtin:
+                    gtin_counts[gtin] = gtin_counts.get(gtin, 0) + 1
+                
+        return gtin_counts
