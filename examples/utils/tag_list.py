@@ -17,13 +17,15 @@ def on_tag(device: str, tag_data: dict):
     if new_tag:
         tag["descricao"] = "product ABC"  # Example of adding extra info to new tags
         logging.info(f"[ NEW TAG ] {tag}")
+    elif tag is not None:
+        logging.info(f"[ EXISTING TAG ] {tag}")
 
 
 def on_event(name: str, event_type: str, data):
     if event_type == "tag":
         on_tag(name, data)
     else:
-        print(f"Event from {name} - {event_type}: {data}")
+        logging.info(f"Event from {name} - {event_type}: {data}")
 
 
 async def main():

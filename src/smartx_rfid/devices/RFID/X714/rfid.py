@@ -32,6 +32,8 @@ class RfidCommands:
 
         # START_READING
         set_cmd += f"|START_READING:{self.start_reading}"
+        if self.start_reading:
+            self.is_reading = True
 
         # GPI_START
         set_cmd += f"|GPI_START:{self.gpi_start}"
