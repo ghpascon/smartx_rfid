@@ -27,6 +27,24 @@ class TagList:
         self._tags: Dict[str, Dict[str, Any]] = {}
         self._lock = Lock()
 
+    def __len__(self) -> int:
+        """
+        Return the number of stored tags.
+        """
+        return len(self._tags)
+
+    def __contains__(self, identifier: str) -> bool:
+        """
+        Check if a tag identifier exists in the list.
+        """
+        return identifier in self._tags
+
+    def __repr__(self) -> str:
+        """
+        Return a string representation of the stored tags.
+        """
+        return repr(self.get_all())
+
     def add(self, tag: Dict[str, Any], device: str = "Unknown") -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
         Add or update a tag.
@@ -173,20 +191,12 @@ class TagList:
                 return tag.get("tid")
             return None
 
-    def __len__(self) -> int:
+    def get_epcs(self) -> list[str]:
         """
-        Return the number of stored tags.
-        """
-        return len(self._tags)
+        Retrieve a list of all stored EPCs.
 
-    def __contains__(self, identifier: str) -> bool:
+        Returns:
+            A list of EPC strings.
         """
-        Check if a tag identifier exists in the list.
-        """
-        return identifier in self._tags
-
-    def __repr__(self) -> str:
-        """
-        Return a string representation of the stored tags.
-        """
-        return repr(self.get_all())
+        with self._lock:
+            return [tag["epc"] for tag in self._tags.values() if "epc" in tag]
