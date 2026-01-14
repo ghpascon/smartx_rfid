@@ -12,18 +12,18 @@ class LoggerManager:
     Simple plug-and-play daily rotating logger.
 
     Usage:
-        logger_manager = LoggerManager("logs", "myapp", max_days=7)
+        logger_manager = LoggerManager("logs", "myapp", storage_days=7)
         logging.info("App started")
         # Exceptions, even uncaught, are automatically logged
     """
 
-    def __init__(self, log_dir: str, base_filename: str, max_days: int = 7, use_utc: bool = False):
-        self.log_dir = os.path.abspath(log_dir)
+    def __init__(self, log_path: str, base_filename: str, storage_days: int = 7, use_utc: bool = False):
+        self.log_path = os.path.abspath(log_path)
         self.base_filename = base_filename
-        self.max_days = max_days
+        self.storage_days = storage_days
         self.use_utc = use_utc
 
-        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.log_path, exist_ok=True)
 
         # Queue and thread for async logging
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=10_000)
@@ -55,7 +55,7 @@ class LoggerManager:
 
     def _get_filename_for_date(self, date: datetime.date):
         # Date before filename: YYYY-MM-DD_myapp.log
-        return os.path.join(self.log_dir, f"{date:%Y-%m-%d}_{self.base_filename}.log")
+        return os.path.join(self.log_path, f"{date:%Y-%m-%d}_{self.base_filename}.log")
 
     # -------------------
     # Worker
@@ -82,7 +82,7 @@ class LoggerManager:
     # -------------------
     def _cleanup_old_logs(self):
         files = []
-        for f in os.listdir(self.log_dir):
+        for f in os.listdir(self.log_path):
             if f.endswith(".log") and f.startswith(f"{self.current_date:%Y-%m-%d}"):
                 # skip current file
                 continue
@@ -92,11 +92,11 @@ class LoggerManager:
                 try:
                     date_str = f.split("_")[0]
                     file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    files.append((file_date, os.path.join(self.log_dir, f)))
+                    files.append((file_date, os.path.join(self.log_path, f)))
                 except Exception:
                     continue
         files.sort(key=lambda x: x[0])
-        for _, old_file in files[: -self.max_days]:
+        for _, old_file in files[: -self.storage_days]:
             try:
                 os.remove(old_file)
             except Exception:
