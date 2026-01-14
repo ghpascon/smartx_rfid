@@ -90,21 +90,28 @@ def include_all_routers(current_path: str, app) -> None:
                 logging.error(f"❌ Error loading {current_path}: {e}", exc_info=True)
 
 
-def load_swagger_description(swagger_file_path: str) -> str:
+def load_file(file_path: str | Path) -> str:
     """
-    Load the Swagger markdown description from a file.
+    Load the content of a file as a string.
+
+    Args:
+        file_path (str | Path): Path to the file.
 
     Returns:
-        The markdown content as a string, or a default message if loading fails.
+        str: The content of the file, or a default message if loading fails.
     """
+    file_path = Path(file_path)
+
+    if not file_path.exists():
+        logging.warning(f"File not found: {file_path}. Using default content.")
+        return "File not found."
+
+    if not file_path.is_file():
+        logging.warning(f"Path is not a file: {file_path}. Using default content.")
+        return "Invalid file path."
+
     try:
-        with open(swagger_file_path, "r", encoding="utf-8") as file:
-            return file.read()
-
-    except FileNotFoundError:
-        logging.warning(f"{swagger_file_path} not found. Using default description.")
-        return "API documentation not found."
-
+        return file_path.read_text(encoding="utf-8")
     except Exception as e:
-        logging.error(f"Error loading Swagger documentation: {e}")
-        return "Error loading API documentation."
+        logging.error(f"Error reading file {file_path}: {e}", exc_info=True)
+        return "Error loading file content."
