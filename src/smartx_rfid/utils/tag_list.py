@@ -1,136 +1,186 @@
-from typing import Literal, Dict, Any, Optional
-from dataclasses import dataclass, asdict
-from smartx_rfid.schemas.tag import TagSchema
+from typing import Literal, Dict, Any, Optional, Tuple
 from datetime import datetime
-from pyepc import SGTIN
-import logging
 from threading import Lock
-
-
-@dataclass
-class StoredTag:
-    epc: str
-    tid: Optional[str] = None
-    rssi: Optional[int] = None
-    ant: Optional[int] = None
-    timestamp: datetime = datetime.now()
-    device: str = "Unknown"
-    count: int = 1
-    gtin: str = ""
+import logging
+from pyepc import SGTIN
 
 
 class TagList:
+    """
+    Thread-safe container for RFID tags.
+
+    Tags are stored as dictionaries to allow flexible schemas per client.
+    Each tag is uniquely identified by either EPC or TID.
+    """
+
     def __init__(self, unique_identifier: Literal["epc", "tid"] = "epc"):
+        """
+        Initialize the tag list.
+
+        Args:
+            unique_identifier: Field used as the unique tag identifier ("epc" or "tid").
+        """
         if unique_identifier not in ("epc", "tid"):
             raise ValueError("unique_identifier must be 'epc' or 'tid'")
 
         self.unique_identifier = unique_identifier
-        self._tags: Dict[str, StoredTag] = {}
+        self._tags: Dict[str, Dict[str, Any]] = {}
         self._lock = Lock()
 
-    def add(self, tag: dict, device: str = "Unknown") -> bool:
+    def add(
+        self,
+        tag: Dict[str, Any],
+        device: str = "Unknown"
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
-        Add or update a tag in the list.
+        Add or update a tag.
 
-        Returns True if the tag is new, False if it already existed.
+        Returns:
+            (True, tag_dict)   if the tag is new
+            (False, tag_dict)  if the tag already exists
+            (False, None)      if an error occurs
         """
         try:
-            tag_data = TagSchema(**tag)
-            tag = tag_data.model_dump()
+            identifier_value = tag.get(self.unique_identifier)
+            if not identifier_value:
+                raise ValueError(f"Tag missing '{self.unique_identifier}'")
+
+            with self._lock:
+                if identifier_value not in self._tags:
+                    stored = self._new_tag(tag, device)
+                    return True, stored
+                else:
+                    stored = self._existing_tag(tag)
+                    return False, stored
+
         except Exception as e:
-            logging.warning(f"Invalid tag data: {e}")
-            raise ValueError(f"Invalid tag data: {e}")
+            logging.warning(f"[ TAG ERROR ] {e}")
+            return False, None
 
-        identifier_value = tag.get(self.unique_identifier)
-        if not identifier_value:
-            raise ValueError(f"Tag missing '{self.unique_identifier}'")
+    def _new_tag(self, tag: Dict[str, Any], device: str) -> Dict[str, Any]:
+        """
+        Create and store a new tag.
 
-        with self._lock:
-            if identifier_value not in self._tags:
-                self._new_tag(tag, device)
-                return True
-            else:
-                self._existing_tag(tag)
-                return False
+        Args:
+            tag: Raw tag data.
+            device: Source device identifier.
 
-    def _new_tag(self, tag: dict, device: str):
-        """Add a brand new tag."""
-        # Decode GTIN if possible
+        Returns:
+            The stored tag dictionary.
+        """
+        now = datetime.now()
+
         try:
             gtin = SGTIN.decode(tag.get("epc")).gtin
         except Exception:
             gtin = None
 
-        identifier_value = tag[self.unique_identifier]
-        stored_tag = StoredTag(
-            epc=tag.get("epc", ""),
-            tid=tag.get("tid"),
-            rssi=tag.get("rssi"),
-            ant=tag.get("ant"),
-            timestamp=datetime.now(),
-            device=device,
-            count=1,
-            gtin=gtin,
-        )
-        self._tags[identifier_value] = stored_tag
-        logging.info(f"[ TAG ] - {asdict(stored_tag)}")
+        stored_tag = {
+            **tag,
+            "device": device,
+            "timestamp": now,
+            "count": 1,
+            "gtin": gtin,
+        }
 
-    def _existing_tag(self, tag: dict):
-        """Update an existing tag."""
-        identifier_value = tag[self.unique_identifier]
-        current_tag = self._tags[identifier_value]
-        current_tag.count += 1
-        current_tag.timestamp = datetime.now()
+        self._tags[tag[self.unique_identifier]] = stored_tag
 
-        tag_rssi = tag.get("rssi")
-        if tag_rssi is not None:
-            if current_tag.rssi is None or abs(tag_rssi) < abs(current_tag.rssi):
-                current_tag.rssi = tag_rssi
-                current_tag.ant = tag.get("ant")
+        return stored_tag
 
-    def get_all(self):
-        """Get all stored tags as dicts."""
+    def _existing_tag(self, tag: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update an existing tag.
+
+        Args:
+            tag: Incoming tag data.
+
+        Returns:
+            The updated stored tag.
+        """
+        current = self._tags[tag[self.unique_identifier]]
+
+        current["count"] += 1
+        current["timestamp"] = datetime.now()
+
+        new_rssi = tag.get("rssi")
+        if new_rssi is not None:
+            old_rssi = current.get("rssi")
+            if old_rssi is None or abs(new_rssi) < abs(old_rssi):
+                current["rssi"] = new_rssi
+                current["ant"] = tag.get("ant")
+
+        return current
+
+    def get_all(self) -> list[Dict[str, Any]]:
+        """
+        Retrieve all stored tags.
+
+        Returns:
+            A list of tag dictionaries.
+        """
         with self._lock:
-            return [asdict(tag) for tag in self._tags.values()]
+            return list(self._tags.values())
 
     def get_by_identifier(self, identifier: str) -> Optional[Dict[str, Any]]:
-        """Get a tag by its unique identifier."""
-        with self._lock:
-            tag = self._tags.get(identifier)
-            return asdict(tag) if tag else None
+        """
+        Retrieve a tag by its unique identifier.
 
-    def get_epcs(self):
-        """Get all EPCs in the list."""
-        with self._lock:
-            return [tag.epc for tag in self._tags.values()]
+        Args:
+            identifier: EPC or TID value.
 
-    def get_tids(self):
-        """Get all TIDs in the list."""
+        Returns:
+            The tag dictionary if found, otherwise None.
+        """
         with self._lock:
-            return [tag.tid for tag in self._tags.values()]
+            return self._tags.get(identifier)
 
-    def clear(self):
-        """Clear all tags from the list."""
+    def clear(self) -> None:
+        """
+        Remove all stored tags.
+        """
         with self._lock:
             self._tags.clear()
 
-    def remove_tags_before_timestamp(self, timestamp: datetime):
-        """Remove tags added before a specific timestamp."""
-        with self._lock:
-            self._tags = {k: v for k, v in self._tags.items() if v.timestamp >= timestamp}
+    def remove_tags_before_timestamp(self, timestamp: datetime) -> None:
+        """
+        Remove tags older than a given timestamp.
 
-    def remove_tags_by_device(self, device: Optional[str] = None):
-        """Remove tags added by a specific device."""
+        Args:
+            timestamp: Minimum timestamp to keep.
+        """
         with self._lock:
-            self._tags = {k: v for k, v in self._tags.items() if v.device != device}
+            self._tags = {
+                k: v for k, v in self._tags.items()
+                if v.get("timestamp") and v["timestamp"] >= timestamp
+            }
 
-    def __len__(self):
+    def remove_tags_by_device(self, device: str) -> None:
+        """
+        Remove all tags associated with a specific device.
+
+        Args:
+            device: Device identifier.
+        """
+        with self._lock:
+            self._tags = {
+                k: v for k, v in self._tags.items()
+                if v.get("device") != device
+            }
+
+    def __len__(self) -> int:
+        """
+        Return the number of stored tags.
+        """
         return len(self._tags)
 
-    def __contains__(self, identifier: str):
+    def __contains__(self, identifier: str) -> bool:
+        """
+        Check if a tag identifier exists in the list.
+        """
         return identifier in self._tags
 
-    def __repr__(self):
-        """Show a friendly representation of the tag list."""
-        with self._lock:
-            return repr([asdict(tag) for tag in self._tags.values()])
+    def __repr__(self) -> str:
+        """
+        Return a string representation of the stored tags.
+        """
+        return repr(self.get_all())

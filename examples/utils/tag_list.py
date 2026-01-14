@@ -13,8 +13,10 @@ tags = TagList()
 
 
 def on_tag(device: str, tag_data: dict):
-    tags.add(tag_data, device=device)
-
+    new_tag, tag = tags.add(tag_data, device=device)
+    if new_tag:
+        tag["descricao"] = "product ABC"  # Example of adding extra info to new tags
+        logging.info(f"[ NEW TAG ] {tag}")
 
 def on_event(name: str, event_type: str, data):
     if event_type == "tag":
@@ -31,6 +33,7 @@ async def main():
         await asyncio.sleep(5)
         print("=" * 60)
         print(f"Total unique tags read: {len(tags)}")
+        print(tags)
         print()
 
 
