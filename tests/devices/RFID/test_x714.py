@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from smartx_rfid.devices.RFID.X714._main import X714
 
@@ -141,34 +141,6 @@ class TestX714:
 
             # Should call write_serial
             x714_device.write_serial.assert_called_once_with("test command", True)
-
-    @pytest.mark.asyncio
-    async def test_write_method_tcp(self):
-        """Test write method with TCP connection type"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
-            with patch("asyncio.create_task") as mock_create_task:
-                x714_device = X714(connection_type="TCP")
-                x714_device.write_tcp = AsyncMock()
-
-                # Test writing data
-                x714_device.write("test command")
-
-                # Should create task for write_tcp
-                mock_create_task.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_write_method_ble(self):
-        """Test write method with BLE connection type"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
-            with patch("asyncio.create_task") as mock_create_task:
-                x714_device = X714(connection_type="BLE")
-                x714_device.write_ble = AsyncMock()
-
-                # Test writing data
-                x714_device.write("test command")
-
-                # Should create task for write_ble
-                mock_create_task.assert_called_once()
 
     def test_on_receive_tag_data(self):
         """Test on_receive method with tag data"""

@@ -149,11 +149,11 @@ class TagList:
 
         if self.unique_identifier == identifier_type:
             return self._tags.get(identifier_value)
-        
+
         for tag in self._tags.values():
             if tag.get(identifier_type) == identifier_value:
                 return tag
-            
+
         return None
 
     def clear(self) -> None:
