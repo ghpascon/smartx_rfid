@@ -25,7 +25,6 @@ database_url = r"mysql+pymysql://root:admin@localhost:3306/lib_smtx"
 
 class Base(DeclarativeBase):
     """Base class for all models"""
-
     pass
 
 
