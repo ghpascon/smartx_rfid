@@ -37,9 +37,6 @@ class OnReceive:
             }
             self.on_tag(current_tag)
 
-        elif len(data) == 24:
-            self.on_tag(data)
-
         elif data.startswith("#set_cmd:"):
             logging.info(f"{self.name} - CONFIG -> {data[data.index(':') + 1 :]}")
 

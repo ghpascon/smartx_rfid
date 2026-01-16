@@ -89,6 +89,7 @@ def include_all_routers(current_path: str, app) -> None:
             except Exception as e:
                 logging.error(f"❌ Error loading {relative_path}: {e}", exc_info=True)
 
+
 def load_file(file_path: str | Path) -> str:
     """
     Load the content of a file as a string.
