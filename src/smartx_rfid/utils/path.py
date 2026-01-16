@@ -84,10 +84,10 @@ def include_all_routers(current_path: str, app) -> None:
                     logging.info(f"✅ Route loaded: {relative_path}")
 
                 else:
-                    logging.warning(f"⚠️  File {relative_path} does not define a 'router'")
+                    logging.warning(f"⚠️  File {current_path}/{file_path.name} does not define a 'router'")
 
             except Exception as e:
-                logging.error(f"❌ Error loading {relative_path}: {e}", exc_info=True)
+                logging.error(f"❌ Error loading {current_path}/{file_path.name}: {e}", exc_info=True)
 
 
 def load_file(file_path: str | Path) -> str:
