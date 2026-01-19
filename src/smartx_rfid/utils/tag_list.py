@@ -13,7 +13,7 @@ class TagList:
     Each tag is uniquely identified by either EPC or TID.
     """
 
-    def __init__(self, unique_identifier: Literal["epc", "tid"] = "epc"):
+    def __init__(self, unique_identifier: Literal["epc", "tid"] = "epc", prefix: str | list | None = None):
         """
         Initialize the tag list.
 
@@ -26,6 +26,10 @@ class TagList:
         self.unique_identifier = unique_identifier
         self._tags: Dict[str, Dict[str, Any]] = {}
         self._lock = Lock()
+
+        if isinstance(prefix, str):
+            prefix = [prefix]
+        self.prefix: list | None = prefix
 
     def __len__(self) -> int:
         """
@@ -59,6 +63,13 @@ class TagList:
             if not identifier_value:
                 raise ValueError(f"Tag missing '{self.unique_identifier}'")
 
+            # Check Prefix
+            if self.prefix is not None:
+                epc = tag.get("epc")
+                if epc is None or not any(epc.startswith(p) for p in self.prefix):
+                    return False, None
+
+            # handle tag
             with self._lock:
                 if identifier_value not in self._tags:
                     stored = self._new_tag(tag, device)

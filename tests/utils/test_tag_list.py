@@ -72,6 +72,19 @@ class TestSERIAL:
         assert gtin_counts.get("80614141123458") == 2
         assert gtin_counts.get("UNKNOWN") == 1
 
+    def test_prefix(self):
+        tags = TagList(prefix="3074257bf7")
+        tags.add({"epc": "3074257bf7194e4000001a85"})
+        tags.add({"epc": "000000000000000000000001"})
+        assert len(tags) == 1
+
+    def test_prefix_list(self):
+        tags = TagList(prefix=["3074257bf7", "0000000000"])
+        tags.add({"epc": "3074257bf7194e4000001a85"})
+        tags.add({"epc": "000000000000000000000001"})
+        tags.add({"epc": "111111111111111111111111"})
+        assert len(tags) == 2
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
