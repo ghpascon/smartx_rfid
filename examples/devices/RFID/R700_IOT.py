@@ -1,3 +1,4 @@
+from datetime import datetime
 from smartx_rfid.devices import R700_IOT, R700_IOT_config_example
 import asyncio
 import logging
@@ -29,7 +30,10 @@ def on_r700_iot_event(name: str, event_type: str, event_data=None):
 async def main():
     # === SERIAL EXAMPLE ===
     print("=== R700 IOT Example ===")
-    r700_iot = R700_IOT(name="R700_IOT", reading_config=R700_IOT_config_example)
+    config = R700_IOT_config_example
+    config.pop("startTriggers")
+    config.pop("stopTriggers")
+    r700_iot = R700_IOT(name="R700_IOT", reading_config=config)
     r700_iot.on_event = on_r700_iot_event
     print("Starting R700 IOT connection...")
     print("With config:", R700_IOT_config_example)
@@ -38,6 +42,14 @@ async def main():
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)
+        if r700_iot.is_reading:
+            await r700_iot.stop_inventory()
+        else:
+            start_time = datetime.now()
+            await r700_iot.start_inventory()
+            end_time = datetime.now()
+            elapsed_time = end_time - start_time
+            logging.info(f" ===== Elapsed time: {elapsed_time} ===== ")
 
 
 if __name__ == "__main__":

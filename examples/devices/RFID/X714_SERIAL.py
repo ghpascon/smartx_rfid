@@ -32,6 +32,7 @@ async def main():
     x714_serial = X714(
         name="X714",
         start_reading=True,
+        # port="/COM3"
     )
     x714_serial.on_event = on_x714_event
     asyncio.create_task(x714_serial.connect())
