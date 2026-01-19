@@ -61,7 +61,7 @@ class TagList:
         try:
             # Validate Tag
             TagSchema.model_validate(tag)
-            
+
             identifier_value = tag.get(self.unique_identifier)
             if not identifier_value:
                 raise ValueError(f"Tag missing '{self.unique_identifier}'")
@@ -82,7 +82,7 @@ class TagList:
                     return False, stored
 
         except Exception as e:
-            logging.warning(f"[ TAG ERROR ] {e}")
+            logging.error(f"[ TAG ERROR ] {e}")
             return False, None
 
     def _new_tag(self, tag: Dict[str, Any], device: str) -> Dict[str, Any]:
