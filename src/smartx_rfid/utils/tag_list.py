@@ -28,9 +28,11 @@ class TagList:
         self._tags: Dict[str, Dict[str, Any]] = {}
         self._lock = Lock()
 
+        self.prefix: list | None = None
         if isinstance(prefix, str):
             prefix = [prefix]
-        self.prefix: list | None = prefix
+        if prefix is not None:
+            self.prefix = [p.lower() for p in prefix] 
 
     def __len__(self) -> int:
         """
@@ -61,7 +63,7 @@ class TagList:
         """
         try:
             # Validate Tag
-            TagSchema.model_validate(tag)
+            tag = TagSchema(**tag).model_dump()
 
             identifier_value = tag.get(self.unique_identifier)
             if not identifier_value:
