@@ -75,7 +75,7 @@ class TagList:
                     stored = self._new_tag(tag, device)
                     return True, stored
                 else:
-                    stored = self._existing_tag(tag)
+                    stored = self._existing_tag(tag, device)
                     return False, stored
 
         except Exception as e:
@@ -101,18 +101,18 @@ class TagList:
             gtin = None
 
         stored_tag = {
-            **tag,
-            "device": device,
             "timestamp": now,
-            "count": 1,
+            "device": device,
+            **tag,
             "gtin": gtin,
+            "count": 1,
         }
 
         self._tags[tag[self.unique_identifier]] = stored_tag
 
         return stored_tag
 
-    def _existing_tag(self, tag: Dict[str, Any]) -> Dict[str, Any]:
+    def _existing_tag(self, tag: Dict[str, Any], device: str) -> Dict[str, Any]:
         """
         Update an existing tag.
 
@@ -133,6 +133,8 @@ class TagList:
             if old_rssi is None or abs(new_rssi) < abs(old_rssi):
                 current["rssi"] = new_rssi
                 current["ant"] = tag.get("ant")
+                current['device'] = device
+
 
         return current
 
