@@ -5,6 +5,7 @@ import logging
 from pyepc import SGTIN
 from smartx_rfid.schemas.tag import TagSchema
 
+
 class TagList:
     """
     Thread-safe container for RFID tags.
@@ -136,8 +137,7 @@ class TagList:
             if old_rssi is None or abs(new_rssi) < abs(old_rssi):
                 current["rssi"] = new_rssi
                 current["ant"] = tag.get("ant")
-                current['device'] = device
-
+                current["device"] = device
 
         return current
 

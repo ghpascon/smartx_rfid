@@ -145,10 +145,6 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
                 self.on_event(self.name, "connection", True)
                 await self.get_tag_list(session)
 
-    async def clear_tags(self):
-        """Clear all stored tags from memory."""
-        self.tags = {}
-
     async def write_gpo(
         self,
         pin: int = 1,

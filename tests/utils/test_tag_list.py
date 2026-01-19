@@ -87,9 +87,17 @@ class TestSERIAL:
 
     def test_invalid_tag(self):
         tags = TagList()
-        result, stored = tags.add({"epc":"0001"})
+        result, stored = tags.add({"epc": "0001"})
         assert result is False
         assert stored is None
+
+    def test_unexpected_key(self):
+        tags = TagList()
+        result, stored = tags.add({"epc": "000000000000000000000001", "unexpected_key": "value"})
+        assert result is True
+        assert stored is not None
+        assert stored.get("epc") == "000000000000000000000001"
+        assert stored.get("unexpected_key") == "value"
 
 
 if __name__ == "__main__":

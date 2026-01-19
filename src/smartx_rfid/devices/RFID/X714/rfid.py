@@ -4,11 +4,11 @@ import asyncio
 class RfidCommands:
     """RFID reader control commands for X714."""
 
-    def start_inventory(self):
+    async def start_inventory(self):
         """Start reading RFID tags."""
         self.write("#READ:ON")
 
-    def stop_inventory(self):
+    async def stop_inventory(self):
         """Stop reading RFID tags."""
         self.write("#READ:OFF")
 
@@ -70,9 +70,9 @@ class RfidCommands:
 
         # Start Reading
         if self.start_reading:
-            self.start_inventory()
+            asyncio.create_task(self.start_inventory())
         else:
-            self.stop_inventory()
+            asyncio.create_task(self.stop_inventory())
 
     async def auto_clear(self):
         while True:
