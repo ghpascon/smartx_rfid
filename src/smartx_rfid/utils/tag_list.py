@@ -3,7 +3,7 @@ from datetime import datetime
 from threading import Lock
 import logging
 from pyepc import SGTIN
-
+from smartx_rfid.schemas.tag import TagSchema
 
 class TagList:
     """
@@ -59,6 +59,9 @@ class TagList:
             (False, None)      if an error occurs;
         """
         try:
+            # Validate Tag
+            TagSchema.model_validate(tag)
+            
             identifier_value = tag.get(self.unique_identifier)
             if not identifier_value:
                 raise ValueError(f"Tag missing '{self.unique_identifier}'")

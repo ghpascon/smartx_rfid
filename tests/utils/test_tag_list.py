@@ -85,6 +85,12 @@ class TestSERIAL:
         tags.add({"epc": "111111111111111111111111"})
         assert len(tags) == 2
 
+    def test_invalid_tag(self):
+        tags = TagList()
+        result, stored = tags.add({"epc":"0001"})
+        assert result is False
+        assert stored is None
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
