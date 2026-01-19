@@ -133,13 +133,9 @@ class TagList:
         current["count"] += 1
         current["timestamp"] = datetime.now()
 
-        new_rssi = tag.get("rssi")
-        if new_rssi is not None:
-            old_rssi = current.get("rssi")
-            if old_rssi is None or abs(new_rssi) < abs(old_rssi):
-                current["rssi"] = new_rssi
-                current["ant"] = tag.get("ant")
-                current["device"] = device
+        current["rssi"] = tag.get("rssi")
+        current["ant"] = tag.get("ant")
+        current["device"] = device
 
         return current
 
