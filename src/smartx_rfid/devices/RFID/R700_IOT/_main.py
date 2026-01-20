@@ -67,6 +67,8 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         self.is_connected = False
         self.is_reading = False
         self._stop_connection = False
+        self._command_lock = asyncio.Lock()  # Lock para evitar comandos concorrentes
+        self._session: httpx.AsyncClient | None = None  # Sessão HTTP reutilizável
 
         self.firmware_version = firmware_version
 
@@ -77,16 +79,24 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
 
     async def disconnect(self):
         """Safely disconnect from reader and stop reading."""
-        """Desconecta o reader de forma segura."""
         logging.info(f"{self.name} 🔌 Disconnecting reader")
         self._stop_connection = True
 
         if self.is_reading:
             try:
-                async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=5.0) as session:
-                    await self.stop_inventory(session)
+                async with self._command_lock:
+                    if self._session is not None:
+                        await self._stop_inventory(self._session)
+                    else:
+                        async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
+                            await self._stop_inventory(session)
             except Exception as e:
                 logging.warning(f"{self.name} ⚠️ Error stopping inventory during disconnect: {e}")
+
+        # Fechar sessão HTTP
+        if self._session is not None:
+            await self._session.aclose()
+            self._session = None
 
         self.is_connected = False
         self.is_reading = False
@@ -97,7 +107,10 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         """Connect to R700 reader and start tag reading."""
         self._stop_connection = False
         while not self._stop_connection:
-            async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
+            try:
+                # Criar sessão HTTP persistente
+                self._session = httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0)
+
                 if self.is_connected:
                     self.on_event(self.name, "connection", False)
 
@@ -105,34 +118,46 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
                 self.is_reading = False
 
                 # Configure interface
-                success = await self.configure_interface(session)
-                if not success:
-                    logging.warning(f"{self.name} - Failed to configure interface")
-                    await asyncio.sleep(1)
-                    continue
+                async with self._command_lock:
+                    success = await self.configure_interface(self._session)
+                    if not success:
+                        logging.warning(f"{self.name} - Failed to configure interface")
+                        await self._session.aclose()
+                        self._session = None
+                        await asyncio.sleep(1)
+                        continue
 
                 # Check firmware version
-                success = await self.check_firmware_version(session)
+                success = await self.check_firmware_version(self._session)
                 if not success:
                     logging.warning(
                         f"{self.name} - Incompatible firmware version. Update R700 firmware to {self.firmware_version}."
                     )
+                    await self._session.aclose()
+                    self._session = None
                     await asyncio.sleep(5)
                     continue
 
                 # Stop any ongoing profiles
-                success = await self.stop_inventory(session)
-                if not success:
-                    logging.warning(f"{self.name} - Failed to stop profiles")
-                    await asyncio.sleep(1)
-                    continue
-
-                if self.start_reading or self.reading_config.get("startTriggers"):
-                    success = await self.start_inventory(session)
+                async with self._command_lock:
+                    success = await self._stop_inventory(self._session)
                     if not success:
-                        logging.warning(f"{self.name} - Failed to start inventory")
+                        logging.warning(f"{self.name} - Failed to stop profiles")
+                        await self._session.aclose()
+                        self._session = None
                         await asyncio.sleep(1)
                         continue
+
+                # Start inventory if needed
+                if self.start_reading or self.reading_config.get("startTriggers"):
+                    async with self._command_lock:
+                        success = await self._start_inventory(self._session)
+                        if not success:
+                            logging.warning(f"{self.name} - Failed to start inventory")
+                            await self._session.aclose()
+                            self._session = None
+                            await asyncio.sleep(1)
+                            continue
                 if self.start_reading:
                     self.is_reading = True
                     self.on_event(self.name, "reading", True)
@@ -143,7 +168,18 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
 
                 self.is_connected = True
                 self.on_event(self.name, "connection", True)
-                await self.get_tag_list(session)
+
+                # Manter conexão com stream de dados
+                await self.get_tag_list(self._session)
+
+            except Exception as e:
+                logging.error(f"{self.name} - Connection error: {e}")
+                if self._session is not None:
+                    await self._session.aclose()
+                    self._session = None
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
+                await asyncio.sleep(2)
 
     async def write_gpo(
         self,
@@ -165,8 +201,12 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         """
         gpo_command = await self.get_gpo_command(pin=pin, state=state, control=control, time=time)
         try:
-            async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
-                await self.post_to_reader(session, self.endpoint_gpo, payload=gpo_command, method="put")
+            async with self._command_lock:
+                if self._session is not None and not self._session.is_closed:
+                    await self.post_to_reader(self._session, self.endpoint_gpo, payload=gpo_command, method="put")
+                else:
+                    async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
+                        await self.post_to_reader(session, self.endpoint_gpo, payload=gpo_command, method="put")
         except Exception as e:
             logging.warning(f"{self.name} - Failed to set GPO: {e}")
 

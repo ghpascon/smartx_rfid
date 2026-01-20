@@ -33,7 +33,7 @@ async def main():
     config = R700_IOT_config_example
     config.pop("startTriggers")
     config.pop("stopTriggers")
-    r700_iot = R700_IOT(name="R700_IOT", reading_config=config)
+    r700_iot = R700_IOT(name="R700_IOT", reading_config=config, ip="impinj-14-46-36")
     r700_iot.on_event = on_r700_iot_event
     print("Starting R700 IOT connection...")
     print("With config:", R700_IOT_config_example)
@@ -42,6 +42,9 @@ async def main():
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)
+        if not r700_iot.is_connected:
+            continue
+
         if r700_iot.is_reading:
             await r700_iot.stop_inventory()
         else:

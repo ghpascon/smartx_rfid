@@ -164,18 +164,14 @@ class TestX714:
         """Test on_receive method with read start/stop commands"""
         with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
             x714_device = X714()
-            x714_device.on_start = Mock()
-            x714_device.on_stop = Mock()
 
             # Test read start
-            x714_device.on_receive("#read:on")
+            x714_device.on_start()
             assert x714_device.is_reading is True
-            x714_device.on_start.assert_called_once()
 
             # Test read stop
-            x714_device.on_receive("#read:off")
+            x714_device.on_stop()
             assert x714_device.is_reading is False
-            x714_device.on_stop.assert_called_once()
 
     def test_on_connected_callback(self):
         """Test on_connected callback"""

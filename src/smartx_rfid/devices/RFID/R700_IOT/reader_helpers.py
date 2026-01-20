@@ -46,10 +46,45 @@ class ReaderHelpers:
             method="put",
         )
 
-    async def stop_inventory(self, session=None):
-        return await self.post_to_reader(session, self.endpoint_stop)
+    async def start_inventory(self):
+        """Public method to start inventory with concurrency control."""
+        if not self.is_connected:
+            logging.warning(f"{self.name} - Cannot start inventory: not connected")
+            return False
 
-    async def start_inventory(self, session=None):
+        async with self._command_lock:
+            if self._session is not None and not self._session.is_closed:
+                success = await self._start_inventory(self._session)
+                if success:
+                    self.is_reading = True
+                    self.on_event(self.name, "reading", True)
+                return success
+            else:
+                logging.warning(f"{self.name} - Cannot start inventory: session is closed")
+                return False
+
+    async def stop_inventory(self):
+        """Public method to stop inventory with concurrency control."""
+        if not self.is_connected:
+            logging.warning(f"{self.name} - Cannot stop inventory: not connected")
+            return False
+
+        async with self._command_lock:
+            if self._session is not None and not self._session.is_closed:
+                success = await self._stop_inventory(self._session)
+                if success:
+                    self.is_reading = False
+                    self.on_event(self.name, "reading", False)
+                return success
+            else:
+                logging.warning(f"{self.name} - Cannot stop inventory: session is closed")
+                return False
+
+    async def _stop_inventory(self, session=None):
+        # Timeout aumentado para 10s pois o R700 pode demorar para parar
+        return await self.post_to_reader(session, self.endpoint_stop, timeout=10)
+
+    async def _start_inventory(self, session=None):
         return await self.post_to_reader(session, self.endpoint_start, payload=self.reading_config)
 
     async def post_to_reader(self, session, endpoint, payload=None, method="post", timeout=3):
@@ -75,6 +110,7 @@ class ReaderHelpers:
             return False
 
     async def get_tag_list(self, session):
+        """Stream tag data from reader. Blocks until connection is lost or stopped."""
         try:
             async with session.stream("GET", self.endpointDataStream, timeout=None) as response:
                 if response.status_code != 200:
@@ -84,6 +120,11 @@ class ReaderHelpers:
                 logging.info(f"{self.name} - Connected to data stream.")
 
                 async for line in response.aiter_lines():
+                    # Verificar se deve parar a conexão
+                    if self._stop_connection:
+                        logging.info(f"{self.name} - Stopping data stream (disconnect requested)")
+                        break
+
                     try:
                         string = line.strip()
                         if not string:
@@ -102,8 +143,18 @@ class ReaderHelpers:
 
                     except (json.JSONDecodeError, UnicodeDecodeError) as parse_error:
                         logging.warning(f"{self.name} - Failed to parse event: {parse_error}")
+        except httpx.ReadTimeout:
+            logging.warning(f"{self.name} - Data stream read timeout")
+        except httpx.RemoteProtocolError as e:
+            logging.warning(f"{self.name} - Connection closed by reader: {e}")
         except Exception as e:
-            logging.warning(f"{self.name} - Unexpected error: {e}")
+            logging.warning(f"{self.name} - Data stream error: {e}")
+        finally:
+            logging.info(f"{self.name} - Data stream ended")
+            # Se não foi uma desconexão intencional, marcar como desconectado
+            if not self._stop_connection:
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
 
     async def get_gpo_command(
         self, pin: int = 1, state: bool | str = True, control: str = "static", time: int = 1000
