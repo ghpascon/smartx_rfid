@@ -80,6 +80,8 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         self.is_connected = False
         self.is_reading = False
         self.is_gpi_trigger_on = "startTriggers" in self.reading_config or "stopTriggers" in self.reading_config
+        if self.is_gpi_trigger_on:
+            self.start_reading = False
 
     async def disconnect(self):
         """Safely disconnect from reader and stop reading."""
@@ -153,7 +155,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
                         continue
 
                 # Start inventory if needed
-                if self.start_reading or self.reading_config.get("startTriggers"):
+                if self.start_reading or self.is_gpi_trigger_on:
                     async with self._command_lock:
                         success = await self._start_inventory(self._session)
                         if not success:
