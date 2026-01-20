@@ -64,7 +64,7 @@ def on_tag_event(name: str, tag_data: dict):
     print(f"🏷️  Tag Read: {tag_data}")
     print()
     if tag_data["epc"] == target_epc:
-        r700_iot.write_epc(target_identifier, target_epc, new_epc, password)
+        asyncio.create_task(r700_iot.write_epc(target_identifier, target_epc, new_epc, password))
 
 
 def on_r700_iot_event(name: str, event_type: str, event_data=None):

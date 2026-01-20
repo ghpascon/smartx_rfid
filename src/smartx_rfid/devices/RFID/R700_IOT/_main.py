@@ -216,7 +216,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         except Exception as e:
             logging.warning(f"{self.name} - Failed to set GPO: {e}")
 
-    def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
+    async def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
         """
         Write new EPC code to RFID tag.
 
@@ -239,6 +239,6 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
             logging.info(
                 f"{self.name} - Writing EPC: {validated_tag.new_epc} (Current: {validated_tag.target_identifier}={validated_tag.target_value})"
             )
-            asyncio.create_task(self.send_write_command(validated_tag.model_dump()))
+            await self.send_write_command(validated_tag.model_dump())
         except Exception as e:
             logging.warning(f"{self.name} - Write validation error: {e}")

@@ -24,7 +24,7 @@ def on_tag_event(name: str, tag_data: dict):
     print(f"🏷️  Tag Read: {tag_data}")
     print()
     if tag_data["epc"] == target_epc:
-        x714_serial.write_epc(target_identifier, target_epc, new_epc, password)
+        asyncio.create_task(x714_serial.write_epc(target_identifier, target_epc, new_epc, password))
 
 
 def on_x714_event(name: str, event_type: str, event_data=None):
