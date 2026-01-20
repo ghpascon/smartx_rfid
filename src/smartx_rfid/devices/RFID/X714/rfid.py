@@ -18,6 +18,12 @@ class RfidCommands:
 
     def config_reader(self):
         """Configure reader settings like antennas, session, etc."""
+        # Start Reading
+        if self.start_reading:
+            asyncio.create_task(self.start_inventory())
+        else:
+            asyncio.create_task(self.stop_inventory())
+            
         set_cmd = "#set_cmd:"
 
         # ANTENNAS
@@ -67,12 +73,6 @@ class RfidCommands:
             self.write(f"#protected_inventory:on;{self.protected_inventory_password}")
         else:
             self.write("#protected_inventory:off")
-
-        # Start Reading
-        if self.start_reading:
-            asyncio.create_task(self.start_inventory())
-        else:
-            asyncio.create_task(self.stop_inventory())
 
     async def auto_clear(self):
         while True:

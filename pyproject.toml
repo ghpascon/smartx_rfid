@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "smartx-rfid"
-version = "1.8.3"
+version = "1.8.4"
 description = "SmartX RFID library"
 authors = ["Gabriel Henrique Pascon <gh.pascon@gmail.com>"]
 license = "MIT"
