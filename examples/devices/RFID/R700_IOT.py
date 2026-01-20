@@ -31,8 +31,8 @@ async def main():
     # === SERIAL EXAMPLE ===
     print("=== R700 IOT Example ===")
     config = R700_IOT_config_example
-    config.pop("startTriggers")
-    config.pop("stopTriggers")
+    # config.pop("startTriggers")
+    # config.pop("stopTriggers")
     r700_iot = R700_IOT(name="R700_IOT", reading_config=config, ip="impinj-14-46-36")
     r700_iot.on_event = on_r700_iot_event
     print("Starting R700 IOT connection...")

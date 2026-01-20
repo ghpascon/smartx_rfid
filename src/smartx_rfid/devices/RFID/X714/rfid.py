@@ -6,11 +6,15 @@ class RfidCommands:
 
     async def start_inventory(self):
         """Start reading RFID tags."""
+        if self.is_gpi_trigger_on or not self.is_connected:
+            return
         self.write("#READ:ON")
         self.on_start()
 
     async def stop_inventory(self):
         """Stop reading RFID tags."""
+        if self.is_gpi_trigger_on or not self.is_connected:
+            return
         self.write("#READ:OFF")
         self.on_stop()
 

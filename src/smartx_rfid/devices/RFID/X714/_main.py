@@ -154,6 +154,7 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
 
         self.is_connected = False
         self.is_reading = False
+        self.is_gpi_trigger_on = self.gpi_start
 
         self.on_event: Callable = on_event
 

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 from smartx_rfid.devices.RFID.X714._main import X714
 
@@ -186,6 +186,32 @@ class TestX714:
             # Should call config_reader and on_event
             x714_device.config_reader.assert_called_once()
             x714_device.on_event.assert_called_once_with("X714", "connected", True)
+
+    @pytest.mark.asyncio
+    async def test_gpi_trigger_blocks_start_inventory(self):
+        """Test that start_inventory returns False when GPI trigger is enabled"""
+        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+            x714_device = X714()
+            x714_device.is_connected = True
+            x714_device.is_gpi_trigger_on = True
+            x714_device.start_inventory = AsyncMock(return_value=False)
+
+            # Test that start_inventory returns False when GPI trigger is on
+            result = await x714_device.start_inventory()
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_gpi_trigger_allows_start_inventory_when_disabled(self):
+        """Test that start_inventory works normally when GPI trigger is disabled"""
+        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+            x714_device = X714()
+            x714_device.is_connected = True
+            x714_device.is_gpi_trigger_on = False
+            x714_device.start_inventory = AsyncMock(return_value=True)
+
+            # Test that start_inventory can succeed when GPI trigger is off
+            result = await x714_device.start_inventory()
+            assert result is True
 
 
 if __name__ == "__main__":

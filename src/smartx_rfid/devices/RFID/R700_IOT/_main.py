@@ -77,6 +77,10 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
 
         self.on_event = on_event
 
+        self.is_connected = False
+        self.is_reading = False
+        self.is_gpi_trigger_on = "startTriggers" in self.reading_config or "stopTriggers" in self.reading_config
+
     async def disconnect(self):
         """Safely disconnect from reader and stop reading."""
         logging.info(f"{self.name} 🔌 Disconnecting reader")

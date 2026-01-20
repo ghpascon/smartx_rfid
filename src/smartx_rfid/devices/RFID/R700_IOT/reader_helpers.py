@@ -51,6 +51,9 @@ class ReaderHelpers:
         if not self.is_connected:
             logging.warning(f"{self.name} - Cannot start inventory: not connected")
             return False
+        if self.is_gpi_trigger_on:
+            logging.info(f"{self.name} - Cannot start inventory: GPI trigger is on")
+            return False
 
         async with self._command_lock:
             if self._session is not None and not self._session.is_closed:
@@ -67,6 +70,9 @@ class ReaderHelpers:
         """Public method to stop inventory with concurrency control."""
         if not self.is_connected:
             logging.warning(f"{self.name} - Cannot stop inventory: not connected")
+            return False
+        if self.is_gpi_trigger_on:
+            logging.info(f"{self.name} - Cannot stop inventory: GPI trigger is on")
             return False
 
         async with self._command_lock:
