@@ -20,11 +20,7 @@ class OnReceive:
             self.on_event(self.name, "receive", data)
 
         if data.startswith("#read:"):
-            self.is_reading = data.endswith("on")
-            if self.is_reading:
-                self.on_start()
-            else:
-                self.on_stop()
+            self.on_start() if data.endswith("on") else self.on_stop()
 
         elif data.startswith("#t+@"):
             tag = data[4:]
@@ -45,11 +41,13 @@ class OnReceive:
 
     def on_start(self):
         """Called when reader starts reading tags."""
+        self.is_reading = True
         self.clear_tags()
         self.on_event(self.name, "reading", True)
 
     def on_stop(self):
         """Called when reader stops reading tags."""
+        self.is_reading = False
         self.on_event(self.name, "reading", False)
 
     def on_tag(self, tag: dict):

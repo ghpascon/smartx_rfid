@@ -7,10 +7,12 @@ class RfidCommands:
     async def start_inventory(self):
         """Start reading RFID tags."""
         self.write("#READ:ON")
+        self.on_start()
 
     async def stop_inventory(self):
         """Stop reading RFID tags."""
         self.write("#READ:OFF")
+        self.on_stop()
 
     def clear_tags(self):
         """Clear all stored tags from memory."""
@@ -23,7 +25,7 @@ class RfidCommands:
             asyncio.create_task(self.start_inventory())
         else:
             asyncio.create_task(self.stop_inventory())
-            
+
         set_cmd = "#set_cmd:"
 
         # ANTENNAS
@@ -39,7 +41,7 @@ class RfidCommands:
         # START_READING
         set_cmd += f"|START_READING:{self.start_reading}"
         if self.start_reading:
-            self.is_reading = True
+            self.on_start()
 
         # GPI_START
         set_cmd += f"|GPI_START:{self.gpi_start}"

@@ -32,7 +32,7 @@ class TagList:
         if isinstance(prefix, str):
             prefix = [prefix]
         if prefix is not None:
-            self.prefix = [p.lower() for p in prefix] 
+            self.prefix = [p.lower() for p in prefix]
 
     def __len__(self) -> int:
         """

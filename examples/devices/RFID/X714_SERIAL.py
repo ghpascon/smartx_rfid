@@ -40,6 +40,7 @@ async def main():
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)
+        # await x714_serial.start_inventory() if not x714_serial.is_reading else await x714_serial.stop_inventory()
 
 
 if __name__ == "__main__":

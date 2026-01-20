@@ -72,9 +72,7 @@ class SerialProtocol(asyncio.Protocol):
 
             try:
                 logging.info(f"{self.name} - 🔌 Trying to connect to {self.port} at {self.baudrate} bps...")
-                await serial_asyncio.create_serial_connection(
-                    loop, lambda: self, self.port, baudrate=self.baudrate
-                )
+                await serial_asyncio.create_serial_connection(loop, lambda: self, self.port, baudrate=self.baudrate)
                 logging.info(f"{self.name} - 🟢 Successfully connected.")
                 await self.on_con_lost.wait()
                 logging.info(f"{self.name} - 🔄 Connection lost. Attempting to reconnect...")

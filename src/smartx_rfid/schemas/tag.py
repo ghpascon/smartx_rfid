@@ -9,9 +9,7 @@ class TagSchema(BaseModel):
     ant: Optional[int | None] = None
     rssi: Optional[int | None] = None
 
-    model_config = {
-        "extra": "allow"  
-    }
+    model_config = {"extra": "allow"}
 
     @field_validator("epc", "tid")
     def validate_epc_length_and_hex(cls, v, field):
