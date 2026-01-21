@@ -1,3 +1,6 @@
+from smartx_rfid.schemas import TagSchema
+
+
 class OnEvent:
     """Handle R700 reader events."""
 
@@ -17,10 +20,10 @@ class OnEvent:
         Args:
             tag: Raw tag data from reader API
         """
-        current_tag = {
-            "epc": tag.get("epcHex"),
-            "tid": tag.get("tidHex"),
-            "ant": tag.get("antennaPort"),
-            "rssi": int(tag.get("peakRssiCdbm", 0) / 100),
-        }
-        self.on_event(self.name, "tag", current_tag)
+        current_tag = TagSchema(
+            epc=tag.get("epcHex"),
+            tid=tag.get("tidHex"),
+            ant=tag.get("antennaPort"),
+            rssi=int(tag.get("peakRssiCdbm", 0) / 100),
+        )
+        self.on_event(self.name, "tag", current_tag.model_dump())

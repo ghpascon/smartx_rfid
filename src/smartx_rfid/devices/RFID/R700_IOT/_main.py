@@ -239,6 +239,7 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
             logging.info(
                 f"{self.name} - Writing EPC: {validated_tag.new_epc} (Current: {validated_tag.target_identifier}={validated_tag.target_value})"
             )
-            await self.send_write_command(validated_tag.model_dump())
+            cmd = self.get_write_cmd(validated_tag)
+            await self.send_write_command(cmd)
         except Exception as e:
             logging.warning(f"{self.name} - Write validation error: {e}")

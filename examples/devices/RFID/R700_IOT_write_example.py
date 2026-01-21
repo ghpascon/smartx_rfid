@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 target_identifier = "epc"
-target_epc = "000000000000000000000001"
+target_value = "000000000000000000000001"
 new_epc = "000000000000000000000002"
 password = "00000000"
 
@@ -63,8 +63,11 @@ def on_tag_event(name: str, tag_data: dict):
     """Callback for when a tag is read"""
     print(f"🏷️  Tag Read: {tag_data}")
     print()
-    if tag_data["epc"] == target_epc:
-        asyncio.create_task(r700_iot.write_epc(target_identifier, target_epc, new_epc, password))
+    identifier = tag_data.get(target_identifier)
+    print(f"Identifier ({target_identifier}): {identifier} - Target Value: {target_value}")
+    if identifier == target_value:
+        # No filter
+        asyncio.create_task(r700_iot.write_epc(target_identifier, target_value, new_epc, password))
 
 
 def on_r700_iot_event(name: str, event_type: str, event_data=None):
