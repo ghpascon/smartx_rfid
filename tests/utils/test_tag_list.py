@@ -99,6 +99,22 @@ class TestSERIAL:
         assert stored.get("epc") == "000000000000000000000001"
         assert stored.get("unexpected_key") == "value"
 
+    def test_epc_change(self):
+        tags = TagList(unique_identifier="tid")
+        tags.add({"epc": "000000000000000000000001", "tid": "e28000000000000000000001"})
+        assert (
+            tags.get_by_identifier("e28000000000000000000001", identifier_type="tid").get("epc")
+            == "000000000000000000000001"
+        )
+
+        tags.add({"epc": "000000000000000000000002", "tid": "e28000000000000000000001"})
+        assert (
+            tags.get_by_identifier("e28000000000000000000001", identifier_type="tid").get("epc")
+            == "000000000000000000000002"
+        )
+
+        assert len(tags) == 1
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
