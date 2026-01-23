@@ -23,14 +23,11 @@ class DeviceManager:
     def assign_event_function(self):
         # set event handlers
         if self._event_func is None:
-            logging.info("No event function provided; skipping assignment of event handlers.")
             return
-        logging.info("Assigning event handlers to devices")
         for device in self.devices:
             device.on_event = self._event_func
 
     def load_devices(self):
-        logging.info(f"Loading devices from: {self._devices_path}")
         self.devices = []
 
         try:
@@ -132,9 +129,6 @@ class DeviceManager:
         If connect tasks are already running and `force` is False, this is a no-op.
         When forcing, previous tasks will be cancelled and devices disconnected first.
         """
-        logging.info(f"{'=' * 60}")
-        logging.info("Connecting devices...")
-
         # If there are active connect tasks and caller didn't request a force, skip.
         existing = [t for t in getattr(self, "_connect_tasks", []) if not t.done()]
         if existing and not force:
@@ -167,7 +161,8 @@ class DeviceManager:
 
         # keep tasks running in background; store handles for later cancellation
         self._connect_tasks = tasks
-        logging.info(f"Started {len(tasks)} device connect task(s).")
+        if len(tasks) > 0:
+            logging.info(f"Started {len(tasks)} device connect task(s).")
 
     async def cancel_connect_tasks(self):
         """Cancel any ongoing connect tasks and wait for their cancellation to complete."""
