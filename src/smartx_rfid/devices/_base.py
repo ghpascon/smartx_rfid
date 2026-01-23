@@ -1,5 +1,4 @@
 import asyncio
-import weakref
 
 
 class DeviceBase:

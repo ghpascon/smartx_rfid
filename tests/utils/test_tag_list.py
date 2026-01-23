@@ -119,7 +119,8 @@ class TestSERIAL:
         tags = TagList(unique_identifier="tid")
         result, tag_data = tags.add({"epc": "000000000000000000000001"})
         assert not result
-        assert tag_data is None 
+        assert tag_data is None
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

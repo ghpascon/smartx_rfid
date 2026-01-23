@@ -11,6 +11,7 @@ from .tcp_protocol import TCPProtocol
 from .write_commands import WriteCommands
 
 from smartx_rfid.utils.event import on_event
+from smartx_rfid.devices._base import DeviceBase
 
 ant_default_config = {
     "1": {"active": True, "power": 22, "rssi": -120},
@@ -18,9 +19,6 @@ ant_default_config = {
     "3": {"active": False, "power": 22, "rssi": -120},
     "4": {"active": False, "power": 22, "rssi": -120},
 }
-
-
-from smartx_rfid.devices._base import DeviceBase
 
 
 class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, TCPProtocol):
