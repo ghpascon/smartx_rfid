@@ -219,7 +219,28 @@ class SERIAL(DeviceBase, asyncio.Protocol):
             await asyncio.sleep(3)
 
     async def close(self):
-        """Shut down background tasks for this device."""
+        """Shut down background tasks and close transport for this device."""
+        # stop connect loop
+        self._running = False
+
+        # signal on_con_lost to break any waits
+        try:
+            if self.on_con_lost and not self.on_con_lost.is_set():
+                self.on_con_lost.set()
+        except Exception:
+            pass
+
+        # close transport if present
+        try:
+            if self.transport:
+                try:
+                    self.transport.close()
+                except Exception:
+                    pass
+                self.transport = None
+        except Exception:
+            pass
+
         await self.shutdown()
 
     def crc16(self, data: bytes, poly=0x8408):

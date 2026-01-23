@@ -114,6 +114,17 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self.on_event(self.name, "reading", False)
         self.on_event(self.name, "connection", False)
 
+    async def close(self):
+        """Graceful shutdown for R700: stop stream and cancel background tasks."""
+        # set stop flag and call disconnect to close session and stop inventory
+        self._stop_connection = True
+        try:
+            await self.disconnect()
+        except Exception:
+            pass
+
+        await self.shutdown()
+
     async def connect(self):
         """Connect to R700 reader and start tag reading."""
         self._stop_connection = False

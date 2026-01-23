@@ -196,3 +196,43 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         """Called when connection is established. Sets up reader."""
         self.config_reader()
         self.on_event(self.name, "connected", True)
+
+    async def close(self):
+        """Close connections and cancel background tasks for X714."""
+        self._running = False
+
+        # try to close underlying transport/writer depending on connection type
+        try:
+            if self.connection_type == "SERIAL":
+                if getattr(self, "transport", None):
+                    try:
+                        self.transport.close()
+                    except Exception:
+                        pass
+                    # signal on_con_lost if present
+                    try:
+                        if self.on_con_lost and not self.on_con_lost.is_set():
+                            self.on_con_lost.set()
+                    except Exception:
+                        pass
+            elif self.connection_type == "TCP":
+                if getattr(self, "writer", None):
+                    try:
+                        self.writer.close()
+                        await self.writer.wait_closed()
+                    except Exception:
+                        pass
+                    self.writer = None
+                    self.reader = None
+            elif self.connection_type == "BLE":
+                # BLE specific cleanup if available
+                try:
+                    if hasattr(self, "close_ble"):
+                        await self.close_ble()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # final cleanup of device tasks
+        await self.shutdown()

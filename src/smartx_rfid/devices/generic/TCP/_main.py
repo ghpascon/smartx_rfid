@@ -72,6 +72,22 @@ class TCP(DeviceBase, Helpers):
             await asyncio.sleep(3)
 
     async def close(self):
+        # stop connect loop
+        self._running = False
+
+        # close writer if present
+        try:
+            if self.writer:
+                try:
+                    self.writer.close()
+                    await self.writer.wait_closed()
+                except Exception:
+                    pass
+                self.writer = None
+                self.reader = None
+        except Exception:
+            pass
+
         await self.shutdown()
 
     async def write(self, data: str, verbose=True):

@@ -9,6 +9,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+devices = []
+
 
 def on_tag_event(name: str, tag_data: dict):
     """Callback for when a tag is read"""
@@ -18,68 +20,64 @@ def on_tag_event(name: str, tag_data: dict):
 
 def on_x714_event(name: str, event_type: str, event_data=None):
     """General event handler for X714 events"""
+    global devices
     print("=" * 60)
     if event_type == "tag":
         on_tag_event(name, event_data)
         return
     print(f"{name} -> Event: {event_type}, Data: {event_data}")
     print()
+    if event_type == "connected" and event_data:
+        print("reset devices - closing old devices first")
+        # close existing devices to release transports/tasks
+        for device in list(devices):
+            try:
+                if hasattr(device, "close"):
+                    if hasattr(device, "create_task"):
+                        device.create_task(device.close())
+                    else:
+                        asyncio.create_task(device.close())
+                elif hasattr(device, "shutdown"):
+                    if hasattr(device, "create_task"):
+                        device.create_task(device.shutdown())
+                    else:
+                        asyncio.create_task(device.shutdown())
+            except Exception as e:
+                logging.warning(f"Error closing device {getattr(device, 'name', str(device))}: {e}")
+
+        # create and start fresh devices
+        devices = create_devices()
+        for device in devices:
+            if hasattr(device, "create_task"):
+                device.create_task(device.connect())
+            else:
+                asyncio.create_task(device.connect())
+
+
+def create_devices():
+    _devices = []
+    _devices.append(
+        X714(
+            name="X714",
+            start_reading=True,
+            # port="/COM3"
+        )
+    )
+    _devices[-1].on_event = on_x714_event
+    return _devices
 
 
 async def main():
     # === SERIAL EXAMPLE ===
-    devices_by_name: dict[str, X714] = {}
-    counter = 0
-
-    print("=== X714 SERIAL Example (kill/recreate test) ===")
-
-    def start_device():
-        nonlocal counter
-        counter += 1
-        name = f"X714-{counter}"
-        dev = X714(name=name, start_reading=True)
-        dev.on_event = lambda n, e, d=None: on_device_event(n, e, d)
-        devices_by_name[dev.name] = dev
-        # prefer device task tracking if available
-        if hasattr(dev, "create_task"):
-            dev.create_task(dev.connect())
-        else:
-            asyncio.create_task(dev.connect())
-        return dev
-
-    def on_device_event(name: str, event_type: str, event_data=None):
-        on_x714_event(name, event_type, event_data)
-
-        # When a device connects, shutdown all other devices and create a new one
-        if event_type == "connected" and event_data is True:
-            for n, other in list(devices_by_name.items()):
-                if n == name:
-                    continue
-                # call `close()` if available, else `shutdown()`
-                coro = None
-                if hasattr(other, "close"):
-                    coro = other.close()
-                elif hasattr(other, "shutdown"):
-                    coro = other.shutdown()
-                if coro is not None:
-                    try:
-                        if hasattr(other, "create_task"):
-                            other.create_task(coro)
-                        else:
-                            asyncio.create_task(coro)
-                    except Exception:
-                        pass
-                devices_by_name.pop(n, None)
-
-            # start a fresh device to reproduce connect/disconnect lifecycle
-            start_device()
-
-    # start first device
-    start_device()
+    global devices
+    devices = create_devices()
+    for device in devices:
+        asyncio.create_task(device.connect())
 
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)
+        # await x714_serial.start_inventory() if not x714_serial.is_reading else await x714_serial.stop_inventory()
 
 
 if __name__ == "__main__":
