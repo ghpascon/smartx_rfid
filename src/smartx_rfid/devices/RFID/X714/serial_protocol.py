@@ -45,9 +45,13 @@ class SerialProtocol(asyncio.Protocol):
         """Serial connection/reconnection loop"""
         loop = asyncio.get_running_loop()
 
-        asyncio.create_task(self.auto_clear())
+        # start periodic clear using device task tracking if available
+        if hasattr(self, "create_task"):
+            self.create_task(self.auto_clear())
+        else:
+            asyncio.create_task(self.auto_clear())
 
-        while True:
+        while getattr(self, "_running", True):
             self.on_con_lost = asyncio.Event()
 
             # If AUTO mode, try to detect port by VID/PID

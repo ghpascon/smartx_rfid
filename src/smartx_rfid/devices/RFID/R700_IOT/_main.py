@@ -12,7 +12,10 @@ from .write_commands import WriteCommands
 from .reader_config_example import R700_IOT_config_example
 
 
-class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
+from smartx_rfid.devices._base import DeviceBase
+
+
+class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
     """Impinj R700 RFID reader using HTTP REST API."""
 
     def __init__(
@@ -76,6 +79,8 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
         self.config_example = R700_IOT_config_example
 
         self.on_event = on_event
+
+        DeviceBase.__init__(self)
 
         self.is_connected = False
         self.is_reading = False
@@ -170,7 +175,10 @@ class R700_IOT(OnEvent, ReaderHelpers, WriteCommands):
 
                 # Clear GPO states
                 for i in range(1, 4):
-                    asyncio.create_task(self.write_gpo(pin=i, state=False))
+                    if hasattr(self, "create_task"):
+                        self.create_task(self.write_gpo(pin=i, state=False))
+                    else:
+                        asyncio.create_task(self.write_gpo(pin=i, state=False))
 
                 self.is_connected = True
                 self.on_event(self.name, "connection", True)

@@ -140,12 +140,21 @@ class ReaderHelpers:
                         if "inventoryStatusEvent" in jsonEvent:
                             status = jsonEvent["inventoryStatusEvent"]["inventoryStatus"]
                             if status == "running":
-                                asyncio.create_task(self.on_start())
+                                if hasattr(self, "create_task"):
+                                    self.create_task(self.on_start())
+                                else:
+                                    asyncio.create_task(self.on_start())
                             else:
-                                asyncio.create_task(self.on_stop())
+                                if hasattr(self, "create_task"):
+                                    self.create_task(self.on_stop())
+                                else:
+                                    asyncio.create_task(self.on_stop())
                         elif "tagInventoryEvent" in jsonEvent:
                             tagEvent = jsonEvent["tagInventoryEvent"]
-                            asyncio.create_task(self.on_tag(tagEvent))
+                            if hasattr(self, "create_task"):
+                                self.create_task(self.on_tag(tagEvent))
+                            else:
+                                asyncio.create_task(self.on_tag(tagEvent))
 
                     except (json.JSONDecodeError, UnicodeDecodeError) as parse_error:
                         logging.warning(f"{self.name} - Failed to parse event: {parse_error}")

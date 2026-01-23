@@ -8,7 +8,10 @@ from typing import Callable
 from smartx_rfid.utils.event import on_event
 
 
-class SERIAL(asyncio.Protocol):
+from smartx_rfid.devices._base import DeviceBase
+
+
+class SERIAL(DeviceBase, asyncio.Protocol):
     """
     Asynchronous Serial Communication Protocol Handler
 
@@ -44,6 +47,7 @@ class SERIAL(asyncio.Protocol):
                 pid: USB Product ID for auto-detection
                 reconnection_time: Delay between reconnection attempts
         """
+        DeviceBase.__init__(self)
         self.name = name
         self.device_type = "generic"
 
@@ -101,7 +105,7 @@ class SERIAL(asyncio.Protocol):
                     self.rx_buffer.clear()
                     logging.warning("⚠️ Buffer cleared due to 300ms timeout without receiving data.")
 
-        self._timeout_task = asyncio.create_task(timeout_clear())
+        self._timeout_task = self.create_task(timeout_clear())
 
         # Processa mensagens completas
         while b"\n" in self.rx_buffer or b"\r" in self.rx_buffer:
@@ -175,7 +179,7 @@ class SERIAL(asyncio.Protocol):
         """
         loop = asyncio.get_running_loop()
 
-        while True:
+        while self._running:
             self.on_con_lost = asyncio.Event()
 
             # If AUTO mode, try to detect port by VID/PID
@@ -213,6 +217,10 @@ class SERIAL(asyncio.Protocol):
 
             logging.info("⏳ Waiting 3 seconds before retrying...")
             await asyncio.sleep(3)
+
+    async def close(self):
+        """Shut down background tasks for this device."""
+        await self.shutdown()
 
     def crc16(self, data: bytes, poly=0x8408):
         """

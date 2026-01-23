@@ -67,7 +67,8 @@ class TagList:
 
             identifier_value = tag.get(self.unique_identifier)
             if not identifier_value:
-                raise ValueError(f"Tag missing '{self.unique_identifier}'")
+                logging.warning(f"Tag missing '{self.unique_identifier}'")
+                return False, None
 
             # Check Prefix
             if self.prefix is not None:

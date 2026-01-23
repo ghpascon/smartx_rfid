@@ -26,9 +26,15 @@ class RfidCommands:
         """Configure reader settings like antennas, session, etc."""
         # Start Reading
         if self.start_reading:
-            asyncio.create_task(self.start_inventory())
+            if hasattr(self, "create_task"):
+                self.create_task(self.start_inventory())
+            else:
+                asyncio.create_task(self.start_inventory())
         else:
-            asyncio.create_task(self.stop_inventory())
+            if hasattr(self, "create_task"):
+                self.create_task(self.stop_inventory())
+            else:
+                asyncio.create_task(self.stop_inventory())
 
         set_cmd = "#set_cmd:"
 
@@ -81,7 +87,7 @@ class RfidCommands:
             self.write("#protected_inventory:off")
 
     async def auto_clear(self):
-        while True:
+        while getattr(self, "_running", True):
             await asyncio.sleep(30)
             if self.is_connected:
                 self.clear_tags()

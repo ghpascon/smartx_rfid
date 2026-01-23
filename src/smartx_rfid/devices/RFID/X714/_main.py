@@ -20,7 +20,10 @@ ant_default_config = {
 }
 
 
-class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, TCPProtocol):
+from smartx_rfid.devices._base import DeviceBase
+
+
+class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, TCPProtocol):
     """RFID reader that supports SERIAL, TCP and BLE connections."""
 
     def __init__(
@@ -89,6 +92,8 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
             read_power: TX power in dBm
             read_rssi: RSSI threshold in dBm
         """
+        DeviceBase.__init__(self)
+
         # Name
         self.name = name
         self.device_type = "rfid"
@@ -170,9 +175,15 @@ class X714(SerialProtocol, OnReceive, RfidCommands, BLEProtocol, WriteCommands, 
         if self.connection_type == "SERIAL":
             self.write_serial(to_send, verbose)
         elif self.connection_type == "BLE":
-            asyncio.create_task(self.write_ble(to_send.encode(), verbose))
+            if hasattr(self, "create_task"):
+                self.create_task(self.write_ble(to_send.encode(), verbose))
+            else:
+                asyncio.create_task(self.write_ble(to_send.encode(), verbose))
         else:
-            asyncio.create_task(self.write_tcp(to_send, verbose))
+            if hasattr(self, "create_task"):
+                self.create_task(self.write_tcp(to_send, verbose))
+            else:
+                asyncio.create_task(self.write_tcp(to_send, verbose))
 
     async def connect(self):
         """Connect to reader using configured connection type."""

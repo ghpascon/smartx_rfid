@@ -62,11 +62,11 @@ class TCPProtocol(TCPHelpers):
                 self.on_connected()
                 logging.info(f"✅ [CONNECTED] {self.name} - {ip}:{port}")
 
-                # Cria tasks de leitura e monitoramento
+                # Cria tasks de leitura e monitoramento (usando tracking se disponível)
                 tasks = [
-                    asyncio.create_task(self.receive_data_tcp()),
-                    asyncio.create_task(self.monitor_connection()),
-                    asyncio.create_task(self.periodic_ping(10)),
+                    self.create_task(self.receive_data_tcp()) if hasattr(self, "create_task") else asyncio.create_task(self.receive_data_tcp()),
+                    self.create_task(self.monitor_connection()) if hasattr(self, "create_task") else asyncio.create_task(self.monitor_connection()),
+                    self.create_task(self.periodic_ping(10)) if hasattr(self, "create_task") else asyncio.create_task(self.periodic_ping(10)),
                 ]
 
                 # Espera até que uma delas finalize

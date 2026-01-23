@@ -4,9 +4,10 @@ import logging
 from .helpers import Helpers
 from smartx_rfid.utils.event import on_event
 from typing import Callable
+from smartx_rfid.devices._base import DeviceBase
 
 
-class TCP(Helpers):
+class TCP(DeviceBase, Helpers):
     """TCP connection handler for network communication."""
 
     def __init__(
@@ -23,6 +24,7 @@ class TCP(Helpers):
             ip: IP address to connect
             port: TCP port number
         """
+        DeviceBase.__init__(self)
         self.name = name
         self.device_type = "generic"
 
@@ -37,7 +39,7 @@ class TCP(Helpers):
 
     async def connect(self):
         """Connect to TCP server and keep connection alive."""
-        while True:
+        while self._running:
             try:
                 logging.info(f"Connecting: {self.name} - {self.ip}:{self.port}")
                 self.reader, self.writer = await asyncio.wait_for(
@@ -48,8 +50,8 @@ class TCP(Helpers):
 
                 # Start the receive and monitor tasks
                 tasks = [
-                    asyncio.create_task(self.receive_data()),
-                    asyncio.create_task(self.monitor_connection()),
+                    self.create_task(self.receive_data()),
+                    self.create_task(self.monitor_connection()),
                 ]
 
                 # Wait until one of the tasks completes (e.g. disconnection)
@@ -68,6 +70,9 @@ class TCP(Helpers):
                 logging.error(f"[CONNECTION ERROR] {e}")
 
             await asyncio.sleep(3)
+
+    async def close(self):
+        await self.shutdown()
 
     async def write(self, data: str, verbose=True):
         """
