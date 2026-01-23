@@ -1,0 +1,37 @@
+{
+  "READER": "X714",
+  "CONNECTION_TYPE": "SERIAL",
+  "PORT": "AUTO",
+  "BAUDRATE": 115200,
+  "VID": 1,
+  "PID": 1,
+  "IP": "192.168.1.101",
+  "TCP_PORT": 23,
+  "BLE_NAME": "SMTX",
+  "BUZZER": true,
+  "SESSION": 1,
+  "START_READING": true,
+  "GPI_START": false,
+  "ANT_DICT": {
+    "1": {
+      "active": true,
+      "power": 22,
+      "rssi": -120
+    },
+    "2": {
+      "active": false,
+      "power": 22,
+      "rssi": -120
+    },
+    "3": {
+      "active": false,
+      "power": 22,
+      "rssi": -120
+    },
+    "4": {
+      "active": false,
+      "power": 22,
+      "rssi": -120
+    }
+  }
+}
