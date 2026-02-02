@@ -51,6 +51,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         hotspot: bool = True,
         reconnection_time: int = 3,
         prefix: str = "",
+        protected_inventory_active: bool = False,
         protected_inventory_password: str | None = None,
         # Antenna config
         # If ant_dict is provided use it else use the other vars
@@ -84,6 +85,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             hotspot: Enable hotspot mode
             reconnection_time: Seconds to wait before reconnect
             prefix: Text to add before tag data
+            protected_inventory_active: Enable protected reading
             protected_inventory_password: Password for protected reading
             ant_dict: Custom antenna settings
             active_ant: Which antennas to use
@@ -134,6 +136,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         self.hotspot = hotspot
         self.reconnection_time = reconnection_time
         self.prefix = prefix
+        self.protected_inventory_active = protected_inventory_active
         self.protected_inventory_password = protected_inventory_password
 
         # ANTENNA CONFIG

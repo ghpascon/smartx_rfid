@@ -36,58 +36,63 @@ class RfidCommands:
             else:
                 asyncio.create_task(self.stop_inventory())
 
-        set_cmd = "#set_cmd:"
+        cmds = []
 
         # ANTENNAS
-        antennas = self.ant_dict
-        for antenna in antennas:
-            ant = antennas.get(antenna)
-            ant_cmd = f"|set_ant:{antenna},{ant.get('active')},{ant.get('power')},{abs(ant.get('rssi'))}"
-            set_cmd += ant_cmd
+        for antenna, ant in self.ant_dict.items():
+            ant_cmd = f"#set_ant:{antenna},{ant.get('active')},{ant.get('power')},{abs(ant.get('rssi'))}"
+            cmds.append(ant_cmd)
 
         # SESSION
-        set_cmd += f"|SESSION:{self.session}"
+        cmds.append(f"#session:{self.session}")
 
         # START_READING
-        set_cmd += f"|START_READING:{self.start_reading}"
+        cmds.append(f"#start_reading:{'on' if self.start_reading else 'off'}")
         if self.start_reading:
             self.on_start()
 
         # GPI_START
-        set_cmd += f"|GPI_START:{self.gpi_start}"
+        cmds.append(f"#gpi_start:{'on' if self.gpi_start else 'off'}")
 
-        # IGNORE_READ
-        set_cmd += f"|IGNORE_READ:{self.ignore_read}"
+        # IGNORE_READ (se existir no firmware)
+        if hasattr(self, "ignore_read"):
+            cmds.append(f"#ignore_read:{'on' if self.ignore_read else 'off'}")
 
         # ALWAYS_SEND
-        set_cmd += f"|ALWAYS_SEND:{self.always_send}"
+        cmds.append(f"#always_send:{'on' if self.always_send else 'off'}")
 
         # SIMPLE_SEND
-        set_cmd += f"|SIMPLE_SEND:{self.simple_send}"
+        cmds.append(f"#simple_send:{'on' if self.simple_send else 'off'}")
 
         # KEYBOARD
-        set_cmd += f"|KEYBOARD:{self.keyboard}"
+        cmds.append(f"#keyboard:{'on' if self.keyboard else 'off'}")
 
         # BUZZER
-        set_cmd += f"|BUZZER:{self.buzzer}"
+        cmds.append(f"#buzzer:{'on' if self.buzzer else 'off'}")
 
         # DECODE_GTIN
-        set_cmd += f"|DECODE_GTIN:{self.decode_gtin}"
+        cmds.append(f"#decode_gtin:{'on' if self.decode_gtin else 'off'}")
 
-        set_cmd = set_cmd.lower()
-        set_cmd = set_cmd.replace("true", "on").replace("false", "off")
-        self.write(set_cmd)
+        # HOTSPOT
+        cmds.append(f"#hotspot:{'on' if self.hotspot else 'off'}")
 
-        # OTHER CONFIG
-        self.write(f"#hotspot:{'on' if self.hotspot else 'off'}")
-        self.write(f"#prefix:{self.prefix}")
-        if self.protected_inventory_password is not None:
-            self.write(f"#protected_inventory:on;{self.protected_inventory_password}")
-        else:
-            self.write("#protected_inventory:off")
+        # PREFIX
+        cmds.append(f"#prefix:{self.prefix}")
+
+        # Envia todos os comandos juntos, separados por '|'
+        self.write("|".join(cmds))
+
+        # PROTECTED INVENTORY
+        self.protected_inventory(self.protected_inventory_active)
 
     async def auto_clear(self):
         while getattr(self, "_running", True):
             await asyncio.sleep(30)
             if self.is_connected:
                 self.clear_tags()
+
+    def protected_inventory(self, active: bool):
+        if active:
+            self.write(f"#protected_inventory:on;{self.protected_inventory_password}")
+        else:
+            self.write("#protected_inventory:off")
