@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
-from smartx_rfid.devices.RFID.X714._main import X714
+from smartx_rfid.devices.RFID.X714._main import X714, ant_default_config
 
 
 class TestX714:
@@ -224,6 +224,32 @@ class TestX714:
             # Test that start_inventory can succeed when GPI trigger is off
             result = await x714_device.start_inventory()
             assert result is True
+
+    def test_none_parameters(self):
+        x714_device = X714(
+            name="XPAD",
+            connection_type=None,
+            session=None,
+            start_reading=None,
+            always_send=None,
+            ignore_read=None,
+            simple_send=None,
+            ant_dict=None,
+            ip=None,
+            protected_inventory_active=None,
+            protected_inventory_password=None,
+        )
+        assert x714_device.name == "XPAD"
+        assert x714_device.connection_type == "SERIAL"
+        assert x714_device.session == 1
+        assert x714_device.start_reading is False
+        assert x714_device.always_send is True
+        assert x714_device.ignore_read is False
+        assert x714_device.simple_send is False
+        assert x714_device.ant_dict == ant_default_config
+        assert isinstance(x714_device.ip, str)
+        assert x714_device.protected_inventory_active is False
+        assert x714_device.protected_inventory_password == ""
 
 
 if __name__ == "__main__":

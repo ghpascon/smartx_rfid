@@ -107,26 +107,62 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             logging.warning(f"[{self.name}] Invalid connection_type '{connection_type}' set to 'SERIAL'")
 
         # SERIAL CONFIG
+        if not isinstance(port, str):
+            port = "AUTO"
         self.port = port
+        if not isinstance(baudrate, int):
+            baudrate = 115200
         self.baudrate = baudrate
+        if not isinstance(vid, int):
+            vid = 1
+        if not isinstance(pid, int):
+            pid = 1
         self.vid = vid
         self.pid = pid
         self.is_auto = self.port == "AUTO"
 
         # TCP CONFIG
+        if not isinstance(ip, str):
+            ip = "192.168.1.100"
+        if not isinstance(tcp_port, int):
+            tcp_port = 23
         self.ip = ip
         self.tcp_port = tcp_port
 
         # BLE CONFIG
+        if not isinstance(ble_name, str):
+            ble_name = "SMTX"
         self.ble_name = ble_name
         self.init_ble_vars()
 
         # GENERIC CONFIG
+        if not isinstance(buzzer, bool):
+            buzzer = False
         self.buzzer = buzzer
         if session not in [0, 1, 2, 3]:
             session = 1
             logging.warning(f"[{self.name}] Invalid session '{session}' set to '1'")
         self.session = session
+
+        # Modes
+        if not isinstance(start_reading, bool):
+            start_reading = False
+        if not isinstance(gpi_start, bool):
+            gpi_start = False
+        if not isinstance(ignore_read, bool):
+            ignore_read = False
+        if not isinstance(always_send, bool):
+            always_send = True
+        if not isinstance(simple_send, bool):
+            simple_send = False
+        if not isinstance(keyboard, bool):
+            keyboard = False
+        if not isinstance(decode_gtin, bool):
+            decode_gtin = False
+        if not isinstance(hotspot, bool):
+            hotspot = True
+        if not isinstance(reconnection_time, int):
+            reconnection_time = 5
         self.start_reading = start_reading
         self.gpi_start = gpi_start
         self.ignore_read = ignore_read
@@ -147,6 +183,10 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         self.prefix = prefix
 
         # PROTECTED
+        if not isinstance(protected_inventory_active, bool):
+            protected_inventory_active = False
+        if not isinstance(protected_inventory_password, str):
+            protected_inventory_password = ""
         self.protected_inventory_active = protected_inventory_active
         self.protected_inventory_password = protected_inventory_password
 
