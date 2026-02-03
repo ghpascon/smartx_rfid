@@ -91,8 +91,13 @@ class RfidCommands:
             if self.is_connected:
                 self.clear_tags()
 
-    def protected_inventory(self, active: bool):
+    def protected_inventory(self, active: bool, password: str = None):
         if active:
-            self.write(f"#protected_inventory:on;{self.protected_inventory_password}")
+            pwd = password if password is not None else self.protected_inventory_password
+            self.write(f"#protected_inventory:on;{pwd}")
         else:
             self.write("#protected_inventory:off")
+
+    def protected_mode(self, epc: str, password: str = None, active: bool = True):
+        pwd = password if password is not None else self.protected_inventory_password
+        self.write(f"#protected_mode:{epc};{pwd};{'on' if active else 'off'}")

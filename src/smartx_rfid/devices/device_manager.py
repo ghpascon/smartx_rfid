@@ -465,3 +465,41 @@ class DeviceManager:
             return True, None
         except Exception as e:
             return False, str(e)
+
+    async def protected_inventory(
+        self, device_name: str, active: bool, password: str | None = None
+    ) -> Tuple[bool, Optional[str]]:
+        device = self.get_device(device_name)
+        if device is None:
+            return False, f"Device '{device_name}' not found."
+
+        if not getattr(device, "protected_inventory", None):
+            return False, f"Device '{device_name}' does not support protected inventory."
+
+        try:
+            if asyncio.iscoroutinefunction(device.protected_inventory):
+                await device.protected_inventory(active, password)
+            else:
+                device.protected_inventory(active, password)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    async def protected_mode(
+        self, device_name: str, epc: str, password: str | None = None, active: bool = True
+    ) -> Tuple[bool, Optional[str]]:
+        device = self.get_device(device_name)
+        if device is None:
+            return False, f"Device '{device_name}' not found."
+
+        if not getattr(device, "protected_mode", None):
+            return False, f"Device '{device_name}' does not support protected mode."
+
+        try:
+            if asyncio.iscoroutinefunction(device.protected_mode):
+                await device.protected_mode(epc, password, active)
+            else:
+                device.protected_mode(epc, password, active)
+            return True, None
+        except Exception as e:
+            return False, str(e)

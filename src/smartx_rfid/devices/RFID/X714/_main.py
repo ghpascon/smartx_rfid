@@ -52,7 +52,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         reconnection_time: int = 3,
         prefix: str = "",
         protected_inventory_active: bool = False,
-        protected_inventory_password: str | None = None,
+        protected_inventory_password: str | None = "12345678",
         # Antenna config
         # If ant_dict is provided use it else use the other vars
         ant_dict: dict | None = None,
