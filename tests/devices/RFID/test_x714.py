@@ -187,6 +187,18 @@ class TestX714:
             x714_device.config_reader.assert_called_once()
             x714_device.on_event.assert_called_once_with("X714", "connected", True)
 
+    def test_invalid_prefix(self):
+        x714_device = X714(prefix="GHIJKL")
+        assert x714_device.prefix == ""
+        x714_device = X714(prefix="    ")
+        assert x714_device.prefix == ""
+        x714_device = X714(prefix=None)
+        assert x714_device.prefix == ""
+        x714_device = X714(prefix=123)
+        assert x714_device.prefix == ""
+        x714_device = X714(prefix="123456")
+        assert x714_device.prefix == "123456"
+
     @pytest.mark.asyncio
     async def test_gpi_trigger_blocks_start_inventory(self):
         """Test that start_inventory returns False when GPI trigger is enabled"""

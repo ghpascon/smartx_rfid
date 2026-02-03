@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 from typing import Callable
 
@@ -135,7 +136,17 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         self.decode_gtin = decode_gtin
         self.hotspot = hotspot
         self.reconnection_time = reconnection_time
+
+        # validate prefix
+        if not isinstance(prefix, str):
+            prefix = ""
+        # validate hex
+        if not re.match(r"^[0-9A-Fa-f]*$", prefix):
+            prefix = ""
+
         self.prefix = prefix
+
+        # PROTECTED
         self.protected_inventory_active = protected_inventory_active
         self.protected_inventory_password = protected_inventory_password
 
