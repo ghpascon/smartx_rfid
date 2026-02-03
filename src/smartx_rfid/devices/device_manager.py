@@ -62,7 +62,7 @@ class DeviceManager:
         # Assign event handlers to devices
         self.assign_event_function()
 
-    def add_device(self, name, device_type, data):
+    def add_device(self, name: str, device_type: str, data: dict):
         logging.info(f"🔍 Adding device: {name}")
         logging.info(f"📡 Reader type: {device_type}")
 
@@ -87,19 +87,31 @@ class DeviceManager:
             self.devices.append(
                 X714(
                     name=name,
-                    connection_type=data.get("CONNECTION_TYPE", "SERIAL"),
-                    port=data.get("PORT", "AUTO"),
-                    baudrate=data.get("BAUDRATE", 115200),
-                    vid=data.get("VID", 1),
-                    pid=data.get("PID", 1),
-                    ip=data.get("IP", "192.168.1.101"),
-                    tcp_port=data.get("TCP_PORT", 23),
-                    ble_name=data.get("BLE_NAME", "SMTX"),
-                    buzzer=data.get("BUZZER", True),
-                    session=data.get("SESSION", 1),
-                    start_reading=data.get("START_READING", False),
-                    gpi_start=data.get("GPI_START", False),
-                    ant_dict=data.get("ANT_DICT", None),
+                    connection_type=data.get("CONNECTION_TYPE"),
+                    port=data.get("PORT"),
+                    baudrate=data.get("BAUDRATE"),
+                    vid=data.get("VID"),
+                    pid=data.get("PID"),
+                    ip=data.get("IP"),
+                    tcp_port=data.get("TCP_PORT"),
+                    ble_name=data.get("BLE_NAME"),
+                    buzzer=data.get("BUZZER"),
+                    session=data.get("SESSION"),
+                    start_reading=data.get("START_READING", True),
+                    gpi_start=data.get("GPI_START"),
+                    ignore_read=data.get("IGNORE_READ"),
+                    always_send=data.get("ALWAYS_SEND"),
+                    simple_send=data.get("SIMPLE_SEND"),
+                    keyboard=data.get("KEYBOARD"),
+                    decode_gtin=data.get("DECODE_GTIN"),
+                    hotspot=data.get("HOTSPOT"),
+                    reconnection_time=data.get("RECONNECTION_TIME"),
+                    prefix=data.get("PREFIX"),
+                    protected_inventory_active=data.get("PROTECTED_INVENTORY_ACTIVE"),
+                    protected_inventory_password=data.get("PROTECTED_INVENTORY_PASSWORD"),
+                    ant_dict=data.get("ANT_DICT"),
+                    active_ant=data.get("ACTIVE_ANT"),
+                    read_power=data.get("READ_POWER"),
                 )
             )
 
