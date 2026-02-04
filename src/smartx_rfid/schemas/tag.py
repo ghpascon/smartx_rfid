@@ -8,6 +8,7 @@ class TagSchema(BaseModel):
     tid: Optional[str | None] = Field(None)
     ant: Optional[int | None] = None
     rssi: Optional[int | None] = None
+    protected: Optional[bool] = False
 
     model_config = {"extra": "allow"}
 

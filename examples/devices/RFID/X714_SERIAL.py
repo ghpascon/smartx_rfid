@@ -34,7 +34,7 @@ async def main():
         start_reading=True,
         # port="/COM3"
     )
-    x714_serial.on_event = on_x714_event
+    # x714_serial.on_event = on_x714_event
     asyncio.create_task(x714_serial.connect())
 
     # Keep the main loop running

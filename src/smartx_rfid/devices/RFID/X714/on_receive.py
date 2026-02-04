@@ -24,13 +24,14 @@ class OnReceive:
 
         elif data.startswith("#t+@"):
             tag = data[4:]
-            epc, tid, ant, rssi = tag.split("|")
-            current_tag = {
-                "epc": epc,
-                "tid": tid,
-                "ant": int(ant),
-                "rssi": int(rssi) * (-1),
-            }
+            parts = tag.split("|")
+            # parts: epc, tid, ant, rssi, protected (2 a 5 elementos)
+            epc = parts[0] if len(parts) > 0 else None
+            tid = parts[1] if len(parts) > 1 else None
+            ant = parts[2] if len(parts) > 2 and parts[2] != "" else 0
+            rssi = parts[3] if len(parts) > 3 and parts[3] != "" else 0
+            protected = parts[4] if len(parts) > 4 else None
+            current_tag = {"epc": epc, "tid": tid, "ant": int(ant), "rssi": int(rssi) * (-1), "protected": protected}
             self.on_tag(current_tag)
 
         elif data.startswith("#set_cmd:"):

@@ -121,6 +121,15 @@ class TestSERIAL:
         assert not result
         assert tag_data is None
 
+    def test_protected(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001", "protected": True})
+        tags.add({"epc": "000000000000000000000002", "protected": False})
+        tags.add({"epc": "000000000000000000000003"})
+        assert tags.get_by_identifier("000000000000000000000001").get("protected") is True
+        assert tags.get_by_identifier("000000000000000000000002").get("protected") is False
+        assert tags.get_by_identifier("000000000000000000000003").get("protected") is False
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

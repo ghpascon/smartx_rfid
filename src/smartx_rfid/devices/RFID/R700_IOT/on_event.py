@@ -25,5 +25,6 @@ class OnEvent:
             tid=tag.get("tidHex"),
             ant=tag.get("antennaPort"),
             rssi=int(tag.get("peakRssiCdbm", 0) / 100),
+            protected=self.is_protected_inventory_active,
         )
         self.on_event(self.name, "tag", current_tag.model_dump())

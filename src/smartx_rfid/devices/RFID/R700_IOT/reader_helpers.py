@@ -46,12 +46,12 @@ class ReaderHelpers:
             method="put",
         )
 
-    async def start_inventory(self):
+    async def start_inventory(self, check_gpi=True):
         """Public method to start inventory with concurrency control."""
         if not self.is_connected:
             logging.warning(f"{self.name} - Cannot start inventory: not connected")
             return False
-        if self.is_gpi_trigger_on:
+        if self.is_gpi_trigger_on and check_gpi:
             logging.info(f"{self.name} - Cannot start inventory: GPI trigger is on")
             return False
 
@@ -66,12 +66,12 @@ class ReaderHelpers:
                 logging.warning(f"{self.name} - Cannot start inventory: session is closed")
                 return False
 
-    async def stop_inventory(self):
+    async def stop_inventory(self, check_gpi=True):
         """Public method to stop inventory with concurrency control."""
         if not self.is_connected:
             logging.warning(f"{self.name} - Cannot stop inventory: not connected")
             return False
-        if self.is_gpi_trigger_on:
+        if self.is_gpi_trigger_on and check_gpi:
             logging.info(f"{self.name} - Cannot stop inventory: GPI trigger is on")
             return False
 
@@ -86,9 +86,28 @@ class ReaderHelpers:
                 logging.warning(f"{self.name} - Cannot stop inventory: session is closed")
                 return False
 
+    async def get_reader_status(self, session=None):
+        try:
+            if session is None:
+                async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=5.0) as client:
+                    response = await client.get(self.endpoint_status)
+            else:
+                response = await session.get(self.endpoint_status)
+            if response.status_code != 200:
+                logging.warning(f"{self.name} - Failed to get reader status: {response.status_code}")
+                return None
+
+            return response.json()
+        except Exception as e:
+            logging.error(f"{self.name} - Error getting reader status: {e}")
+            return None
+
     async def _stop_inventory(self, session=None):
-        # Timeout aumentado para 10s pois o R700 pode demorar para parar
-        return await self.post_to_reader(session, self.endpoint_stop, timeout=10)
+        # Check if any inventory is running
+        results = await self.get_reader_status(session=session)
+        if results is not None and results.get("status") == "idle":
+            return True
+        return await self.post_to_reader(session, self.endpoint_stop, timeout=5)
 
     async def _start_inventory(self, session=None):
         return await self.post_to_reader(session, self.endpoint_start, payload=self.reading_config)

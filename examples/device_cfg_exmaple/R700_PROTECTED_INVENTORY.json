@@ -1,0 +1,47 @@
+{
+  "READER": "R700_IOT",
+  "IP": "impinj-14-46-36",
+  "USERNAME": "root",
+  "PASSWORD": "impinj",
+  "START_READING": true,
+  "READING_CONFIG": {
+    "antennaConfigs": [
+      {
+        "antennaPort": 1,
+        "estimatedTagPopulation": 16,
+        "fastId": "enabled",
+        "inventorySearchMode": "dual-target",
+        "inventorySession": 1,
+        "receiveSensitivityDbm": -80,
+        "rfMode": 4,
+        "transmitPowerCdbm": 2000,
+        "protectedModePinHex": "12345678"
+      }
+    ],
+    "eventConfig": {
+      "common": {
+        "hostname": "disabled"
+      },
+      "tagInventory": {
+        "epc": "disabled",
+        "epcHex": "enabled",
+        "xpcHex": "disabled",
+        "tid": "disabled",
+        "tidHex": "enabled",
+        "antennaPort": "enabled",
+        "transmitPowerCdbm": "disabled",
+        "peakRssiCdbm": "enabled",
+        "frequency": "disabled",
+        "pc": "disabled",
+        "lastSeenTime": "disabled",
+        "phaseAngle": "disabled",
+        "tagReporting": {
+          "reportingIntervalSeconds": 1,
+          "tagCacheSize": 2048,
+          "antennaIdentifier": "antennaPort",
+          "tagIdentifier": "epc"
+        }
+      }
+    }
+  }
+}

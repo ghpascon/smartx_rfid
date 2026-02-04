@@ -7,6 +7,7 @@ ant_config_example = {
     "receiveSensitivityDbm": -80,
     "rfMode": 4,
     "transmitPowerCdbm": 3300,
+    "protectedModePinHex": "12345678",
 }
 
 R700_IOT_config_example = {

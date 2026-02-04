@@ -1,0 +1,14 @@
+{
+  "READER": "X714",
+  "CONNECTION_TYPE": "TCP",
+  "IP": "192.168.1.101",
+  "TCP_PORT": 23,
+  "BUZZER": true,
+  "SESSION": 1,
+  "START_READING": true,
+  "GPI_START": false,
+  "PROTECTED_INVENTORY_ACTIVE": false,
+  "PROTECTED_INVENTORY_PASSWORD": "12345678",
+  "ACTIVE_ANT": [1, 2, 3, 4],
+  "READ_POWER": 25
+}

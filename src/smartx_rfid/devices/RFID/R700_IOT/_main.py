@@ -5,6 +5,7 @@ import httpx
 
 from smartx_rfid.schemas.tag import WriteTagValidator
 from smartx_rfid.utils.event import on_event
+from smartx_rfid.utils import regex_hex
 
 from .on_event import OnEvent
 from .reader_helpers import ReaderHelpers
@@ -35,6 +36,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         read_power: int = 3000,
         read_rssi: int = -80,
         gpi_start: bool = False,
+        protected_inventory_active: bool = False,
+        protected_inventory_password: str | None = "12345678",
         **kwargs,
     ):
         """
@@ -51,6 +54,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         """
         # READER CONFIG
         self.config_example = R700_IOT_config_example
+        self.is_protected_inventory_active = protected_inventory_active
         if reading_config is None:
             # Validation
             if session not in [0, 1, 2, 3]:
@@ -63,6 +67,11 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 read_power = 3000
             if not isinstance(read_rssi, int):
                 read_rssi = -80
+            if not isinstance(protected_inventory_active, bool):
+                protected_inventory_active = False
+            if not regex_hex(str(protected_inventory_password), 8):
+                protected_inventory_active = False
+                protected_inventory_password = "12345678"
             # Configuration
             reading_config = R700_IOT_config_example.copy()
             if gpi_start is False:
@@ -78,10 +87,14 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 ant_cfg["inventorySession"] = session
                 ant_cfg["receiveSensitivityDbm"] = read_rssi
                 ant_cfg["transmitPowerCdbm"] = read_power
+                ant_cfg["protectedModePinHex"] = protected_inventory_password
+                if not protected_inventory_active:
+                    ant_cfg.pop("protectedModePinHex")
                 reading_config["antennaConfigs"].append(ant_cfg)
 
         self.reading_config = reading_config
 
+        self.protected_inventory_password = protected_inventory_password
         # Name
         if not isinstance(name, str):
             name = "R700"
@@ -112,6 +125,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self.endpointDataStream = f"{self.urlBase}/data/stream"
         self.endpoint_gpo = f"{self.urlBase}/device/gpos"
         self.endpoint_write = f"{self.urlBase}/profiles/inventory/tag-access"
+        self.endpoint_status = f"{self.urlBase}/status"
 
         self.interface_config = {"rfidInterface": "rest"}
         self.auth = httpx.BasicAuth(self.username, self.password)
@@ -218,7 +232,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                         await self._session.aclose()
                         self._session = None
                         await asyncio.sleep(1)
-                        continue
 
                 # Start inventory if needed
                 if self.start_reading or self.is_gpi_trigger_on:
@@ -312,3 +325,24 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             await self.send_write_command(cmd)
         except Exception as e:
             logging.warning(f"{self.name} - Write validation error: {e}")
+
+    async def protected_inventory(self, active: bool, password: str = None, restart_inventory: bool = True):
+        if password is None:
+            password = self.protected_inventory_password
+
+        if not regex_hex(str(password), 8):
+            return False, "Error: Invalid password format"
+
+        antennas = self.reading_config.get("antennaConfigs")
+        for ant in antennas:
+            if active:
+                ant["protectedModePinHex"] = password
+            else:
+                ant.pop("protectedModePinHex", None)
+
+        if restart_inventory:
+            await self.stop_inventory(check_gpi=False)
+            await self.start_inventory(check_gpi=False)
+
+        self.is_protected_inventory_active = active
+        return True, None
