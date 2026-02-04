@@ -140,6 +140,8 @@ class TagList:
             current["device"] = device
         if not tag.get("epc") == current.get("epc"):
             current["epc"] = tag.get("epc")
+        if not tag.get("protected") == current.get("protected"):
+            current["protected"] = tag.get("protected")
 
         return current
 
