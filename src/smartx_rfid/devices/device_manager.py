@@ -47,12 +47,14 @@ class DeviceManager:
                 try:
                     with open(filepath, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                        # Lower case the keys
+                        data = {k.lower(): v for k, v in data.items()}
                     # If the device config is invalid, remove the file
-                    if data.get("READER") is None:
+                    if data.get("reader") is None:
                         os.remove(filepath)
                         continue
                     name = filename.replace(".json", "")
-                    device_type = data.get("READER", "UNKNOWN")
+                    device_type = data.get("reader", "UNKNOWN")
                     self.add_device(name, device_type, data)
                 except json.JSONDecodeError as e:
                     logging.error(f"❌ JSON decode error: {e}")
@@ -63,6 +65,7 @@ class DeviceManager:
         self.assign_event_function()
 
     def add_device(self, name: str, device_type: str, data: dict):
+        device_type = device_type.upper()
         logging.info(f"🔍 Adding device: {name}")
         logging.info(f"📡 Reader type: {device_type}")
 

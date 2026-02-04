@@ -9,13 +9,13 @@
   "TCP_PORT": 23,
   "BLE_NAME": "SMTX",
   "BUZZER": true,
-  "SESSION": 1,
+  "SESSION": 0,
   "START_READING": true,
   "GPI_START": false,
   "ANT_DICT": {
     "1": {
       "active": true,
-      "power": 22,
+      "power": 24,
       "rssi": -120
     },
     "2": {
