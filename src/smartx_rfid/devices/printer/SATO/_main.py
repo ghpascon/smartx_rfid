@@ -1,0 +1,117 @@
+import asyncio
+import logging
+from typing import Callable, Optional
+
+from smartx_rfid.devices._base import DeviceBase
+from smartx_rfid.utils.event import on_event
+from .helpers import Helpers
+
+
+class SatoPrinter(DeviceBase, Helpers):
+    def __init__(
+        self,
+        ip: str,
+        name: str = "Sato",
+        port: int = 9100,
+        reconnection_time: int = 3,
+        **kwargs,
+    ):
+        DeviceBase.__init__(self)
+        self.name = name
+        self.device_type = "printer"
+        self.ip = ip
+        self.port = port
+        self.reconnection_time = reconnection_time
+        self.is_connected: bool = False
+        self.on_event: Callable = on_event
+        self._reader: Optional[asyncio.StreamReader] = None
+        self._writer: Optional[asyncio.StreamWriter] = None
+        self._connect_lock = asyncio.Lock()
+        self._running = True
+
+        self.name = name
+        self.device_type = "generic"
+
+        self.ip = ip
+        self.port = port
+
+        self.reader = None
+        self.writer = None
+
+        self.is_connected = False
+        self.can_print = False
+        self.last_status = None
+        self.on_event: Callable = on_event
+
+    async def connect(self):
+        """Connect to TCP server and keep connection alive."""
+        while self._running:
+            try:
+                logging.info(f"Connecting: {self.name} - {self.ip}:{self.port}")
+                self.reader, self.writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.ip, self.port), timeout=3
+                )
+                self.is_connected = True
+                self.on_event(self.name, "connection", True)
+
+                # Start the receive and monitor tasks
+                tasks = [
+                    self.create_task(self.receive_data()),
+                    self.create_task(self.get_status()),
+                ]
+
+                # Wait until one of the tasks completes (e.g. disconnection)
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                # Cancel any remaining tasks
+                for task in pending:
+                    task.cancel()
+
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
+
+            except Exception as e:
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
+                logging.error(f"[CONNECTION ERROR] {e}")
+
+            await asyncio.sleep(3)
+
+    async def close(self):
+        # stop connect loop
+        self._running = False
+
+        # close writer if present
+        try:
+            if self.writer:
+                try:
+                    self.writer.close()
+                    await self.writer.wait_closed()
+                except Exception:
+                    pass
+                self.writer = None
+                self.reader = None
+        except Exception:
+            pass
+
+        await self.shutdown()
+
+    async def write(self, data: str, verbose=True):
+        """
+        Send data through TCP connection.
+
+        Args:
+            data: Text to send
+            verbose: Show sent data in logs
+        """
+        if self.is_connected and self.writer:
+            try:
+                to_send = (data + "\n").encode("utf-8")
+                self.writer.write(to_send)
+                await self.writer.drain()
+                if verbose:
+                    logging.info(f"[{self.name}] [SENT] {data.strip()}")
+            except Exception as e:
+                logging.warning(f"[{self.name}] [SEND ERROR] data={data.strip()} error={e}")
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)

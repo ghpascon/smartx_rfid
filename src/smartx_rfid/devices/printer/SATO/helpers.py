@@ -1,0 +1,79 @@
+import asyncio
+import logging
+import re
+
+
+class Helpers:
+    """Helper functions for TCP connection management."""
+
+    async def get_status(self):
+        """Check if TCP connection is still alive."""
+        get_status_cmd = '! U1 getvar "ezpl.status"\r\n'
+
+        while self.is_connected:
+            await asyncio.sleep(0.5)
+            if (self.writer and self.writer.is_closing()) or (self.reader and self.reader.at_eof()):
+                self.is_connected = False
+                self.on_event(self.name, "connection", False)
+                break
+
+            await self.write(get_status_cmd, verbose=False)
+
+    async def receive_data(self):
+        """Receive and process incoming TCP data."""
+        buffer = ""
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(self.reader.read(1024), timeout=0.1)
+                except asyncio.TimeoutError:
+                    # Timeout: process what's in the buffer as a command
+                    if buffer:
+                        await self.on_receive_cmd(buffer.strip())
+                        buffer = ""
+                    continue
+
+                if not data:
+                    raise ConnectionError("Connection lost")
+
+                buffer += data.decode(errors="ignore")
+
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    # event received
+                    await self.on_receive_cmd(line.strip())
+
+        except Exception as e:
+            self.is_connected = False
+            logging.error(f"[RECEIVE ERROR] {e}")
+
+    def clean_cmd(self, cmd: str) -> str:
+        # remove tudo que não for letras ou números
+        return re.sub(r"[^a-zA-Z0-9]", "", cmd).lower()
+
+    async def on_receive_cmd(self, cmd: str):
+        cmd = self.clean_cmd(cmd)
+        if cmd == self.last_status:
+            return
+
+        self.can_print = False
+
+        # Ready to print
+        if "a000000" == cmd:
+            self.can_print = True
+            self.on_event(self.name, "status", "ready")
+        # printing
+        elif "g000001" == cmd:
+            self.on_event(self.name, "status", "printing")
+        # offline
+        elif "0000000" == cmd:
+            self.on_event(self.name, "status", "offline")
+        # erro:
+        elif cmd.startswith("e"):
+            self.on_event(self.name, "status", f"erro: {cmd}")
+        # Fallback
+        else:
+            self.on_event(self.name, "status", cmd)
+
+        # Update Last Status
+        self.last_status = cmd

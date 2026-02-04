@@ -48,11 +48,11 @@ async def main():
     while True:
         await asyncio.sleep(5)
         is_protected = not is_protected
-        success, error = await r700_iot.protected_inventory(is_protected)
-        if not success:
-            print(f"Error setting protected inventory: {error}")
-        else:
-            print(f"Protected inventory set to: {is_protected}")
+        # success, error = await r700_iot.protected_inventory(is_protected)
+        # if not success:
+        #     print(f"Error setting protected inventory: {error}")
+        # else:
+        #     print(f"Protected inventory set to: {is_protected}")
 
 
 if __name__ == "__main__":
