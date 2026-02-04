@@ -35,6 +35,7 @@ class SERIAL(DeviceBase, asyncio.Protocol):
         vid: int = 1,
         pid: int = 1,
         reconnection_time: int = 3,
+        **kwargs,
     ):
         """
         Initialize the SERIAL protocol handler.

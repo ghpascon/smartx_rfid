@@ -10,12 +10,7 @@ from smartx_rfid.devices._base import DeviceBase
 class TCP(DeviceBase, Helpers):
     """TCP connection handler for network communication."""
 
-    def __init__(
-        self,
-        name: str = "GENERIC_TCP",
-        ip: str = "192.168.1.101",
-        port: int = 23,
-    ):
+    def __init__(self, name: str = "GENERIC_TCP", ip: str = "192.168.1.101", port: int = 23, **kwargs):
         """
         Create TCP connection.
 

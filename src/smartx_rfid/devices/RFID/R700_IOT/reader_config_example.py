@@ -1,3 +1,14 @@
+ant_config_example = {
+    "antennaPort": 1,
+    "estimatedTagPopulation": 16,
+    "fastId": "enabled",
+    "inventorySearchMode": "dual-target",
+    "inventorySession": 1,
+    "receiveSensitivityDbm": -80,
+    "rfMode": 4,
+    "transmitPowerCdbm": 3300,
+}
+
 R700_IOT_config_example = {
     "antennaConfigs": [
         {

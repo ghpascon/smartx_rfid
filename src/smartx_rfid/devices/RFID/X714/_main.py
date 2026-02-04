@@ -60,6 +60,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         active_ant: list[int] | None = [1],
         read_power: int = 22,
         read_rssi: int = -120,
+        **kwargs,
     ):
         """
         Create X714 RFID reader.

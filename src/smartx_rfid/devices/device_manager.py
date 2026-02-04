@@ -68,65 +68,19 @@ class DeviceManager:
 
         ### SERIAL
         if device_type == "SERIAL":
-            self.devices.append(
-                SERIAL(
-                    name=name,
-                    port=data.get("PORT", "AUTO"),
-                    vid=data.get("VID", 1),
-                    pid=data.get("PID", 1),
-                    baudrate=data.get("BAUDRATE", 115200),
-                )
-            )
+            self.devices.append(SERIAL(name=name, **data))
 
         ### TCP
         elif device_type == "TCP":
-            self.devices.append(TCP(name=name, ip=data.get("IP"), port=data.get("PORT", 23)))
+            self.devices.append(TCP(name=name, **data))
 
         ### X714
         elif device_type == "X714":
-            self.devices.append(
-                X714(
-                    name=name,
-                    connection_type=data.get("CONNECTION_TYPE"),
-                    port=data.get("PORT"),
-                    baudrate=data.get("BAUDRATE"),
-                    vid=data.get("VID"),
-                    pid=data.get("PID"),
-                    ip=data.get("IP"),
-                    tcp_port=data.get("TCP_PORT"),
-                    ble_name=data.get("BLE_NAME"),
-                    buzzer=data.get("BUZZER"),
-                    session=data.get("SESSION"),
-                    start_reading=data.get("START_READING", True),
-                    gpi_start=data.get("GPI_START"),
-                    ignore_read=data.get("IGNORE_READ"),
-                    always_send=data.get("ALWAYS_SEND"),
-                    simple_send=data.get("SIMPLE_SEND"),
-                    keyboard=data.get("KEYBOARD"),
-                    decode_gtin=data.get("DECODE_GTIN"),
-                    hotspot=data.get("HOTSPOT"),
-                    reconnection_time=data.get("RECONNECTION_TIME"),
-                    prefix=data.get("PREFIX"),
-                    protected_inventory_active=data.get("PROTECTED_INVENTORY_ACTIVE"),
-                    protected_inventory_password=data.get("PROTECTED_INVENTORY_PASSWORD"),
-                    ant_dict=data.get("ANT_DICT"),
-                    active_ant=data.get("ACTIVE_ANT"),
-                    read_power=data.get("READ_POWER"),
-                )
-            )
+            self.devices.append(X714(name=name, **data))
 
         ### R700
         elif device_type == "R700_IOT":
-            self.devices.append(
-                R700_IOT(
-                    name=name,
-                    ip=data.get("IP"),
-                    username=data.get("USERNAME", "root"),
-                    password=data.get("PASSWORD", "impinj"),
-                    start_reading=data.get("START_READING", True),
-                    reading_config=data.get("READING_CONFIG", {}),
-                )
-            )
+            self.devices.append(R700_IOT(name=name, **data))
 
         ###
         else:

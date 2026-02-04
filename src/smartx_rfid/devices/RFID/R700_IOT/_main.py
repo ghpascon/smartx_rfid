@@ -9,7 +9,7 @@ from smartx_rfid.utils.event import on_event
 from .on_event import OnEvent
 from .reader_helpers import ReaderHelpers
 from .write_commands import WriteCommands
-from .reader_config_example import R700_IOT_config_example
+from .reader_config_example import R700_IOT_config_example, ant_config_example
 
 
 from smartx_rfid.devices._base import DeviceBase
@@ -21,8 +21,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
     def __init__(
         self,
         # READER CONFIG
-        reading_config: dict,
         name: str = "R700",
+        reading_config: dict | None = None,
         # CONNECTION
         ip: str = "192.168.1.101",  # Example hotsname: impinj-14-46-36
         username: str = "root",
@@ -30,6 +30,12 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         start_reading: bool = False,
         # Firmware Version
         firmware_version: str = "8.4.1",
+        session: int = 1,
+        active_ant: list[int] = [1],
+        read_power: int = 3000,
+        read_rssi: int = -80,
+        gpi_start: bool = False,
+        **kwargs,
     ):
         """
         Create R700 RFID reader.
@@ -43,13 +49,58 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             start_reading: Start reading tags automatically
             firmware_version: Expected firmware version
         """
+        # READER CONFIG
+        self.config_example = R700_IOT_config_example
+        if reading_config is None:
+            # Validation
+            if session not in [0, 1, 2, 3]:
+                session = 1
+            if not isinstance(read_power, int):
+                read_power = 3000
+            if read_power < 1000:
+                read_power = read_power * 100
+            if read_power < 1000 or read_power > 3300:
+                read_power = 3000
+            if not isinstance(read_rssi, int):
+                read_rssi = -80
+            # Configuration
+            reading_config = R700_IOT_config_example.copy()
+            if gpi_start is False:
+                reading_config.pop("startTriggers")
+                reading_config.pop("stopTriggers")
+            reading_config["antennaConfigs"] = []
+            # Antennas
+            if not isinstance(active_ant, list):
+                active_ant = [1]
+            for ant in active_ant:
+                ant_cfg = ant_config_example.copy()
+                ant_cfg["antennaPort"] = ant
+                ant_cfg["inventorySession"] = session
+                ant_cfg["receiveSensitivityDbm"] = read_rssi
+                ant_cfg["transmitPowerCdbm"] = read_power
+                reading_config["antennaConfigs"].append(ant_cfg)
+
+        self.reading_config = reading_config
+
+        # Name
+        if not isinstance(name, str):
+            name = "R700"
+            logging.warning("Invalid name provided. Using default name 'R700'.")
         self.name = name
         self.device_type = "rfid"
 
         self.ip = ip
+
+        # Access
+        if not isinstance(username, str):
+            username = "root"
+        if not isinstance(password, str):
+            password = "impinj"
         self.username = username
         self.password = password
 
+        if not isinstance(start_reading, bool):
+            start_reading = False
         self.start_reading = start_reading
 
         # URL AND ENDPOINTS
@@ -73,10 +124,9 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self._command_lock = asyncio.Lock()  # Lock para evitar comandos concorrentes
         self._session: httpx.AsyncClient | None = None  # Sessão HTTP reutilizável
 
+        if not isinstance(firmware_version, str):
+            firmware_version = "8.4.1"
         self.firmware_version = firmware_version
-
-        self.reading_config = reading_config
-        self.config_example = R700_IOT_config_example
 
         self.on_event = on_event
 
