@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from smartx_rfid.utils import get_hash
 
 
 class Helpers:
@@ -20,7 +21,7 @@ class Helpers:
             await self.write(get_status_cmd, verbose=False)
             if len(self._to_print) > 0 and self.can_print:
                 zpl = self._to_print.pop(0)
-                logging.info(f"{self.name} - Sending: ZPL ID: {self.get_zpl_id(zpl)}, {len(self._to_print)} left.")
+                logging.info(f"{self.name} - Sending: ZPL ID: {get_hash(zpl)}, {len(self._to_print)} left.")
                 status, msg = self.print(zpl)
                 if not status:
                     self.on_event(self.name, "print_sent_error", msg)
