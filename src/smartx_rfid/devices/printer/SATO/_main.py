@@ -31,7 +31,6 @@ class SatoPrinter(DeviceBase, Helpers):
         self._running = True
 
         self.name = name
-        self.device_type = "generic"
 
         self.ip = ip
         self.port = port
