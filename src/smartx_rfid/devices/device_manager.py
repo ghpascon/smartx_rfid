@@ -2,6 +2,7 @@ import logging
 import os
 import json
 from smartx_rfid.devices import SERIAL, TCP, R700_IOT, X714
+from smartx_rfid.devices.printer import SatoPrinter
 import asyncio
 from typing import List, Dict, Optional, Tuple
 from smartx_rfid.schemas.tag import WriteTagValidator
@@ -84,6 +85,10 @@ class DeviceManager:
         ### R700
         elif device_type == "R700_IOT":
             self.devices.append(R700_IOT(name=name, **data))
+
+        ### SATO
+        elif device_type == "SATO":
+            self.devices.append(SatoPrinter(name=name, **data))
 
         ###
         else:
@@ -469,6 +474,23 @@ class DeviceManager:
                 await device.protected_mode(epc, password, active)
             else:
                 device.protected_mode(epc, password, active)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    async def print(self, device_name: str, data: str) -> Tuple[bool, Optional[str]]:
+        device = self.get_device(device_name)
+        if device is None:
+            return False, f"Device '{device_name}' not found."
+
+        if getattr(device, "device_type", "").lower() != "printer":
+            return False, f"Device '{device_name}' is not a printer."
+
+        if not getattr(device, "write", None):
+            return False, f"Device '{device_name}' does not support printing."
+
+        try:
+            await device.write(data)
             return True, None
         except Exception as e:
             return False, str(e)
