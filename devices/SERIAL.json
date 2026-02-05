@@ -1,0 +1,7 @@
+{
+  "READER": "SERIAL",
+  "PORT": "AUTO",
+  "BAUDRATE": 9600,
+  "VID": 259,
+  "PID": 24673
+}

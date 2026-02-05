@@ -310,8 +310,8 @@ class DeviceManager:
         if not device:
             return None
 
-        is_connected: bool = device.is_connected
-        is_reading: bool = device.is_reading if is_connected else False
+        is_connected: bool = getattr(device, "is_connected", False)
+        is_reading: bool = getattr(device, "is_reading", False) if is_connected else False
         is_gpi_trigger_on: bool = getattr(device, "is_gpi_trigger_on", False)
         return {
             "name": device.name,
@@ -326,7 +326,7 @@ class DeviceManager:
         Check if any device is currently reading tags.
         """
         for device in self.devices:
-            if device.is_connected and device.is_reading:
+            if getattr(device, "is_connected", False) and getattr(device, "is_reading", False):
                 return True
         return False
 

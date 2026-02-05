@@ -4,73 +4,9 @@
   "USERNAME": "root",
   "PASSWORD": "impinj",
   "START_READING": true,
-  "READING_CONFIG": {
-    "antennaConfigs": [
-      {
-        "antennaPort": 1,
-        "estimatedTagPopulation": 16,
-        "fastId": "enabled",
-        "inventorySearchMode": "dual-target",
-        "inventorySession": 1,
-        "receiveSensitivityDbm": -80,
-        "rfMode": 4,
-        "transmitPowerCdbm": 3300
-      },
-      {
-        "antennaPort": 2,
-        "estimatedTagPopulation": 16,
-        "fastId": "enabled",
-        "inventorySearchMode": "dual-target",
-        "inventorySession": 1,
-        "receiveSensitivityDbm": -80,
-        "rfMode": 4,
-        "transmitPowerCdbm": 3300
-      },
-      {
-        "antennaPort": 3,
-        "estimatedTagPopulation": 16,
-        "fastId": "enabled",
-        "inventorySearchMode": "dual-target",
-        "inventorySession": 1,
-        "receiveSensitivityDbm": -80,
-        "rfMode": 4,
-        "transmitPowerCdbm": 3300
-      },
-      {
-        "antennaPort": 4,
-        "estimatedTagPopulation": 16,
-        "fastId": "enabled",
-        "inventorySearchMode": "dual-target",
-        "inventorySession": 1,
-        "receiveSensitivityDbm": -80,
-        "rfMode": 4,
-        "transmitPowerCdbm": 3300
-      }
-    ],
-    "eventConfig": {
-      "common": {
-        "hostname": "disabled"
-      },
-      "tagInventory": {
-        "epc": "disabled",
-        "epcHex": "enabled",
-        "xpcHex": "disabled",
-        "tid": "disabled",
-        "tidHex": "enabled",
-        "antennaPort": "enabled",
-        "transmitPowerCdbm": "disabled",
-        "peakRssiCdbm": "enabled",
-        "frequency": "disabled",
-        "pc": "disabled",
-        "lastSeenTime": "disabled",
-        "phaseAngle": "disabled",
-        "tagReporting": {
-          "reportingIntervalSeconds": 1,
-          "tagCacheSize": 2048,
-          "antennaIdentifier": "antennaPort",
-          "tagIdentifier": "epc"
-        }
-      }
-    }
-  }
+  "SESSION": 1,
+  "ACTIVE_ANT": [1],
+  "READ_POWER": 30,
+  "READ_RSSI": -80,
+  "GPI_START": false
 }
