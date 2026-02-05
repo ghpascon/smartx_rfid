@@ -5,6 +5,7 @@ from typing import Callable, Optional
 from smartx_rfid.devices._base import DeviceBase
 from smartx_rfid.utils.event import on_event
 from .helpers import Helpers
+import hashlib
 
 
 class SatoPrinter(DeviceBase, Helpers):
@@ -42,6 +43,12 @@ class SatoPrinter(DeviceBase, Helpers):
         self.can_print = False
         self.last_status = None
         self.on_event: Callable = on_event
+
+        self._to_print: list[str] = []
+
+        # Success on print
+        self._print_sent = False
+        self._zpl_id = None
 
     async def connect(self):
         """Connect to TCP server and keep connection alive."""
@@ -115,3 +122,26 @@ class SatoPrinter(DeviceBase, Helpers):
                 logging.warning(f"[{self.name}] [SEND ERROR] data={data.strip()} error={e}")
                 self.is_connected = False
                 self.on_event(self.name, "connection", False)
+
+    def get_zpl_id(self, zpl: str) -> str:
+        """Generate a unique ID for the given ZPL command."""
+        return str(hashlib.sha256(zpl.encode("utf-8")).hexdigest())
+
+    def print(self, zpl: str):
+        """Send ZPL command to printer."""
+        if not self.is_connected:
+            return False, "Printer not connected."
+        if not self.can_print:
+            return False, "Printer not ready."
+        asyncio.create_task(self.write(zpl))
+        self._print_sent = True
+        self._zpl_id = self.get_zpl_id(zpl)
+        return True, self._zpl_id
+
+    def add_to_print_queue(self, zpl: str | list[str]):
+        """Add ZPL command to the print queue."""
+        if isinstance(zpl, list):
+            self._to_print = self._to_print + zpl
+        else:
+            self._to_print.append(zpl)
+        logging.info(f"{self.name} - Added to print queue. {len(self._to_print)} total.")

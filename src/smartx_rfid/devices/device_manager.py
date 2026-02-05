@@ -483,14 +483,27 @@ class DeviceManager:
         if device is None:
             return False, f"Device '{device_name}' not found."
 
-        if getattr(device, "device_type", "").lower() != "printer":
+        if not getattr(device, "device_type", "").lower() == "printer":
             return False, f"Device '{device_name}' is not a printer."
 
-        if not getattr(device, "write", None):
-            return False, f"Device '{device_name}' does not support printing."
-
         try:
-            await device.write(data)
-            return True, None
+            return await device.print(data)
         except Exception as e:
             return False, str(e)
+
+    def add_to_print_queue(self, device_name: str, zpl: str | list[str]):
+        device = self.get_device(device_name)
+        if device is None:
+            logging.error(f"❌ Device '{device_name}' not found.")
+            return False
+
+        if not getattr(device, "add_to_print_queue", None):
+            logging.error(f"❌ Device '{device_name}' does not support print queue.")
+            return False
+
+        try:
+            device.add_to_print_queue(zpl)
+            return True
+        except Exception as e:
+            logging.error(f"❌ Error adding to print queue on device '{device_name}': {e}")
+            return False

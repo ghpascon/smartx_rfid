@@ -22,20 +22,11 @@ logging.basicConfig(
 
 def on_event(name: str, event_type: str, event_data=None):
     print(f"{name} -> Event: {event_type}, Data: {event_data}")
-    if event_type == "status" and event_data == "ready":
-        if len(print_list) == 0:
-            print("No more labels to print.")
-            exit(0)
-        status, msg = printer.print(print_list.pop(0))
-        if not status:
-            print(f"Print error: {msg}")
-        if status:
-            print(f"Print sent, ID: {msg}")
 
 
 async def main():
     printer.on_event = on_event
-
+    printer.add_to_print_queue(print_list)
     asyncio.create_task(printer.connect())
 
     while True:

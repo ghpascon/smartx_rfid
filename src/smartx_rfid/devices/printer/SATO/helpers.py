@@ -18,6 +18,14 @@ class Helpers:
                 break
 
             await self.write(get_status_cmd, verbose=False)
+            if len(self._to_print) > 0 and self.can_print:
+                zpl = self._to_print.pop(0)
+                logging.info(f"{self.name} - Sending: ZPL ID: {self.get_zpl_id(zpl)}, {len(self._to_print)} left.")
+                status, msg = self.print(zpl)
+                if not status:
+                    self.on_event(self.name, "print_sent_error", msg)
+                if status:
+                    self.on_event(self.name, "print_sent", msg)
 
     async def receive_data(self):
         """Receive and process incoming TCP data."""
@@ -61,6 +69,10 @@ class Helpers:
         # Ready to print
         if "a000000" == cmd:
             self.can_print = True
+            if self._print_sent:
+                self.on_event(self.name, "print_success", f"{self._zpl_id}")
+                self._print_sent = False
+                self._zpl_id = None
             self.on_event(self.name, "status", "ready")
         # printing
         elif "g000001" == cmd:
@@ -70,6 +82,10 @@ class Helpers:
             self.on_event(self.name, "status", "offline")
         # error:
         elif cmd.startswith("e") or cmd.startswith("f"):
+            if self._print_sent:
+                self.on_event(self.name, "print_error", f"{self._zpl_id}")
+                self._print_sent = False
+                self._zpl_id = None
             self.on_event(self.name, "status", f"error: {cmd}")
         # open
         elif cmd == "b000000":
