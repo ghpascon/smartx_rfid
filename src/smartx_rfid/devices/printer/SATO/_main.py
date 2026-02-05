@@ -5,7 +5,7 @@ from typing import Callable, Optional
 from smartx_rfid.devices._base import DeviceBase
 from smartx_rfid.utils.event import on_event
 from .helpers import Helpers
-import hashlib
+from smartx_rfid.utils import get_hash
 
 
 class SatoPrinter(DeviceBase, Helpers):
@@ -122,10 +122,6 @@ class SatoPrinter(DeviceBase, Helpers):
                 self.is_connected = False
                 self.on_event(self.name, "connection", False)
 
-    def get_zpl_id(self, zpl: str) -> str:
-        """Generate a unique ID for the given ZPL command."""
-        return str(hashlib.sha256(zpl.encode("utf-8")).hexdigest())
-
     def print(self, zpl: str):
         """Send ZPL command to printer."""
         if not self.is_connected:
@@ -134,7 +130,7 @@ class SatoPrinter(DeviceBase, Helpers):
             return False, "Printer not ready."
         asyncio.create_task(self.write(zpl))
         self._print_sent = True
-        self._zpl_id = self.get_zpl_id(zpl)
+        self._zpl_id = get_hash(zpl)
         return True, self._zpl_id
 
     def add_to_print_queue(self, zpl: str | list[str]):
