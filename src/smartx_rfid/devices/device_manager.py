@@ -1,8 +1,14 @@
 import logging
 import os
 import json
-from smartx_rfid.devices import SERIAL, TCP, R700_IOT, X714
-from smartx_rfid.devices.printer import SatoPrinter
+from smartx_rfid.devices import (
+    SERIAL,
+    TCP,
+    R700_IOT,
+    X714,
+    ACUPAD,
+    SatoPrinter,
+)
 import asyncio
 from typing import List, Dict, Optional, Tuple
 from smartx_rfid.schemas.tag import WriteTagValidator
@@ -89,6 +95,10 @@ class DeviceManager:
         ### SATO
         elif device_type == "SATO":
             self.devices.append(SatoPrinter(name=name, **data))
+
+        ### ACUPAD
+        elif device_type == "ACUPAD":
+            self.devices.append(ACUPAD(name=name, **data))
 
         ###
         else:
