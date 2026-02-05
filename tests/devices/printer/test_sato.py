@@ -28,6 +28,11 @@ def test_sato_event_callback():
     assert dummy.events[-1] == ("TestSato", "connection", True)
 
 
+def test_sato_device_type():
+    printer = SatoPrinter(ip="127.0.0.1", name="TestSato", port=9100)
+    assert printer.device_type == "printer"
+
+
 @pytest.mark.asyncio
 async def test_sato_connect_disconnect(monkeypatch):
     printer = SatoPrinter(ip="127.0.0.1", name="TestSato", port=9100)
