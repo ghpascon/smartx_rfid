@@ -313,12 +313,17 @@ class DeviceManager:
         is_connected: bool = getattr(device, "is_connected", False)
         is_reading: bool = getattr(device, "is_reading", False) if is_connected else False
         is_gpi_trigger_on: bool = getattr(device, "is_gpi_trigger_on", False)
+        device_type: str = getattr(device, "device_type", "UNKNOWN")
+        can_print: bool = getattr(device, "can_print", False)
+        to_print: int = len(getattr(device, "_to_print", []))
         return {
             "name": device.name,
             "is_connected": is_connected,
             "is_reading": is_reading,
-            "device_type": getattr(device, "device_type", None),
+            "device_type": device_type,
             "is_gpi_trigger_on": is_gpi_trigger_on,
+            "can_print": can_print,
+            "to_print": to_print,
         }
 
     def any_device_reading(self) -> bool:
