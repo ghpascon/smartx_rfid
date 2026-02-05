@@ -16,6 +16,15 @@ def on_event(name: str, event_type: str, event_data=None):
     print(f"{name} -> Event: {event_type}, Data: {event_data}")
     if event_type == "status" and event_data == "ready":
         asyncio.create_task(printer.write(simple_zpl_example))
+        asyncio.create_task(
+            printer.write(simple_zpl_example.replace("000000000000000000000001", "000000000000000000000002"))
+        )
+        asyncio.create_task(
+            printer.write(simple_zpl_example.replace("000000000000000000000001", "000000000000000000000003"))
+        )
+        asyncio.create_task(
+            printer.write(simple_zpl_example.replace("000000000000000000000001", "000000000000000000000004"))
+        )
 
 
 async def main():

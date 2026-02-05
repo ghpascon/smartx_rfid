@@ -68,9 +68,12 @@ class Helpers:
         # offline
         elif "0000000" == cmd:
             self.on_event(self.name, "status", "offline")
-        # erro:
-        elif cmd.startswith("e"):
-            self.on_event(self.name, "status", f"erro: {cmd}")
+        # error:
+        elif cmd.startswith("e") or cmd.startswith("f"):
+            self.on_event(self.name, "status", f"error: {cmd}")
+        # open
+        elif cmd == "b000000":
+            self.on_event(self.name, "status", "error: Open")
         # Fallback
         else:
             self.on_event(self.name, "status", cmd)
