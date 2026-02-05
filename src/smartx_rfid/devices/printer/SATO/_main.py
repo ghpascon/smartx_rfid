@@ -57,8 +57,9 @@ class SatoPrinter(DeviceBase, Helpers):
                 self.reader, self.writer = await asyncio.wait_for(
                     asyncio.open_connection(self.ip, self.port), timeout=3
                 )
-                self.is_connected = True
-                self.on_event(self.name, "connection", True)
+                if not self.is_connected:
+                    self.is_connected = True
+                    self.on_event(self.name, "connection", True)
 
                 # Start the receive and monitor tasks
                 tasks = [
@@ -77,8 +78,9 @@ class SatoPrinter(DeviceBase, Helpers):
                 self.on_event(self.name, "connection", False)
 
             except Exception as e:
-                self.is_connected = False
-                self.on_event(self.name, "connection", False)
+                if self.is_connected:
+                    self.is_connected = False
+                    self.on_event(self.name, "connection", False)
                 logging.error(f"[CONNECTION ERROR] {e}")
 
             await asyncio.sleep(3)
@@ -119,8 +121,9 @@ class SatoPrinter(DeviceBase, Helpers):
                     logging.info(f"[{self.name}] [SENT] {data.strip()}")
             except Exception as e:
                 logging.warning(f"[{self.name}] [SEND ERROR] data={data.strip()} error={e}")
-                self.is_connected = False
-                self.on_event(self.name, "connection", False)
+                if self.is_connected:
+                    self.is_connected = False
+                    self.on_event(self.name, "connection", False)
 
     def print(self, zpl: str):
         """Send ZPL command to printer."""
