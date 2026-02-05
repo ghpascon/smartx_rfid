@@ -317,7 +317,7 @@ class DeviceManager:
             "name": device.name,
             "is_connected": is_connected,
             "is_reading": is_reading,
-            "device_type": device.device_type,
+            "device_type": getattr(device, "device_type", None),
             "is_gpi_trigger_on": is_gpi_trigger_on,
         }
 
@@ -346,11 +346,11 @@ class DeviceManager:
             logging.warning(f"⚠️ Device '{name}' not found.")
             return False, None
 
-        if not device.device_type == "rfid":
+        if not getattr(device, "device_type", None) == "rfid":
             logging.warning(f"⚠️ Device '{name}' is not an RFID device.")
             return False, None
 
-        if not device.is_connected:
+        if not getattr(device, "is_connected", False):
             logging.warning(f"⚠️ Device '{name}' is not connected.")
             return False, None
 
@@ -478,7 +478,7 @@ class DeviceManager:
         except Exception as e:
             return False, str(e)
 
-    async def print(self, device_name: str, data: str) -> Tuple[bool, Optional[str]]:
+    def print(self, device_name: str, data: str) -> Tuple[bool, Optional[str]]:
         device = self.get_device(device_name)
         if device is None:
             return False, f"Device '{device_name}' not found."
@@ -487,7 +487,7 @@ class DeviceManager:
             return False, f"Device '{device_name}' is not a printer."
 
         try:
-            return await device.print(data)
+            return device.print(data)
         except Exception as e:
             return False, str(e)
 
