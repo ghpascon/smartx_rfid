@@ -314,10 +314,12 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
         return crc & 0xFFFF
 
     async def start_inventory(self):
+        self.on_event(self.name, "reading", True)
         self.write("readtag on", verbose=True)
         self.is_reading = True
 
     async def stop_inventory(self):
+        self.on_event(self.name, "reading", False)
         self.write("readtag off", verbose=True)
         self.is_reading = False
 
