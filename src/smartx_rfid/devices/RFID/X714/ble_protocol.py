@@ -116,7 +116,6 @@ class BLEProtocol:
                                     self.is_connected = True
                                     self.on_event(self.name, "connection", True)
                                     logging.info(f"{self.name} - ✅ BLE connection successfully established.")
-                                    self.config_reader()
                                     self.notify_enabled = True
                                 except Exception as e:
                                     logging.warning(f"{self.name} - [Notify Error] {char.uuid}: {e}")

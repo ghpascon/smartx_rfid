@@ -44,7 +44,6 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         session: int = 1,  # 0, 1, 2, 3
         start_reading: bool = False,
         gpi_start: bool = False,
-        ignore_read: bool = False,
         always_send: bool = True,
         simple_send: bool = False,
         keyboard: bool = False,
@@ -79,7 +78,6 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             session: EPC session number (0-3)
             start_reading: Start reading tags automatically
             gpi_start: Use GPI input to start reading
-            ignore_read: Skip duplicate tags
             always_send: Send all tag events
             simple_send: Use simple tag format
             keyboard: Act like keyboard input
@@ -150,8 +148,6 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             start_reading = False
         if not isinstance(gpi_start, bool):
             gpi_start = False
-        if not isinstance(ignore_read, bool):
-            ignore_read = False
         if not isinstance(always_send, bool):
             always_send = True
         if not isinstance(simple_send, bool):
@@ -166,7 +162,6 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             reconnection_time = 5
         self.start_reading = start_reading
         self.gpi_start = gpi_start
-        self.ignore_read = ignore_read
         self.always_send = always_send
         self.simple_send = simple_send
         self.keyboard = keyboard

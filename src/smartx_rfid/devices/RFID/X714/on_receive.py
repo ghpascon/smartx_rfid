@@ -34,11 +34,15 @@ class OnReceive:
             current_tag = {"epc": epc, "tid": tid, "ant": int(ant), "rssi": int(rssi) * (-1), "protected": protected}
             self.on_tag(current_tag)
 
-        elif data.startswith("#set_cmd:"):
-            logging.info(f"{self.name} - CONFIG -> {data[data.index(':') + 1 :]}")
-
         elif data == "#tags_cleared":
             self.on_event(self.name, "tags_cleared", True)
+
+        elif data == "#setup_done":
+            self.on_event(self.name, "setup_done", True)
+
+        # fallback
+        else:
+            self.on_event(self.name, "receive", data)
 
     def on_start(self):
         """Called when reader starts reading tags."""

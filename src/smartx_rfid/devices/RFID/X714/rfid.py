@@ -1,4 +1,4 @@
-import asyncio
+import logging
 
 
 class RfidCommands:
@@ -24,7 +24,10 @@ class RfidCommands:
 
     def config_reader(self):
         """Configure reader settings like antennas, session, etc."""
+        logging.info(f"{self.name} - Configuring reader settings...")
         cmds = []
+        # PROTECTED INVENTORY
+        self.protected_inventory(self.protected_inventory_active)
 
         # ANTENNAS
         for antenna, ant in self.ant_dict.items():
@@ -41,10 +44,6 @@ class RfidCommands:
 
         # GPI_START
         cmds.append(f"#gpi_start:{'on' if self.gpi_start else 'off'}")
-
-        # IGNORE_READ (se existir no firmware)
-        if hasattr(self, "ignore_read"):
-            cmds.append(f"#ignore_read:{'on' if self.ignore_read else 'off'}")
 
         # ALWAYS_SEND
         cmds.append(f"#always_send:{'on' if self.always_send else 'off'}")
@@ -67,24 +66,19 @@ class RfidCommands:
         # PREFIX
         cmds.append(f"#prefix:{self.prefix}")
 
-        # Envia todos os comandos juntos, separados por '|'
+        # setup
+        cmds.append("#setup_reader")
+
+        # cmd = "".join(cmds)
+        # self.write(cmd)
         for cmd in cmds:
             self.write(cmd)
 
-        # PROTECTED INVENTORY
-        self.protected_inventory(self.protected_inventory_active)
-
         # Start Reading
-        if self.start_reading:
-            asyncio.create_task(self.start_inventory())
-        else:
-            asyncio.create_task(self.stop_inventory())
-
-    async def auto_clear(self):
-        while getattr(self, "_running", True):
-            await asyncio.sleep(30)
-            if self.is_connected:
-                self.clear_tags()
+        # if self.start_reading:
+        #     asyncio.create_task(self.start_inventory())
+        # else:
+        #     asyncio.create_task(self.stop_inventory())
 
     def protected_inventory(self, active: bool, password: str = None):
         if active:

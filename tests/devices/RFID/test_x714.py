@@ -232,7 +232,6 @@ class TestX714:
             session=None,
             start_reading=None,
             always_send=None,
-            ignore_read=None,
             simple_send=None,
             ant_dict=None,
             ip=None,
@@ -244,7 +243,6 @@ class TestX714:
         assert x714_device.session == 1
         assert x714_device.start_reading is False
         assert x714_device.always_send is True
-        assert x714_device.ignore_read is False
         assert x714_device.simple_send is False
         assert x714_device.ant_dict == ant_default_config
         assert isinstance(x714_device.ip, str)
