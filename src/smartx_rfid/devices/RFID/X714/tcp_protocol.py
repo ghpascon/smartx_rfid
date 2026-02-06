@@ -9,6 +9,7 @@ class TCPHelpers:
             await asyncio.sleep(self.reconnection_time)
             if (self.writer and self.writer.is_closing()) or (self.reader and self.reader.at_eof()):
                 self.is_connected = False
+                self.is_reading = False
                 logging.info(f"{self.name} - [DISCONNECTED] Socket closed.")
                 break
 
@@ -39,6 +40,7 @@ class TCPHelpers:
         except Exception as e:
             if self.is_connected:
                 self.is_connected = False
+                self.is_reading = False
                 logging.warning(f"[RECEIVE ERROR] {e}")
 
 
@@ -83,6 +85,7 @@ class TCPProtocol(TCPHelpers):
                     t.cancel()
 
                 self.is_connected = False
+                self.is_reading = False
                 self.on_event(self.name, "connection", False)
                 logging.info(f"🔌 [DISCONNECTED] {self.name} - Reconnecting...")
 
@@ -109,6 +112,7 @@ class TCPProtocol(TCPHelpers):
                 self.writer = None
                 self.reader = None
                 self.is_connected = False
+                self.is_reading = False
 
             logging.info(f"🔁 Retrying {self.name} in {self.reconnection_time}s...")
             await asyncio.sleep(self.reconnection_time)
@@ -125,6 +129,7 @@ class TCPProtocol(TCPHelpers):
                 logging.warning(f"{self.name} - [SEND ERROR] {e}")
                 if self.is_connected:
                     self.is_connected = False
+                    self.is_reading = False
                     self.on_event(self.name, "connection", False)
 
     async def periodic_ping(self, interval: int):

@@ -69,6 +69,7 @@ class BLEProtocol:
                 # Se já estava conectado antes, emite o evento de desconexão
                 if self.is_connected:
                     self.is_connected = False
+                    self.is_reading = False
                     self.on_event(self.name, "connection", False)
 
                 # Escolhe o endereço conforme o modo

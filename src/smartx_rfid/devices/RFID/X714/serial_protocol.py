@@ -25,6 +25,7 @@ class SerialProtocol(asyncio.Protocol):
         logging.warning(f"{self.name} - ⚠️ Serial connection lost.")
         self.transport = None
         self.is_connected = False
+        self.is_reading = False
         self.on_event(self.name, "connection", False)
 
         if self.on_con_lost:

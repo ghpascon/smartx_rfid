@@ -6,14 +6,14 @@ class RfidCommands:
 
     async def start_inventory(self):
         """Start reading RFID tags."""
-        if self.is_gpi_trigger_on or not self.is_connected:
+        if self.is_gpi_trigger_on:
             return
         self.write("#READ:ON")
         self.on_start()
 
     async def stop_inventory(self):
         """Stop reading RFID tags."""
-        if self.is_gpi_trigger_on or not self.is_connected:
+        if self.is_gpi_trigger_on:
             return
         self.write("#READ:OFF")
         self.on_stop()
@@ -24,18 +24,6 @@ class RfidCommands:
 
     def config_reader(self):
         """Configure reader settings like antennas, session, etc."""
-        # Start Reading
-        if self.start_reading:
-            if hasattr(self, "create_task"):
-                self.create_task(self.start_inventory())
-            else:
-                asyncio.create_task(self.start_inventory())
-        else:
-            if hasattr(self, "create_task"):
-                self.create_task(self.stop_inventory())
-            else:
-                asyncio.create_task(self.stop_inventory())
-
         cmds = []
 
         # ANTENNAS
@@ -80,10 +68,17 @@ class RfidCommands:
         cmds.append(f"#prefix:{self.prefix}")
 
         # Envia todos os comandos juntos, separados por '|'
-        self.write("|".join(cmds))
+        for cmd in cmds:
+            self.write(cmd)
 
         # PROTECTED INVENTORY
         self.protected_inventory(self.protected_inventory_active)
+
+        # Start Reading
+        if self.start_reading:
+            asyncio.create_task(self.start_inventory())
+        else:
+            asyncio.create_task(self.stop_inventory())
 
     async def auto_clear(self):
         while getattr(self, "_running", True):
