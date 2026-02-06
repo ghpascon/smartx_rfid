@@ -130,6 +130,15 @@ class TestSERIAL:
         assert tags.get_by_identifier("000000000000000000000002").get("protected") is False
         assert tags.get_by_identifier("000000000000000000000003").get("protected") is False
 
+    def test_change_gtin(self):
+        tags = TagList(unique_identifier="tid")
+
+        tags.add({"epc": "000000000000000000000001", "tid": "e28000000000000000000001"})
+        assert tags.get_by_identifier("e28000000000000000000001", identifier_type="tid").get("gtin") is None
+
+        tags.add({"epc": "3035e1ddd0011fc000000003", "tid": "e28000000000000000000001"})
+        assert tags.get_by_identifier("e28000000000000000000001", identifier_type="tid").get("gtin") == "07894900011517"
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -143,8 +143,8 @@ class TagList:
             "device": device,
             **tag,
             "gtin": gtin,
-            "count": 1,
             "chip": chip_name,
+            "count": 1,
         }
 
         self._tags[tag[self.unique_identifier]] = stored_tag
