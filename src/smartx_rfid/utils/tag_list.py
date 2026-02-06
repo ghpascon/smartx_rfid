@@ -34,6 +34,30 @@ class TagList:
         if prefix is not None:
             self.prefix = [p.lower() for p in prefix]
 
+        self.chip_map: Dict[str, str] = {
+            "e2801114": "Impinj Monza 4i",
+            "e2801100": "Impinj Monza 4D",
+            "e2801105": "Impinj Monza 4QT",
+            "e2801160": "Impinj Monza R6",
+            "e2801170": "Impinj Monza R6-P",
+            "e2801191": "Impinj M730",
+            "e2801190": "Impinj M750",
+            "e28011a0": "Impinj M770",
+            "e28011c0": "Impinj M780",
+            "e28011c1": "Impinj M781",
+            "e28011b0": "Impinj M800",
+            "e2806894": "NXP Ucode 8",
+            "e2806994": "NXP Ucode 8m",
+            "e2806995": "NXP Ucode 9",
+            "e2806a16": "NXP Ucode 9XE",
+            "e2806897": "NXP Ucode 9XM",
+            "e2003412": "Alien Higgs 3",
+            "e2003811": "Alien Higgs-EC",
+            "e2003821": "Alien Higgs 9",
+            "e2803821": "Alien Higgs 9",
+            "e2803813": "Alien Higgs 10",
+        }
+
     def __len__(self) -> int:
         """
         Return the number of stored tags.
@@ -107,12 +131,20 @@ class TagList:
         except Exception:
             gtin = None
 
+        tid_val = tag.get("tid")
+        tid_key = "Unknown"
+        if tid_val:
+            tid_key = tid_val[:8].lower()
+            if not tid_key.startswith("e"):
+                tid_key = "e" + tid_key
+        chip_name = self.chip_map.get(tid_key, "Unknown")
         stored_tag = {
             "timestamp": now,
             "device": device,
             **tag,
             "gtin": gtin,
             "count": 1,
+            "chip": chip_name,
         }
 
         self._tags[tag[self.unique_identifier]] = stored_tag
@@ -125,7 +157,7 @@ class TagList:
 
         Args:
             tag: Incoming tag data.
-
+            device: Source device identifier.
         Returns:
             The updated stored tag.
         """
@@ -140,6 +172,11 @@ class TagList:
             current["device"] = device
         if not tag.get("epc") == current.get("epc"):
             current["epc"] = tag.get("epc")
+            try:
+                gtin = SGTIN.decode(tag.get("epc")).gtin
+            except Exception:
+                gtin = None
+            current["gtin"] = gtin
         if not tag.get("protected") == current.get("protected"):
             current["protected"] = tag.get("protected")
 
