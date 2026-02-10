@@ -12,6 +12,7 @@ from smartx_rfid.devices import (
 import asyncio
 from typing import List, Dict, Optional, Tuple
 from smartx_rfid.schemas.tag import WriteTagValidator
+from smartx_rfid.schemas.devices import GpoSchema
 from typing import Callable
 import inspect
 
@@ -522,3 +523,28 @@ class DeviceManager:
         except Exception as e:
             logging.error(f"❌ Error adding to print queue on device '{device_name}': {e}")
             return False
+
+    async def write_gpo(self, device_name: str, pin: int, state: bool, control: str = "static", time: int = 1000):
+        # validate if device exists and supports GPO
+        device = self.get_device(device_name)
+        if device is None:
+            return False, f"Device '{device_name}' not found."
+        if not getattr(device, "write_gpo", None):
+            return False, f"Device '{device_name}' does not support GPO control."
+        # Validate schema
+        try:
+            gpo_data = GpoSchema(pin=pin, state=state, control=control, time=time)
+        except Exception as e:
+            logging.error(f"❌ Invalid GPO data: {e}")
+            return False, f"Invalid GPO data: {e}"
+
+        # Attempt to write GPO
+        try:
+            if asyncio.iscoroutinefunction(device.write_gpo):
+                await device.write_gpo(**gpo_data.model_dump())
+            else:
+                device.write_gpo(**gpo_data.model_dump())
+            return True, None
+        except Exception as e:
+            logging.error(f"❌ Error writing GPO on device '{device_name}': {e}")
+            return False, str(e)
