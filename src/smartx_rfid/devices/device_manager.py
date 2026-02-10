@@ -450,6 +450,9 @@ class DeviceManager:
         if not getattr(device, "write_epc", None):
             return False, f"Device '{device_name}' does not support writing EPC."
 
+        if not getattr(device, "is_connected", False):
+            return False, f"Device '{device_name}' is not connected."
+
         try:
             await device.write_epc(**write_tag.model_dump())
             return True, None
@@ -465,6 +468,9 @@ class DeviceManager:
 
         if not getattr(device, "protected_inventory", None):
             return False, f"Device '{device_name}' does not support protected inventory."
+
+        if not getattr(device, "is_connected", False):
+            return False, f"Device '{device_name}' is not connected."
 
         try:
             if asyncio.iscoroutinefunction(device.protected_inventory):
@@ -485,6 +491,9 @@ class DeviceManager:
         if not getattr(device, "protected_mode", None):
             return False, f"Device '{device_name}' does not support protected mode."
 
+        if not getattr(device, "is_connected", False):
+            return False, f"Device '{device_name}' is not connected."
+
         try:
             if asyncio.iscoroutinefunction(device.protected_mode):
                 await device.protected_mode(epc, password, active)
@@ -502,6 +511,9 @@ class DeviceManager:
         if not getattr(device, "device_type", "").lower() == "printer":
             return False, f"Device '{device_name}' is not a printer."
 
+        if not getattr(device, "is_connected", False):
+            return False, f"Device '{device_name}' is not connected."
+
         try:
             return device.print(data)
         except Exception as e:
@@ -515,6 +527,10 @@ class DeviceManager:
 
         if not getattr(device, "add_to_print_queue", None):
             logging.error(f"❌ Device '{device_name}' does not support print queue.")
+            return False
+
+        if not getattr(device, "is_connected", False):
+            logging.error(f"❌ Device '{device_name}' is not connected.")
             return False
 
         try:
@@ -531,6 +547,10 @@ class DeviceManager:
             return False, f"Device '{device_name}' not found."
         if not getattr(device, "write_gpo", None):
             return False, f"Device '{device_name}' does not support GPO control."
+        # Check if device is connected
+        if not getattr(device, "is_connected", False):
+            return False, f"Device '{device_name}' is not connected."
+
         # Validate schema
         try:
             gpo_data = GpoSchema(pin=pin, state=state, control=control, time=time)
