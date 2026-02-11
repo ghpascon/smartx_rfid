@@ -18,12 +18,17 @@ class LoggerManager:
     """
 
     def __init__(self, log_path: str, base_filename: str, storage_days: int = 7, use_utc: bool = False):
-        self.log_path = os.path.abspath(log_path)
         self.base_filename = base_filename
         self.storage_days = storage_days
         self.use_utc = use_utc
 
-        os.makedirs(self.log_path, exist_ok=True)
+        # Try to create/access the log directory, fallback to 'logs' if fails
+        try:
+            self.log_path = os.path.abspath(log_path)
+            os.makedirs(self.log_path, exist_ok=True)
+        except Exception:
+            self.log_path = os.path.abspath("logs")
+            os.makedirs(self.log_path, exist_ok=True)
 
         # Queue and thread for async logging
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=10_000)
