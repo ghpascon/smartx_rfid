@@ -1,6 +1,5 @@
 import httpx
 import logging
-import asyncio
 import xml.etree.ElementTree as ET
 
 demo_server_url = "https://demo.smtx.com.br:6100/req"
@@ -11,7 +10,6 @@ class ApiXtrack:
         logging.info(f"[ XTRACK ] Initializing ApiXtrack with base_url: {base_url} and timeout: {timeout}")
         self.base_url = base_url
         self.timeout = timeout
-        asyncio.create_task(self.test_connection())
 
     async def get(self, endpoint: str | None = None, params: dict = None, headers: dict = None, url: str | None = None):
         url = url or (f"{self.base_url}/{endpoint}" if endpoint else self.base_url)
