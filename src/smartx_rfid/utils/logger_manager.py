@@ -1,40 +1,121 @@
 import logging
-import os
 import queue
 import threading
 import sys
 import asyncio
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+
+
+class JsonQueueHandler(logging.Handler):
+    """
+    Handler that pushes logs to a queue for asynchronous JSON writing.
+    Includes module, function, and thread info automatically.
+    """
+
+    def __init__(self, log_queue: queue.Queue):
+        super().__init__()
+        self.log_queue = log_queue
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            log_entry = {
+                "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+                "module": record.module,
+                "function": record.funcName,
+                "thread": record.threadName,
+            }
+            # Include exception if present
+            if record.exc_info:
+                log_entry["exception"] = logging.Formatter().formatException(record.exc_info)
+
+            # Include extra fields passed via 'extra' (not in standard LogRecord fields)
+            standard_fields = set(
+                [
+                    "name",
+                    "msg",
+                    "args",
+                    "levelname",
+                    "levelno",
+                    "pathname",
+                    "filename",
+                    "module",
+                    "exc_info",
+                    "exc_text",
+                    "stack_info",
+                    "lineno",
+                    "funcName",
+                    "created",
+                    "msecs",
+                    "relativeCreated",
+                    "thread",
+                    "threadName",
+                    "processName",
+                    "process",
+                    "getMessage",
+                ]
+            )
+            for key, value in record.__dict__.items():
+                if key not in standard_fields:
+                    # Convert non-serializable objects to string
+                    try:
+                        json.dumps(value)
+                        log_entry[key] = value
+                    except TypeError:
+                        log_entry[key] = str(value)
+
+            self.log_queue.put_nowait(json.dumps(log_entry, ensure_ascii=False))
+        except queue.Full:
+            # Could implement drop counter here
+            pass
+        except Exception:
+            self.handleError(record)
+
+    def handleError(self, record):
+        # Log error to console (default behavior)
+        super().handleError(record)
+        # Also log error to JSON file
+        try:
+            error_entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "level": "ERROR",
+                "logger": record.name,
+                "message": "Logging handler error",
+                "module": record.module,
+                "function": record.funcName,
+                "thread": record.threadName,
+                "exception": logging.Formatter().formatException(record.exc_info)
+                if record.exc_info
+                else "Handler error",
+            }
+            self.log_queue.put_nowait(json.dumps(error_entry, ensure_ascii=False))
+        except Exception:
+            pass
 
 
 class LoggerManager:
     """
-    Simple plug-and-play daily rotating logger.
-
-    Usage:
-        logger_manager = LoggerManager("logs", "myapp", storage_days=7)
-        logging.info("App started")
-        # Exceptions, even uncaught, are automatically logged
+    Professional logger with daily rotation, JSON file output, console output,
+    automatic cleanup of old logs, and async logging via queue.
     """
 
-    def __init__(self, log_path: str, base_filename: str, storage_days: int = 7, use_utc: bool = False):
+    def __init__(self, log_path: str, base_filename: str, storage_days: int = 7):
         self.base_filename = base_filename
         self.storage_days = storage_days
-        self.use_utc = use_utc
 
-        # Try to create/access the log directory, fallback to 'logs' if fails
-        try:
-            self.log_path = os.path.abspath(log_path)
-            os.makedirs(self.log_path, exist_ok=True)
-        except Exception:
-            self.log_path = os.path.abspath("logs")
-            os.makedirs(self.log_path, exist_ok=True)
+        # Ensure log directory exists
+        self.log_path = Path(log_path).resolve()
+        self.log_path.mkdir(parents=True, exist_ok=True)
 
-        # Queue and thread for async logging
+        # Queue + worker thread for async logging
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=10_000)
         self.stop_event = threading.Event()
-        self.current_date = None
-        self.filename = self._get_filename_for_date(self._now().date())
+        self.current_date = datetime.now(timezone.utc).date()
+        self.filename = self._get_filename_for_date(self.current_date)
 
         self.worker_thread = threading.Thread(target=self._worker, name="LogWriterThread", daemon=True)
         self.worker_thread.start()
@@ -42,7 +123,7 @@ class LoggerManager:
         # Setup logging
         self._setup_logging()
 
-        # Global exception handlers
+        # Global exception hooks
         sys.excepthook = self._handle_exception
         try:
             loop = asyncio.get_event_loop()
@@ -50,20 +131,16 @@ class LoggerManager:
         except RuntimeError:
             pass
 
-        logging.info(f"Logger initialized: {self.filename}")
+        logging.getLogger().info(f"Logger initialized: {self.filename}")
 
     # -------------------
-    # Date & filename
+    # Filename helpers
     # -------------------
-    def _now(self):
-        return datetime.now(timezone.utc) if self.use_utc else datetime.now()
-
-    def _get_filename_for_date(self, date: datetime.date):
-        # Date before filename: YYYY-MM-DD_myapp.log
-        return os.path.join(self.log_path, f"{date:%Y-%m-%d}_{self.base_filename}.log")
+    def _get_filename_for_date(self, date: datetime.date) -> str:
+        return str(self.log_path / f"{date:%Y-%m-%d}_{self.base_filename}.json")
 
     # -------------------
-    # Worker
+    # Worker for async writing
     # -------------------
     def _worker(self):
         while not self.stop_event.is_set() or not self.log_queue.empty():
@@ -74,79 +151,57 @@ class LoggerManager:
                 continue
 
     def _write(self, msg: str):
-        today = self._now().date()
+        today = datetime.now(timezone.utc).date()
         if today != self.current_date:
             self.current_date = today
             self.filename = self._get_filename_for_date(today)
             self._cleanup_old_logs()
-        with open(self.filename, "a", encoding="utf-8", errors="replace") as f:
-            f.write(msg)
+        with open(self.filename, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
 
     # -------------------
     # Cleanup old logs
     # -------------------
     def _cleanup_old_logs(self):
-        files = []
-        for f in os.listdir(self.log_path):
-            if f.endswith(".log") and f.startswith(f"{self.current_date:%Y-%m-%d}"):
-                # skip current file
-                continue
-            if f.startswith("_".join([self.base_filename, ""])):  # ignore wrongly named files
-                continue
-            if f.endswith(".log"):
-                try:
-                    date_str = f.split("_")[0]
-                    file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    files.append((file_date, os.path.join(self.log_path, f)))
-                except Exception:
-                    continue
-        files.sort(key=lambda x: x[0])
-        for _, old_file in files[: -self.storage_days]:
+        logs = []
+        for f in self.log_path.glob(f"*_{self.base_filename}.json"):
             try:
-                os.remove(old_file)
+                date_str = f.name.split("_")[0]
+                file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                logs.append((file_date, f))
+            except Exception:
+                continue
+        logs.sort(key=lambda x: x[0])
+        for old_date, old_file in logs[: -self.storage_days]:
+            try:
+                old_file.unlink()
             except Exception:
                 pass
 
     # -------------------
-    # Logging setup
+    # Setup logging
     # -------------------
     def _setup_logging(self):
         logger = logging.getLogger()
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.DEBUG)
 
         # Remove old handlers
-        for handler in logger.handlers[:]:
-            logger.removeHandler(handler)
+        for h in logger.handlers[:]:
+            logger.removeHandler(h)
 
-        # Console
+        # Console handler
         ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] [%(module)s:%(funcName)s] %(message)s"))
         logger.addHandler(ch)
 
-        # File (async)
-        fh = logging.Handler()
-        fh.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-        fh.emit = self._enqueue
-        logger.addHandler(fh)
+        # Async JSON file handler
+        qh = JsonQueueHandler(self.log_queue)
+        qh.setLevel(logging.DEBUG)
+        logger.addHandler(qh)
 
     # -------------------
-    # Enqueue log messages
-    # -------------------
-    def _enqueue(self, record: logging.LogRecord):
-        try:
-            # Include exception info if present
-            msg = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s").format(record)
-            if record.exc_info:
-                msg += "\n" + logging.Formatter().formatException(record.exc_info)
-            msg += "\n"
-            self.log_queue.put_nowait(msg)
-        except queue.Full:
-            pass
-        except Exception:
-            self.handleError(record)
-
-    # -------------------
-    # Exception hooks
+    # Global exception hooks
     # -------------------
     @staticmethod
     def _handle_exception(exc_type, exc_value, exc_traceback):
@@ -160,13 +215,18 @@ class LoggerManager:
         exception = context.get("exception")
         logger = logging.getLogger()
         if exception:
-            logger.error("Unhandled asyncio exception", exc_info=exception)
+            logger.error("Unhandled asyncio exception", exc_info=(type(exception), exception, exception.__traceback__))
         else:
             logger.error("Unhandled asyncio error: %s", context.get("message"))
 
     # -------------------
-    # Close
+    # Close logger
     # -------------------
     def close(self):
         self.stop_event.set()
         self.worker_thread.join(timeout=3)
+        # Flush remaining messages
+        while not self.log_queue.empty():
+            msg = self.log_queue.get_nowait()
+            self._write(msg)
+        logging.getLogger().info("Logger closed")
