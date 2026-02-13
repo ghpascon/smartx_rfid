@@ -28,6 +28,7 @@ class JsonQueueHandler(logging.Handler):
                 "module": record.module,
                 "function": record.funcName,
                 "thread": record.threadName,
+                "pathname": record.pathname,
             }
             # Include exception if present
             if record.exc_info:
@@ -87,6 +88,7 @@ class JsonQueueHandler(logging.Handler):
                 "message": "Logging handler error",
                 "module": record.module,
                 "function": record.funcName,
+                "line": record.lineno,
                 "thread": record.threadName,
                 "exception": logging.Formatter().formatException(record.exc_info)
                 if record.exc_info
@@ -192,7 +194,9 @@ class LoggerManager:
         # Console handler
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
-        ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] [%(module)s:%(funcName)s] %(message)s"))
+        ch.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] [%(pathname)s:%(lineno)d:%(funcName)s] %(message)s")
+        )
         logger.addHandler(ch)
 
         # Async JSON file handler
