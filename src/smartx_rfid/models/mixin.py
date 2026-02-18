@@ -18,6 +18,8 @@ except ImportError:
 
     DeclarativeBase = declarative_base()
 
+from sqlalchemy import Column, DateTime, func
+
 # Type variable for generic model operations
 ModelType = TypeVar("ModelType", bound="BaseMixin")
 
@@ -27,7 +29,19 @@ class Base(DeclarativeBase):
     Base declarative class for all models.
     """
 
-    pass
+    # timestamps
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
 
 class BaseMixin:
