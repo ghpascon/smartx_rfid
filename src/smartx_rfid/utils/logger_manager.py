@@ -188,7 +188,7 @@ class LoggerManager:
     # -------------------
     def _setup_logging(self):
         logger = logging.getLogger()
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.INFO)
 
         # Remove old handlers
         for h in logger.handlers[:]:
@@ -196,7 +196,7 @@ class LoggerManager:
 
         # Console handler
         ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
+        ch.setLevel(logging.INFO)
         ch.setFormatter(
             logging.Formatter("%(asctime)s [%(levelname)s] [%(pathname)s:%(lineno)d:%(funcName)s] %(message)s")
         )
@@ -204,7 +204,7 @@ class LoggerManager:
 
         # Async JSON handler
         qh = JsonQueueHandler(self.log_queue)
-        qh.setLevel(logging.DEBUG)
+        qh.setLevel(logging.INFO)
         logger.addHandler(qh)
 
     # -------------------

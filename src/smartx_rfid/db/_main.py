@@ -293,14 +293,14 @@ class DatabaseManager:
 
     def execute_query(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> Any:
         """
-        Execute a raw SQL query.
+        Execute a raw SQL query and return results as a list of dicts.
 
         Args:
             query (Union[str, text]): SQL query to execute
             params (Optional[Dict[str, Any]]): Query parameters
 
         Returns:
-            Any: Query result
+            Any: List of dicts for SELECT queries, None for queries that do not return rows
         """
         with self.get_session() as session:
             try:
@@ -308,7 +308,12 @@ class DatabaseManager:
                     query = text(query)
 
                 result = session.execute(query, params or {})
-                return result
+
+                if result.returns_rows:
+                    return list(result.mappings())
+                else:
+                    return None
+
             except Exception as e:
                 self.logger.error(f"Query execution failed: {str(e)}")
                 raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
