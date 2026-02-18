@@ -30,39 +30,37 @@ class JsonQueueHandler(logging.Handler):
                 "thread": record.threadName,
                 "pathname": record.pathname,
             }
-            # Include exception if present
+
             if record.exc_info:
                 log_entry["exception"] = logging.Formatter().formatException(record.exc_info)
 
-            # Include extra fields passed via 'extra' (not in standard LogRecord fields)
-            standard_fields = set(
-                [
-                    "name",
-                    "msg",
-                    "args",
-                    "levelname",
-                    "levelno",
-                    "pathname",
-                    "filename",
-                    "module",
-                    "exc_info",
-                    "exc_text",
-                    "stack_info",
-                    "lineno",
-                    "funcName",
-                    "created",
-                    "msecs",
-                    "relativeCreated",
-                    "thread",
-                    "threadName",
-                    "processName",
-                    "process",
-                    "getMessage",
-                ]
-            )
+            # Include extra fields
+            standard_fields = {
+                "name",
+                "msg",
+                "args",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "getMessage",
+            }
+
             for key, value in record.__dict__.items():
                 if key not in standard_fields:
-                    # Convert non-serializable objects to string
                     try:
                         json.dumps(value)
                         log_entry[key] = value
@@ -70,16 +68,14 @@ class JsonQueueHandler(logging.Handler):
                         log_entry[key] = str(value)
 
             self.log_queue.put_nowait(json.dumps(log_entry, ensure_ascii=False))
+
         except queue.Full:
-            # Could implement drop counter here
             pass
         except Exception:
             self.handleError(record)
 
     def handleError(self, record):
-        # Log error to console (default behavior)
         super().handleError(record)
-        # Also log error to JSON file
         try:
             error_entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -108,12 +104,9 @@ class LoggerManager:
     def __init__(self, log_path: str, base_filename: str, storage_days: int = 7):
         self.base_filename = base_filename
         self.storage_days = storage_days
-
-        # Ensure log directory exists
         self.log_path = Path(log_path).resolve()
         self.log_path.mkdir(parents=True, exist_ok=True)
 
-        # Queue + worker thread for async logging
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=10_000)
         self.stop_event = threading.Event()
         self.current_date = datetime.now(timezone.utc).date()
@@ -122,10 +115,9 @@ class LoggerManager:
         self.worker_thread = threading.Thread(target=self._worker, name="LogWriterThread", daemon=True)
         self.worker_thread.start()
 
-        # Setup logging
         self._setup_logging()
+        self._cleanup_old_logs()  # Cleanup inicial seguro
 
-        # Global exception hooks
         sys.excepthook = self._handle_exception
         try:
             loop = asyncio.get_event_loop()
@@ -148,7 +140,10 @@ class LoggerManager:
         while not self.stop_event.is_set() or not self.log_queue.empty():
             try:
                 msg = self.log_queue.get(timeout=0.5)
-                self._write(msg)
+                try:
+                    self._write(msg)
+                except Exception as e:
+                    logging.getLogger().error("Erro ao escrever log", exc_info=e)
             except queue.Empty:
                 continue
 
@@ -165,20 +160,28 @@ class LoggerManager:
     # Cleanup old logs
     # -------------------
     def _cleanup_old_logs(self):
+        if self.storage_days <= 0:
+            return
+
         logs = []
         for f in self.log_path.glob(f"*_{self.base_filename}.json"):
             try:
                 date_str = f.name.split("_")[0]
                 file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
                 logs.append((file_date, f))
-            except Exception:
+            except ValueError:
                 continue
+
         logs.sort(key=lambda x: x[0])
-        for old_date, old_file in logs[: -self.storage_days]:
+        excess_logs = len(logs) - self.storage_days
+        if excess_logs <= 0:
+            return
+
+        for _, old_file in logs[:excess_logs]:
             try:
                 old_file.unlink()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger().warning(f"Falha ao remover log antigo {old_file}: {e}")
 
     # -------------------
     # Setup logging
@@ -199,7 +202,7 @@ class LoggerManager:
         )
         logger.addHandler(ch)
 
-        # Async JSON file handler
+        # Async JSON handler
         qh = JsonQueueHandler(self.log_queue)
         qh.setLevel(logging.DEBUG)
         logger.addHandler(qh)
@@ -229,7 +232,6 @@ class LoggerManager:
     def close(self):
         self.stop_event.set()
         self.worker_thread.join(timeout=3)
-        # Flush remaining messages
         while not self.log_queue.empty():
             msg = self.log_queue.get_nowait()
             self._write(msg)
