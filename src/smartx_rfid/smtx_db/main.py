@@ -1,6 +1,8 @@
 import logging
 from smartx_rfid.db._main import DatabaseManager
 from .encode_helpers import parse_encode_rule, build_epc
+from smartx_rfid.models.products import ProductsType, ProductsOrders, ReadersType
+from datetime import datetime
 
 connection_string_example = "mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx"
 
@@ -17,6 +19,7 @@ class SmtxDb:
             query += f" LIMIT {limit}"
         return self.db_manager.execute_query(query)
 
+    # [ Orders ]
     def get_orders(self, client_id: int):
         query = f"SELECT * FROM production_order WHERE customer_id = {client_id}"
         return self.db_manager.execute_query(query)
@@ -62,3 +65,219 @@ class SmtxDb:
         epc_list = [build_epc(max_serial + i, rule) for i in range(1, qtd + 1)]
         logging.info(f"Generated {len(epc_list)} EPCs starting from serial {max_serial + 1}.")
         return epc_list
+
+    # [ Products ]
+    # Product Types
+    def get_product_types(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(ProductsType).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching product types: {e}")
+            return []
+
+    def get_product_type(self, product_type_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(ProductsType).filter_by(id=product_type_id).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching product type with id {product_type_id}: {e}")
+            return None
+
+    def add_product_type(self, name: str, description: str | None = None):
+        try:
+            with self.db_manager.get_session() as session:
+                product_type = ProductsType(name=name, description=description)
+                session.add(product_type)
+                session.flush()  # Ensure ID is generated
+                return True, product_type.id
+        except Exception as e:
+            logging.error(f"Error adding product type: {e}")
+            return False, None
+
+    def update_product_type(self, product_type_id: int, name: str | None = None, description: str | None = None):
+        try:
+            with self.db_manager.get_session() as session:
+                product_type = session.query(ProductsType).filter_by(id=product_type_id).first()
+                if not product_type:
+                    return False, f"ProductType with id {product_type_id} not found"
+                if name is not None:
+                    product_type.name = name
+                if description is not None:
+                    product_type.description = description
+        except Exception as e:
+            logging.error(f"Error updating product type: {e}")
+            return False, str(e)
+        return True, None
+
+    def delete_product_type(self, product_type_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                product_type = session.query(ProductsType).filter_by(id=product_type_id).first()
+                if not product_type:
+                    return False, f"ProductType with id {product_type_id} not found"
+                session.delete(product_type)
+        except Exception as e:
+            logging.error(f"Error deleting product type: {e}")
+            return False, str(e)
+        return True, None
+
+    # Readers Type
+    def get_readers_type(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(ReadersType).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching readers type: {e}")
+            return []
+
+    def get_reader_type(self, reader_type_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(ReadersType).filter_by(id=reader_type_id).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching reader type with id {reader_type_id}: {e}")
+            return None
+
+    def add_readers_type(self, name: str, description: str | None = None):
+        try:
+            with self.db_manager.get_session() as session:
+                readers_type = ReadersType(name=name, description=description)
+                session.add(readers_type)
+                session.flush()  # Ensure ID is generated
+                return True, readers_type.id
+        except Exception as e:
+            logging.error(f"Error adding readers type: {e}")
+            return False, None
+
+    def update_readers_type(self, reader_type_id: int, name: str | None = None, description: str | None = None):
+        try:
+            with self.db_manager.get_session() as session:
+                readers_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
+                if not readers_type:
+                    return False, f"ReadersType with id {reader_type_id} not found"
+                if name is not None:
+                    readers_type.name = name
+                if description is not None:
+                    readers_type.description = description
+        except Exception as e:
+            logging.error(f"Error updating readers type: {e}")
+            return False, str(e)
+        return True, None
+
+    def delete_readers_type(self, reader_type_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                readers_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
+                if not readers_type:
+                    return False, f"ReadersType with id {reader_type_id} not found"
+                session.delete(readers_type)
+        except Exception as e:
+            logging.error(f"Error deleting readers type: {e}")
+            return False, str(e)
+        return True, None
+
+    # Product Orders
+    def get_product_orders(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(ProductsOrders).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching product orders: {e}")
+            return []
+
+    def get_product_order(self, order_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(ProductsOrders).filter_by(id=order_id).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching product order with id {order_id}: {e}")
+            return None
+
+    def get_product_orders_by_client(self, client_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(ProductsOrders).filter_by(client_id=client_id).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching product orders for client_id {client_id}: {e}")
+            return []
+
+    def get_product_orders_by_product_type(self, product_type_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(ProductsOrders).filter_by(product_type_id=product_type_id).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching product orders for product_type_id {product_type_id}: {e}")
+            return []
+
+    def get_product_orders_by_date(self, start_date: datetime, end_date: datetime):
+        try:
+            with self.db_manager.get_session() as session:
+                results = (
+                    session.query(ProductsOrders)
+                    .filter(ProductsOrders.created_at >= start_date, ProductsOrders.created_at <= end_date)
+                    .all()
+                )
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
+            return []
+
+    def add_product_order(self, product_type_id: int, client_id: int, reader_type_id: int, reader_serial: str):
+        try:
+            with self.db_manager.get_session() as session:
+                product_order = ProductsOrders(
+                    product_type_id=product_type_id,
+                    client_id=client_id,
+                    reader_type_id=reader_type_id,
+                    reader_serial=reader_serial,
+                )
+                session.add(product_order)
+                session.flush()  # Ensure ID is generated
+                return True, product_order.id
+        except Exception as e:
+            logging.error(f"Error adding product order: {e}")
+            return False, None
+
+    def update_product_order(self, order_id: int, **kwargs):
+        try:
+            with self.db_manager.get_session() as session:
+                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                if not product_order:
+                    return False, f"ProductsOrders with id {order_id} not found"
+                for key, value in kwargs.items():
+                    if hasattr(product_order, key):
+                        setattr(product_order, key, value)
+        except Exception as e:
+            logging.error(f"Error updating product order: {e}")
+            return False, str(e)
+        return True, None
+
+    def delete_product_order(self, order_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                if not product_order:
+                    return False, f"ProductsOrders with id {order_id} not found"
+                session.delete(product_order)
+        except Exception as e:
+            logging.error(f"Error deleting product order: {e}")
+            return False, str(e)
+        return True, None
+
+    def product_order_mount(self, order_id: int):
+        return self.update_product_order(order_id, mounted_at=datetime.now())
+
+    def product_order_ship(self, order_id: int):
+        return self.update_product_order(order_id, shipped_at=datetime.now())
+
+    def product_order_activate(self, order_id: int):
+        return self.update_product_order(order_id, activated_at=datetime.now())
