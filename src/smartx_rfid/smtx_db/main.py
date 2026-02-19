@@ -274,10 +274,25 @@ class SmtxDb:
         return True, None
 
     def product_order_mount(self, order_id: int):
+        order = self.get_product_order(order_id)
+        if not order:
+            return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("mounted_at") is not None:
+            return False, "Order already mounted"
         return self.update_product_order(order_id, mounted_at=datetime.now())
 
     def product_order_ship(self, order_id: int):
+        order = self.get_product_order(order_id)
+        if not order:
+            return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("shipped_at") is not None:
+            return False, "Order already shipped"
         return self.update_product_order(order_id, shipped_at=datetime.now())
 
     def product_order_activate(self, order_id: int):
+        order = self.get_product_order(order_id)
+        if not order:
+            return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("activated_at") is not None:
+            return False, "Order already activated"
         return self.update_product_order(order_id, activated_at=datetime.now())
