@@ -1,10 +1,10 @@
-from smartx_rfid.smtx_db import SmtxDb, connection_string_example
+from smartx_rfid.smtx_db import SmtxDb
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
 logging.info("Initializing SmtxDb with connection string.")
-smtx_db = SmtxDb(connection_string_example)
+smtx_db = SmtxDb("mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx_teste")
 logging.info("SmtxDb initialized successfully.")
 
 results = smtx_db.get_customer_ids(10)

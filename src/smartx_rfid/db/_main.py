@@ -310,7 +310,7 @@ class DatabaseManager:
                 result = session.execute(query, params or {})
 
                 if result.returns_rows:
-                    return list(result.mappings())
+                    return [dict(row) for row in result.mappings()]
                 else:
                     return None
 
