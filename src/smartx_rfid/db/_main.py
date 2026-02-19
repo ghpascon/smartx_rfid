@@ -422,6 +422,38 @@ class DatabaseManager:
             self._scoped_session = None
             self._metadata = None
 
+    def clear_table(self, model: Type[DeclarativeBase]) -> None:
+        """
+        Clear all data from a table.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table to clear
+        """
+        with self.get_session() as session:
+            try:
+                session.query(model).delete()
+                self.logger.info(f"Cleared all data from table {model.__tablename__}")
+            except Exception as e:
+                self.logger.error(f"Failed to clear table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Failed to clear table {model.__tablename__}: {str(e)}", e)
+
+    def generate_table_report(self, model: Type[DeclarativeBase], limit: int = 10000, offset: int = 0) -> dict:
+        with self.get_session() as session:
+            # Get total count (more efficient than loading all records)
+            total = session.query(model).count()
+
+            # Get paginated records using yield_per for memory efficiency
+            query = session.query(model).limit(limit).offset(offset)
+            records = [record.to_dict() for record in query]
+
+            return {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + limit) < total,
+                "data": records,
+            }
+
     def __enter__(self):
         """Context manager entry."""
         self.initialize()
