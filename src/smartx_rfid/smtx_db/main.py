@@ -125,7 +125,7 @@ class SmtxDb:
         return True, None
 
     # Readers Type
-    def get_readers_type(self):
+    def get_reader_types(self):
         try:
             with self.db_manager.get_session() as session:
                 results = session.query(ReadersType).all()
@@ -143,41 +143,41 @@ class SmtxDb:
             logging.error(f"Error fetching reader type with id {reader_type_id}: {e}")
             return None
 
-    def add_readers_type(self, name: str, description: str | None = None):
+    def add_reader_type(self, name: str, description: str | None = None):
         try:
             with self.db_manager.get_session() as session:
-                readers_type = ReadersType(name=name, description=description)
-                session.add(readers_type)
+                reader_type = ReadersType(name=name, description=description)
+                session.add(reader_type)
                 session.flush()  # Ensure ID is generated
-                return True, readers_type.id
+                return True, reader_type.id
         except Exception as e:
-            logging.error(f"Error adding readers type: {e}")
+            logging.error(f"Error adding reader type: {e}")
             return False, None
 
-    def update_readers_type(self, reader_type_id: int, name: str | None = None, description: str | None = None):
+    def update_reader_type(self, reader_type_id: int, name: str | None = None, description: str | None = None):
         try:
             with self.db_manager.get_session() as session:
-                readers_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
-                if not readers_type:
-                    return False, f"ReadersType with id {reader_type_id} not found"
+                reader_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
+                if not reader_type:
+                    return False, f"ReaderType with id {reader_type_id} not found"
                 if name is not None:
-                    readers_type.name = name
+                    reader_type.name = name
                 if description is not None:
-                    readers_type.description = description
+                    reader_type.description = description
         except Exception as e:
-            logging.error(f"Error updating readers type: {e}")
+            logging.error(f"Error updating reader type: {e}")
             return False, str(e)
         return True, None
 
-    def delete_readers_type(self, reader_type_id: int):
+    def delete_reader_type(self, reader_type_id: int):
         try:
             with self.db_manager.get_session() as session:
-                readers_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
-                if not readers_type:
-                    return False, f"ReadersType with id {reader_type_id} not found"
-                session.delete(readers_type)
+                reader_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
+                if not reader_type:
+                    return False, f"ReaderType with id {reader_type_id} not found"
+                session.delete(reader_type)
         except Exception as e:
-            logging.error(f"Error deleting readers type: {e}")
+            logging.error(f"Error deleting reader type: {e}")
             return False, str(e)
         return True, None
 

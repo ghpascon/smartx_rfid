@@ -43,28 +43,26 @@ logging.info(f"Retrieved product types after deletion: {product_types}")
 
 # [ReadersType]
 # Create
-success, readers_type_id = smtx_db.add_readers_type(
-    name="New Reader Type", description="Description of new reader type"
-)
-logging.info(f"Reader type created: success={success}, id={readers_type_id}")
+success, reader_type_id = smtx_db.add_reader_type(name="New Reader Type", description="Description of new reader type")
+logging.info(f"Reader type created: success={success}, id={reader_type_id}")
 # Retrieve
-readers_types = smtx_db.get_readers_type()
-logging.info(f"Retrieved readers types: {readers_types}")
+reader_types = smtx_db.get_reader_types()
+logging.info(f"Retrieved reader types: {reader_types}")
 # Update
-success, error = smtx_db.update_readers_type(
-    readers_type_id, name="Updated Reader Type", description="Updated description"
+success, error = smtx_db.update_reader_type(
+    reader_type_id, name="Updated Reader Type", description="Updated description"
 )
 if success:
-    logging.info(f"Reader type with id {readers_type_id} updated successfully.")
+    logging.info(f"Reader type with id {reader_type_id} updated successfully.")
 else:
     logging.error(f"Error updating reader type: {error}")
 # Retrieve again to confirm update
-readers_types = smtx_db.get_readers_type()
-logging.info(f"Retrieved readers types after update: {readers_types}")
+reader_types = smtx_db.get_reader_types()
+logging.info(f"Retrieved reader types after update: {reader_types}")
 # Delete
 _ = input("Press Enter to delete the reader type...")
-success, error = smtx_db.delete_readers_type(readers_type_id)
+success, error = smtx_db.delete_reader_type(reader_type_id)
 if success:
-    logging.info(f"Reader type with id {readers_type_id} deleted successfully.")
+    logging.info(f"Reader type with id {reader_type_id} deleted successfully.")
 else:
     logging.error(f"Error deleting reader type: {error}")
