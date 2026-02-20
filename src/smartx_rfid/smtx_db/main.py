@@ -385,7 +385,7 @@ class SmtxDb:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
-    def add_product_order(self, product_type_id: int, client_id: int, reader_id: int, version: str):
+    def add_product_order(self, product_type_id: int, client_id: int, reader_id: int | None, version: str):
         try:
             with self.db_manager.get_session() as session:
                 # Validate product_type_id
@@ -397,17 +397,19 @@ class SmtxDb:
                     return False, f"Customer with id {client_id} not found"
 
                 # Validate reader_id and check availability
-                reader = session.query(Readers).filter_by(id=reader_id).first()
-                if not reader:
-                    return False, f"Reader with id {reader_id} not found"
-                if not reader.available:
-                    return False, f"Reader with id {reader_id} is not available"
+                if reader_id is not None:
+                    reader = session.query(Readers).filter_by(id=reader_id).first()
+                    if not reader:
+                        return False, f"Reader with id {reader_id} not found"
+                    if not reader.available:
+                        return False, f"Reader with id {reader_id} is not available"
 
                 product_order = ProductsOrders(
                     product_type_id=product_type_id, client_id=client_id, reader_id=reader_id, version=version
                 )
                 session.add(product_order)
-                reader.available = False
+                if reader_id is not None:
+                    reader.available = False
                 session.flush()  # Ensure ID is generated
                 return True, product_order.id
         except Exception as e:
