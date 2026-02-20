@@ -444,6 +444,30 @@ class SmtxDb:
             return False, str(e)
         return True, None
 
+    def add_reader_to_product_order(self, order_id: int, reader_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                if not product_order:
+                    return False, f"ProductsOrders with id {order_id} not found"
+
+                if product_order.reader_id is not None:
+                    return False, f"ProductsOrders with id {order_id} already has a reader assigned"
+
+                reader = session.query(Readers).filter_by(id=reader_id).first()
+                if not reader:
+                    return False, f"Reader with id {reader_id} not found"
+                if not reader.available:
+                    return False, f"Reader with id {reader_id} is not available"
+
+                product_order.reader_id = reader_id
+                reader.available = False
+        except Exception as e:
+            logging.error(f"Error adding reader to product order: {e}")
+            return False, str(e)
+        return True, None
+
+    # [ Product Orders Workflow ]
     def product_order_mount(self, order_id: int):
         order = self.get_product_order(order_id)
         if not order:
