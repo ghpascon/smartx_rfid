@@ -13,11 +13,26 @@ class SmtxDb:
         self.db_manager = DatabaseManager(self.connection_string)
         self.db_manager.initialize()
 
-    def get_customer_ids(self, limit: int | None = None):
-        query = "SELECT * FROM customer"
-        if limit is not None:
-            query += f" LIMIT {limit}"
-        return self.db_manager.execute_query(query)
+    # [ Customers ]
+    def get_customers(self, limit: int | None = None):
+        try:
+            with self.db_manager.get_session() as session:
+                q = session.query(Customer)
+                if limit is not None:
+                    q = q.limit(limit)
+                return [r.to_dict() for r in q.all()]
+        except Exception as e:
+            logging.error(f"Error fetching customers: {e}")
+            return []
+
+    def get_customer(self, client_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(Customer).filter_by(ID=client_id).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching customer with id {client_id}: {e}")
+            return None
 
     # [ Orders ]
     def get_orders(self, client_id: int):
@@ -184,6 +199,8 @@ class SmtxDb:
     def add_reader(self, reader_type_id: int, serial_number: str, hostname: str | None = None):
         try:
             with self.db_manager.get_session() as session:
+                if not session.query(ReadersType).filter_by(id=reader_type_id).first():
+                    return False, f"ReaderType with id {reader_type_id} not found"
                 reader = Readers(reader_type_id=reader_type_id, serial_number=serial_number, hostname=hostname)
                 session.add(reader)
                 session.flush()  # Ensure ID is generated
@@ -191,6 +208,76 @@ class SmtxDb:
         except Exception as e:
             logging.error(f"Error adding reader: {e}")
             return False, None
+
+    def get_readers(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(Readers).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching readers: {e}")
+            return []
+
+    def get_available_readers(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(Readers).filter_by(available=True).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching available readers: {e}")
+            return []
+
+    def get_reader(self, reader_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(Readers).filter_by(id=reader_id).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching reader with id {reader_id}: {e}")
+            return None
+
+    def update_reader(
+        self,
+        reader_id: int,
+        reader_type_id: int | None = None,
+        serial_number: str | None = None,
+        hostname: str | None = None,
+        available: bool | None = None,
+    ):
+        try:
+            with self.db_manager.get_session() as session:
+                reader = session.query(Readers).filter_by(id=reader_id).first()
+                if not reader:
+                    return False, f"Reader with id {reader_id} not found"
+                if reader_type_id is not None:
+                    if not session.query(ReadersType).filter_by(id=reader_type_id).first():
+                        return False, f"ReaderType with id {reader_type_id} not found"
+                    reader.reader_type_id = reader_type_id
+                if serial_number is not None:
+                    reader.serial_number = serial_number
+                if hostname is not None:
+                    reader.hostname = hostname
+                if available is not None:
+                    reader.available = available
+        except Exception as e:
+            logging.error(f"Error updating reader: {e}")
+            return False, str(e)
+        return True, None
+
+    def delete_reader(self, reader_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                reader = session.query(Readers).filter_by(id=reader_id).first()
+                if not reader:
+                    return False, f"Reader with id {reader_id} not found"
+                in_use = session.query(ProductsOrders).filter_by(reader_id=reader_id).first()
+                if in_use:
+                    return False, f"Reader with id {reader_id} is in use by a product order"
+                session.delete(reader)
+        except Exception as e:
+            logging.error(f"Error deleting reader: {e}")
+            return False, str(e)
+        return True, None
 
     # Product Orders
     def get_product_orders(self):
@@ -242,15 +329,29 @@ class SmtxDb:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
-    def add_product_order(
-        self, product_type_id: int, client_id: int, reader_type_id: int, reader_serial: str, version: str
-    ):
+    def add_product_order(self, product_type_id: int, client_id: int, reader_id: int, version: str):
         try:
             with self.db_manager.get_session() as session:
+                # Validate product_type_id
+                if not session.query(ProductsType).filter_by(id=product_type_id).first():
+                    return False, f"ProductType with id {product_type_id} not found"
+
+                # Validate client_id
+                if not session.query(Customer).filter_by(ID=client_id).first():
+                    return False, f"Customer with id {client_id} not found"
+
+                # Validate reader_id and check availability
+                reader = session.query(Readers).filter_by(id=reader_id).first()
+                if not reader:
+                    return False, f"Reader with id {reader_id} not found"
+                if not reader.available:
+                    return False, f"Reader with id {reader_id} is not available"
+
                 product_order = ProductsOrders(
-                    product_type_id=product_type_id, client_id=client_id, reader_id=reader_type_id, version=version
+                    product_type_id=product_type_id, client_id=client_id, reader_id=reader_id, version=version
                 )
                 session.add(product_order)
+                reader.available = False
                 session.flush()  # Ensure ID is generated
                 return True, product_order.id
         except Exception as e:
@@ -277,6 +378,10 @@ class SmtxDb:
                 product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
                 if not product_order:
                     return False, f"ProductsOrders with id {order_id} not found"
+                # Restore reader availability
+                reader = session.query(Readers).filter_by(id=product_order.reader_id).first()
+                if reader:
+                    reader.available = True
                 session.delete(product_order)
         except Exception as e:
             logging.error(f"Error deleting product order: {e}")
