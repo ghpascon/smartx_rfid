@@ -7,7 +7,7 @@ with proper indexing and relationships.
 
 from sqlalchemy import Column, Integer, String, Text, DateTime
 
-from .mixin import Base, BaseMixin
+from .mixin import Base, BaseMixin, DeclarativeBase
 
 
 class ProductsType(Base, BaseMixin):
@@ -30,6 +30,16 @@ class ReadersType(Base, BaseMixin):
     description = Column(Text, nullable=True)
 
 
+class Readers(Base, BaseMixin):
+    __tablename__ = "readers"
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reader_type_id = Column(Integer, nullable=False, index=True)
+    serial_number = Column(String(100), nullable=False, index=True)
+    hostname = Column(String(255), nullable=True, index=True)
+
+
 class ProductsOrders(Base, BaseMixin):
     __tablename__ = "products_orders"
 
@@ -38,10 +48,17 @@ class ProductsOrders(Base, BaseMixin):
 
     product_type_id = Column(Integer, nullable=False, index=True)
     client_id = Column(Integer, nullable=False, index=True)
-    reader_type_id = Column(Integer, nullable=False)
-    reader_serial = Column(String(100), nullable=False)
+    reader_id = Column(Integer, nullable=False, index=True)
     version = Column(String(50), nullable=False)
 
-    mounted_at = Column(DateTime(timezone=True), nullable=True)
-    shipped_at = Column(DateTime(timezone=True), nullable=True)
-    activated_at = Column(DateTime(timezone=True), nullable=True)
+    mounted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    shipped_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    activated_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class Customer(DeclarativeBase, BaseMixin):
+    __tablename__ = "customer"
+
+    # Primary key
+    ID = Column(Integer, primary_key=True, autoincrement=True)
+    NAME = Column(String(255), nullable=False, index=True)

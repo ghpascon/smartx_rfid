@@ -1,7 +1,7 @@
 import logging
 from smartx_rfid.db._main import DatabaseManager
 from .encode_helpers import parse_encode_rule, build_epc
-from smartx_rfid.models.products import ProductsType, ProductsOrders, ReadersType
+from smartx_rfid.models.products import ProductsType, ProductsOrders, ReadersType, Readers, Customer
 from datetime import datetime
 
 connection_string_example = "mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx"
@@ -181,6 +181,17 @@ class SmtxDb:
             return False, str(e)
         return True, None
 
+    def add_reader(self, reader_type_id: int, serial_number: str, hostname: str | None = None):
+        try:
+            with self.db_manager.get_session() as session:
+                reader = Readers(reader_type_id=reader_type_id, serial_number=serial_number, hostname=hostname)
+                session.add(reader)
+                session.flush()  # Ensure ID is generated
+                return True, reader.id
+        except Exception as e:
+            logging.error(f"Error adding reader: {e}")
+            return False, None
+
     # Product Orders
     def get_product_orders(self):
         try:
@@ -231,14 +242,13 @@ class SmtxDb:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
-    def add_product_order(self, product_type_id: int, client_id: int, reader_type_id: int, reader_serial: str):
+    def add_product_order(
+        self, product_type_id: int, client_id: int, reader_type_id: int, reader_serial: str, version: str
+    ):
         try:
             with self.db_manager.get_session() as session:
                 product_order = ProductsOrders(
-                    product_type_id=product_type_id,
-                    client_id=client_id,
-                    reader_type_id=reader_type_id,
-                    reader_serial=reader_serial,
+                    product_type_id=product_type_id, client_id=client_id, reader_id=reader_type_id, version=version
                 )
                 session.add(product_order)
                 session.flush()  # Ensure ID is generated
@@ -296,3 +306,36 @@ class SmtxDb:
         if order.get("activated_at") is not None:
             return False, "Order already activated"
         return self.update_product_order(order_id, activated_at=datetime.now())
+
+    # [ DECODED ]
+    def get_decoded_orders(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = (
+                    session.query(
+                        ProductsOrders,
+                        ProductsType.name.label("product_type_name"),
+                        Customer.NAME.label("client_name"),
+                        Readers.serial_number.label("reader_serial"),
+                        Readers.hostname.label("reader_hostname"),
+                        ReadersType.name.label("reader_type_name"),
+                    )
+                    .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
+                    .join(Customer, ProductsOrders.client_id == Customer.ID)
+                    .join(Readers, ProductsOrders.reader_id == Readers.id)
+                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .all()
+                )
+                decoded = []
+                for order, product_type_name, client_name, reader_serial, reader_hostname, reader_type_name in results:
+                    d = order.to_dict()
+                    d["product_type_name"] = product_type_name
+                    d["client_name"] = client_name
+                    d["reader_serial"] = reader_serial
+                    d["reader_hostname"] = reader_hostname
+                    d["reader_type_name"] = reader_type_name
+                    decoded.append(d)
+                return decoded
+        except Exception as e:
+            logging.error(f"Error fetching decoded orders: {e}")
+            return []
