@@ -222,7 +222,7 @@ class SmtxDb:
         try:
             with self.db_manager.get_session() as session:
                 results = session.query(Readers).filter_by(available=True).all()
-                return [r.to_dict() for r in results]
+                return [r.id for r in results]
         except Exception as e:
             logging.error(f"Error fetching available readers: {e}")
             return []
