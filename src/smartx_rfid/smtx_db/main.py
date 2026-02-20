@@ -34,6 +34,17 @@ class SmtxDb:
             logging.error(f"Error fetching customer with id {client_id}: {e}")
             return None
 
+    def add_customer(self, name: str):
+        try:
+            with self.db_manager.get_session() as session:
+                customer = Customer(NAME=name)
+                session.add(customer)
+                session.flush()  # Ensure ID is generated
+                return True, customer.ID
+        except Exception as e:
+            logging.error(f"Error adding customer: {e}")
+            return False, None
+
     # [ Orders ]
     def get_orders(self, client_id: int):
         query = f"SELECT * FROM production_order WHERE customer_id = {client_id}"
