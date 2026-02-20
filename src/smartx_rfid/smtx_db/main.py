@@ -444,3 +444,36 @@ class SmtxDb:
         except Exception as e:
             logging.error(f"Error fetching decoded orders: {e}")
             return []
+
+    def get_decoded_order(self, order_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = (
+                    session.query(
+                        ProductsOrders,
+                        ProductsType.name.label("product_type_name"),
+                        Customer.NAME.label("client_name"),
+                        Readers.serial_number.label("reader_serial"),
+                        Readers.hostname.label("reader_hostname"),
+                        ReadersType.name.label("reader_type_name"),
+                    )
+                    .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
+                    .join(Customer, ProductsOrders.client_id == Customer.ID)
+                    .join(Readers, ProductsOrders.reader_id == Readers.id)
+                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .filter(ProductsOrders.id == order_id)
+                    .first()
+                )
+                if not result:
+                    return None
+                order, product_type_name, client_name, reader_serial, reader_hostname, reader_type_name = result
+                d = order.to_dict()
+                d["product_type_name"] = product_type_name
+                d["client_name"] = client_name
+                d["reader_serial"] = reader_serial
+                d["reader_hostname"] = reader_hostname
+                d["reader_type_name"] = reader_type_name
+                return d
+        except Exception as e:
+            logging.error(f"Error fetching decoded order with id {order_id}: {e}")
+            return None
