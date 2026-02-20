@@ -279,6 +279,62 @@ class SmtxDb:
             return False, str(e)
         return True, None
 
+    def get_decoded_readers(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = (
+                    session.query(Readers, ReadersType.name.label("reader_type_name"))
+                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .all()
+                )
+                decoded = []
+                for reader, reader_type_name in results:
+                    d = reader.to_dict()
+                    d["reader_type_name"] = reader_type_name
+                    decoded.append(d)
+                return decoded
+        except Exception as e:
+            logging.error(f"Error fetching decoded readers: {e}")
+            return []
+
+    def get_decoded_reader(self, reader_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = (
+                    session.query(Readers, ReadersType.name.label("reader_type_name"))
+                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .filter(Readers.id == reader_id)
+                    .first()
+                )
+                if not result:
+                    return None
+                reader, reader_type_name = result
+                d = reader.to_dict()
+                d["reader_type_name"] = reader_type_name
+                return d
+        except Exception as e:
+            logging.error(f"Error fetching decoded reader with id {reader_id}: {e}")
+            return None
+
+    def get_decoded_readers_by_ids(self, reader_ids: list[int]):
+        try:
+            with self.db_manager.get_session() as session:
+                results = (
+                    session.query(Readers, ReadersType.name.label("reader_type_name"))
+                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .filter(Readers.id.in_(reader_ids))
+                    .all()
+                )
+                decoded = []
+                for reader, reader_type_name in results:
+                    d = reader.to_dict()
+                    d["reader_type_name"] = reader_type_name
+                    decoded.append(d)
+                return decoded
+        except Exception as e:
+            logging.error(f"Error fetching decoded readers by ids {reader_ids}: {e}")
+            return []
+
     # Product Orders
     def get_product_orders(self):
         try:
@@ -302,7 +358,7 @@ class SmtxDb:
         try:
             with self.db_manager.get_session() as session:
                 results = session.query(ProductsOrders).filter_by(client_id=client_id).all()
-                return [r.to_dict() for r in results]
+                return [r.id for r in results]
         except Exception as e:
             logging.error(f"Error fetching product orders for client_id {client_id}: {e}")
             return []
@@ -311,7 +367,7 @@ class SmtxDb:
         try:
             with self.db_manager.get_session() as session:
                 results = session.query(ProductsOrders).filter_by(product_type_id=product_type_id).all()
-                return [r.to_dict() for r in results]
+                return [r.id for r in results]
         except Exception as e:
             logging.error(f"Error fetching product orders for product_type_id {product_type_id}: {e}")
             return []
@@ -324,7 +380,7 @@ class SmtxDb:
                     .filter(ProductsOrders.created_at >= start_date, ProductsOrders.created_at <= end_date)
                     .all()
                 )
-                return [r.to_dict() for r in results]
+                return [r.id for r in results]
         except Exception as e:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
@@ -477,3 +533,36 @@ class SmtxDb:
         except Exception as e:
             logging.error(f"Error fetching decoded order with id {order_id}: {e}")
             return None
+
+    def get_decoded_orders_by_ids(self, order_ids: list[int]):
+        try:
+            with self.db_manager.get_session() as session:
+                results = (
+                    session.query(
+                        ProductsOrders,
+                        ProductsType.name.label("product_type_name"),
+                        Customer.NAME.label("client_name"),
+                        Readers.serial_number.label("reader_serial"),
+                        Readers.hostname.label("reader_hostname"),
+                        ReadersType.name.label("reader_type_name"),
+                    )
+                    .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
+                    .join(Customer, ProductsOrders.client_id == Customer.ID)
+                    .join(Readers, ProductsOrders.reader_id == Readers.id)
+                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .filter(ProductsOrders.id.in_(order_ids))
+                    .all()
+                )
+                decoded = []
+                for order, product_type_name, client_name, reader_serial, reader_hostname, reader_type_name in results:
+                    d = order.to_dict()
+                    d["product_type_name"] = product_type_name
+                    d["client_name"] = client_name
+                    d["reader_serial"] = reader_serial
+                    d["reader_hostname"] = reader_hostname
+                    d["reader_type_name"] = reader_type_name
+                    decoded.append(d)
+                return decoded
+        except Exception as e:
+            logging.error(f"Error fetching decoded orders by ids {order_ids}: {e}")
+            return []
