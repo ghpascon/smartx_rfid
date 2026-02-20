@@ -448,6 +448,8 @@ class SmtxDb:
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("reader_id") is None:
+            return False, "Order must have a reader assigned before mounting"
         if order.get("mounted_at") is not None:
             return False, "Order already mounted"
         return self.update_product_order(order_id, mounted_at=datetime.now())
