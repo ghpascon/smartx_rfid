@@ -16,7 +16,7 @@ class ProductsType(Base, BaseMixin):
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    name = Column(String(100), nullable=False, index=True)
+    name = Column(String(100), nullable=False, index=True, unique=True)
     description = Column(Text, nullable=True)
 
 
@@ -26,7 +26,7 @@ class ReadersType(Base, BaseMixin):
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    name = Column(String(100), nullable=False, index=True)
+    name = Column(String(100), nullable=False, index=True, unique=True)
     description = Column(Text, nullable=True)
 
 
@@ -36,7 +36,7 @@ class Readers(Base, BaseMixin):
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
     reader_type_id = Column(Integer, nullable=False, index=True)
-    serial_number = Column(String(100), nullable=False, index=True)
+    serial_number = Column(String(100), nullable=False, index=True, unique=True)
     hostname = Column(String(255), nullable=True, index=True)
     available = Column(Boolean, nullable=False, default=True, index=True)
 
@@ -68,4 +68,4 @@ class Customer(Base, BaseMixin):
 
     # Primary key
     ID = Column(Integer, primary_key=True, autoincrement=True)
-    NAME = Column(String(255), nullable=False, index=True)
+    NAME = Column(String(255), nullable=False, index=True, unique=True)
