@@ -53,6 +53,7 @@ class ProductsOrders(Base, BaseMixin):
     version = Column(String(50), nullable=False)
 
     mounted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    tested_at = Column(DateTime(timezone=True), nullable=True, index=True)
     shipped_at = Column(DateTime(timezone=True), nullable=True, index=True)
     activated_at = Column(DateTime(timezone=True), nullable=True, index=True)
 

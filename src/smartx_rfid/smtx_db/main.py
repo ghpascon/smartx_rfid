@@ -452,6 +452,14 @@ class SmtxDb:
             return False, "Order already mounted"
         return self.update_product_order(order_id, mounted_at=datetime.now())
 
+    def product_order_test(self, order_id: int):
+        order = self.get_product_order(order_id)
+        if not order:
+            return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("tested_at") is not None:
+            return False, "Order already tested"
+        return self.update_product_order(order_id, tested_at=datetime.now())
+
     def product_order_ship(self, order_id: int):
         order = self.get_product_order(order_id)
         if not order:
