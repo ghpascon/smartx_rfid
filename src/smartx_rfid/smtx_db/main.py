@@ -456,6 +456,8 @@ class SmtxDb:
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("mounted_at") is None:
+            return False, "Order must be mounted before testing"
         if order.get("tested_at") is not None:
             return False, "Order already tested"
         return self.update_product_order(order_id, tested_at=datetime.now())
@@ -464,6 +466,8 @@ class SmtxDb:
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("tested_at") is None:
+            return False, "Order must be tested before shipping"
         if order.get("shipped_at") is not None:
             return False, "Order already shipped"
         return self.update_product_order(order_id, shipped_at=datetime.now())
@@ -472,6 +476,8 @@ class SmtxDb:
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
+        if order.get("shipped_at") is None:
+            return False, "Order must be shipped before activation"
         if order.get("activated_at") is not None:
             return False, "Order already activated"
         return self.update_product_order(order_id, activated_at=datetime.now())
