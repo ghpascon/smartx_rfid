@@ -50,7 +50,6 @@ class ProductsOrders(Base, BaseMixin):
     product_type_id = Column(Integer, nullable=False, index=True)
     client_id = Column(Integer, nullable=False, index=True)
     reader_id = Column(Integer, nullable=True, index=True)
-    version = Column(String(50), nullable=False)
 
     mounted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     tested_at = Column(DateTime(timezone=True), nullable=True, index=True)
@@ -62,6 +61,8 @@ class ProductsOrders(Base, BaseMixin):
     tested_by = Column(Integer, nullable=True, index=False)
     shipped_by = Column(Integer, nullable=True, index=False)
     activated_by = Column(Integer, nullable=True, index=False)
+
+    comments = Column(Text, nullable=True)
 
 
 class Customer(Base, BaseMixin):

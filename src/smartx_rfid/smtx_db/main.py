@@ -398,9 +398,7 @@ class SmtxDb:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
-    def add_product_order(
-        self, product_type_id: int, client_id: int, reader_id: int | None, version: str, created_by: int
-    ):
+    def add_product_order(self, product_type_id: int, client_id: int, reader_id: int | None, created_by: int):
         try:
             with self.db_manager.get_session() as session:
                 # Validate product_type_id
@@ -423,7 +421,6 @@ class SmtxDb:
                     product_type_id=product_type_id,
                     client_id=client_id,
                     reader_id=reader_id,
-                    version=version,
                     created_by=created_by,
                 )
                 session.add(product_order)
@@ -485,6 +482,21 @@ class SmtxDb:
                 reader.available = False
         except Exception as e:
             logging.error(f"Error adding reader to product order: {e}")
+            return False, str(e)
+        return True, None
+
+    def add_comment_to_product_order(self, order_id: int, comment: str):
+        try:
+            with self.db_manager.get_session() as session:
+                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                if not product_order:
+                    return False, f"ProductsOrders with id {order_id} not found"
+                if product_order.comments:
+                    product_order.comments += f"\n{comment}"
+                else:
+                    product_order.comments = comment
+        except Exception as e:
+            logging.error(f"Error adding comment to product order: {e}")
             return False, str(e)
         return True, None
 
