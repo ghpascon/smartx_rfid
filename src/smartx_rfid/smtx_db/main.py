@@ -397,7 +397,9 @@ class SmtxDb:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
-    def add_product_order(self, product_type_id: int, client_id: int, reader_id: int | None, version: str):
+    def add_product_order(
+        self, product_type_id: int, client_id: int, reader_id: int | None, version: str, created_by: int
+    ):
         try:
             with self.db_manager.get_session() as session:
                 # Validate product_type_id
@@ -417,7 +419,11 @@ class SmtxDb:
                         return False, f"Reader with id {reader_id} is not available"
 
                 product_order = ProductsOrders(
-                    product_type_id=product_type_id, client_id=client_id, reader_id=reader_id, version=version
+                    product_type_id=product_type_id,
+                    client_id=client_id,
+                    reader_id=reader_id,
+                    version=version,
+                    created_by=created_by,
                 )
                 session.add(product_order)
                 if reader_id is not None:
@@ -482,7 +488,7 @@ class SmtxDb:
         return True, None
 
     # [ Product Orders Workflow ]
-    def product_order_mount(self, order_id: int):
+    def product_order_mount(self, order_id: int, mounted_by: int):
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
@@ -490,9 +496,9 @@ class SmtxDb:
             return False, "Order must have a reader assigned before mounting"
         if order.get("mounted_at") is not None:
             return False, "Order already mounted"
-        return self.update_product_order(order_id, mounted_at=datetime.now())
+        return self.update_product_order(order_id, mounted_at=datetime.now(), mounted_by=mounted_by)
 
-    def product_order_test(self, order_id: int):
+    def product_order_test(self, order_id: int, tested_by: int):
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
@@ -500,9 +506,9 @@ class SmtxDb:
             return False, "Order must be mounted before testing"
         if order.get("tested_at") is not None:
             return False, "Order already tested"
-        return self.update_product_order(order_id, tested_at=datetime.now())
+        return self.update_product_order(order_id, tested_at=datetime.now(), tested_by=tested_by)
 
-    def product_order_ship(self, order_id: int):
+    def product_order_ship(self, order_id: int, shipped_by: int):
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
@@ -510,9 +516,9 @@ class SmtxDb:
             return False, "Order must be tested before shipping"
         if order.get("shipped_at") is not None:
             return False, "Order already shipped"
-        return self.update_product_order(order_id, shipped_at=datetime.now())
+        return self.update_product_order(order_id, shipped_at=datetime.now(), shipped_by=shipped_by)
 
-    def product_order_activate(self, order_id: int):
+    def product_order_activate(self, order_id: int, activated_by: int):
         order = self.get_product_order(order_id)
         if not order:
             return False, f"ProductsOrders with id {order_id} not found"
@@ -520,7 +526,7 @@ class SmtxDb:
             return False, "Order must be shipped before activation"
         if order.get("activated_at") is not None:
             return False, "Order already activated"
-        return self.update_product_order(order_id, activated_at=datetime.now())
+        return self.update_product_order(order_id, activated_at=datetime.now(), activated_by=activated_by)
 
     # [ DECODED ]
     def get_decoded_orders(self):

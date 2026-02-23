@@ -57,6 +57,12 @@ class ProductsOrders(Base, BaseMixin):
     shipped_at = Column(DateTime(timezone=True), nullable=True, index=True)
     activated_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
+    created_by = Column(Integer, nullable=False, index=False)
+    mounted_by = Column(Integer, nullable=True, index=False)
+    tested_by = Column(Integer, nullable=True, index=False)
+    shipped_by = Column(Integer, nullable=True, index=False)
+    activated_by = Column(Integer, nullable=True, index=False)
+
 
 class Customer(Base, BaseMixin):
     __tablename__ = "customer"
