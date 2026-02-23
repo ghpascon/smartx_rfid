@@ -3,6 +3,7 @@ from smartx_rfid.db._main import DatabaseManager
 from .encode_helpers import parse_encode_rule, build_epc
 from smartx_rfid.models.products import ProductsType, ProductsOrders, ReadersType, Readers, Customer
 from datetime import datetime
+from smartx_rfid.models.users import Users
 
 connection_string_example = "mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx"
 
@@ -619,3 +620,82 @@ class SmtxDb:
         except Exception as e:
             logging.error(f"Error fetching decoded orders by ids {order_ids}: {e}")
             return []
+
+    # [ USERS ]
+    def get_users(self):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(Users).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching users: {e}")
+            return []
+
+    def get_user(self, user_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(Users).filter_by(id=user_id).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching user with id {user_id}: {e}")
+            return None
+
+    def get_user_by_username(self, username: str):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(Users).filter_by(username=username).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching user with username {username}: {e}")
+            return None
+
+    def add_user(self, username: str, password_hash: str, role: str = "user"):
+        try:
+            with self.db_manager.get_session() as session:
+                if session.query(Users).filter_by(username=username).first():
+                    return False, f"User with username {username} already exists"
+                user = Users(username=username, password_hash=password_hash, role=role)
+                session.add(user)
+                session.flush()  # Ensure ID is generated
+                return True, user.id
+        except Exception as e:
+            logging.error(f"Error adding user: {e}")
+            return False, None
+
+    def update_user(self, user_id: int, **kwargs):
+        try:
+            with self.db_manager.get_session() as session:
+                user = session.query(Users).filter_by(id=user_id).first()
+                if not user:
+                    return False, f"User with id {user_id} not found"
+                for key, value in kwargs.items():
+                    if hasattr(user, key):
+                        setattr(user, key, value)
+        except Exception as e:
+            logging.error(f"Error updating user: {e}")
+            return False, str(e)
+        return True, None
+
+    def delete_user(self, user_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                user = session.query(Users).filter_by(id=user_id).first()
+                if not user:
+                    return False, f"User with id {user_id} not found"
+                session.delete(user)
+        except Exception as e:
+            logging.error(f"Error deleting user: {e}")
+            return False, str(e)
+        return True, None
+
+    def delete_user_by_username(self, username: str):
+        try:
+            with self.db_manager.get_session() as session:
+                user = session.query(Users).filter_by(username=username).first()
+                if not user:
+                    return False, f"User with username {username} not found"
+                session.delete(user)
+        except Exception as e:
+            logging.error(f"Error deleting user by username {username}: {e}")
+            return False, str(e)
+        return True, None
