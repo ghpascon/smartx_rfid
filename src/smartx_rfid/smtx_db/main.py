@@ -1,4 +1,5 @@
 import logging
+from sqlalchemy.orm import aliased
 from smartx_rfid.db._main import DatabaseManager
 from .encode_helpers import parse_encode_rule, build_epc
 from smartx_rfid.models.products import ProductsType, ProductsOrders, ReadersType, Readers, Customer
@@ -530,6 +531,11 @@ class SmtxDb:
 
     # [ DECODED ]
     def get_decoded_orders(self):
+        CreatedBy = aliased(Users)
+        MountedBy = aliased(Users)
+        TestedBy = aliased(Users)
+        ShippedBy = aliased(Users)
+        ActivatedBy = aliased(Users)
         try:
             with self.db_manager.get_session() as session:
                 results = (
@@ -540,21 +546,48 @@ class SmtxDb:
                         Readers.serial_number.label("reader_serial"),
                         Readers.hostname.label("reader_hostname"),
                         ReadersType.name.label("reader_type_name"),
+                        CreatedBy.username.label("created_by_username"),
+                        MountedBy.username.label("mounted_by_username"),
+                        TestedBy.username.label("tested_by_username"),
+                        ShippedBy.username.label("shipped_by_username"),
+                        ActivatedBy.username.label("activated_by_username"),
                     )
                     .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
                     .join(Customer, ProductsOrders.client_id == Customer.ID)
                     .outerjoin(Readers, ProductsOrders.reader_id == Readers.id)
                     .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .outerjoin(CreatedBy, ProductsOrders.created_by == CreatedBy.id)
+                    .outerjoin(MountedBy, ProductsOrders.mounted_by == MountedBy.id)
+                    .outerjoin(TestedBy, ProductsOrders.tested_by == TestedBy.id)
+                    .outerjoin(ShippedBy, ProductsOrders.shipped_by == ShippedBy.id)
+                    .outerjoin(ActivatedBy, ProductsOrders.activated_by == ActivatedBy.id)
                     .all()
                 )
                 decoded = []
-                for order, product_type_name, client_name, reader_serial, reader_hostname, reader_type_name in results:
+                for (
+                    order,
+                    product_type_name,
+                    client_name,
+                    reader_serial,
+                    reader_hostname,
+                    reader_type_name,
+                    created_by_username,
+                    mounted_by_username,
+                    tested_by_username,
+                    shipped_by_username,
+                    activated_by_username,
+                ) in results:
                     d = order.to_dict()
                     d["product_type_name"] = product_type_name
                     d["client_name"] = client_name
                     d["reader_serial"] = reader_serial
                     d["reader_hostname"] = reader_hostname
                     d["reader_type_name"] = reader_type_name
+                    d["created_by_username"] = created_by_username
+                    d["mounted_by_username"] = mounted_by_username
+                    d["tested_by_username"] = tested_by_username
+                    d["shipped_by_username"] = shipped_by_username
+                    d["activated_by_username"] = activated_by_username
                     decoded.append(d)
                 return decoded
         except Exception as e:
@@ -562,6 +595,11 @@ class SmtxDb:
             return []
 
     def get_decoded_order(self, order_id: int):
+        CreatedBy = aliased(Users)
+        MountedBy = aliased(Users)
+        TestedBy = aliased(Users)
+        ShippedBy = aliased(Users)
+        ActivatedBy = aliased(Users)
         try:
             with self.db_manager.get_session() as session:
                 result = (
@@ -572,29 +610,61 @@ class SmtxDb:
                         Readers.serial_number.label("reader_serial"),
                         Readers.hostname.label("reader_hostname"),
                         ReadersType.name.label("reader_type_name"),
+                        CreatedBy.username.label("created_by_username"),
+                        MountedBy.username.label("mounted_by_username"),
+                        TestedBy.username.label("tested_by_username"),
+                        ShippedBy.username.label("shipped_by_username"),
+                        ActivatedBy.username.label("activated_by_username"),
                     )
                     .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
                     .join(Customer, ProductsOrders.client_id == Customer.ID)
                     .outerjoin(Readers, ProductsOrders.reader_id == Readers.id)
                     .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .outerjoin(CreatedBy, ProductsOrders.created_by == CreatedBy.id)
+                    .outerjoin(MountedBy, ProductsOrders.mounted_by == MountedBy.id)
+                    .outerjoin(TestedBy, ProductsOrders.tested_by == TestedBy.id)
+                    .outerjoin(ShippedBy, ProductsOrders.shipped_by == ShippedBy.id)
+                    .outerjoin(ActivatedBy, ProductsOrders.activated_by == ActivatedBy.id)
                     .filter(ProductsOrders.id == order_id)
                     .first()
                 )
                 if not result:
                     return None
-                order, product_type_name, client_name, reader_serial, reader_hostname, reader_type_name = result
+                (
+                    order,
+                    product_type_name,
+                    client_name,
+                    reader_serial,
+                    reader_hostname,
+                    reader_type_name,
+                    created_by_username,
+                    mounted_by_username,
+                    tested_by_username,
+                    shipped_by_username,
+                    activated_by_username,
+                ) = result
                 d = order.to_dict()
                 d["product_type_name"] = product_type_name
                 d["client_name"] = client_name
                 d["reader_serial"] = reader_serial
                 d["reader_hostname"] = reader_hostname
                 d["reader_type_name"] = reader_type_name
+                d["created_by_username"] = created_by_username
+                d["mounted_by_username"] = mounted_by_username
+                d["tested_by_username"] = tested_by_username
+                d["shipped_by_username"] = shipped_by_username
+                d["activated_by_username"] = activated_by_username
                 return d
         except Exception as e:
             logging.error(f"Error fetching decoded order with id {order_id}: {e}")
             return None
 
     def get_decoded_orders_by_ids(self, order_ids: list[int]):
+        CreatedBy = aliased(Users)
+        MountedBy = aliased(Users)
+        TestedBy = aliased(Users)
+        ShippedBy = aliased(Users)
+        ActivatedBy = aliased(Users)
         try:
             with self.db_manager.get_session() as session:
                 results = (
@@ -605,22 +675,49 @@ class SmtxDb:
                         Readers.serial_number.label("reader_serial"),
                         Readers.hostname.label("reader_hostname"),
                         ReadersType.name.label("reader_type_name"),
+                        CreatedBy.username.label("created_by_username"),
+                        MountedBy.username.label("mounted_by_username"),
+                        TestedBy.username.label("tested_by_username"),
+                        ShippedBy.username.label("shipped_by_username"),
+                        ActivatedBy.username.label("activated_by_username"),
                     )
                     .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
                     .join(Customer, ProductsOrders.client_id == Customer.ID)
                     .outerjoin(Readers, ProductsOrders.reader_id == Readers.id)
                     .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .outerjoin(CreatedBy, ProductsOrders.created_by == CreatedBy.id)
+                    .outerjoin(MountedBy, ProductsOrders.mounted_by == MountedBy.id)
+                    .outerjoin(TestedBy, ProductsOrders.tested_by == TestedBy.id)
+                    .outerjoin(ShippedBy, ProductsOrders.shipped_by == ShippedBy.id)
+                    .outerjoin(ActivatedBy, ProductsOrders.activated_by == ActivatedBy.id)
                     .filter(ProductsOrders.id.in_(order_ids))
                     .all()
                 )
                 decoded = []
-                for order, product_type_name, client_name, reader_serial, reader_hostname, reader_type_name in results:
+                for (
+                    order,
+                    product_type_name,
+                    client_name,
+                    reader_serial,
+                    reader_hostname,
+                    reader_type_name,
+                    created_by_username,
+                    mounted_by_username,
+                    tested_by_username,
+                    shipped_by_username,
+                    activated_by_username,
+                ) in results:
                     d = order.to_dict()
                     d["product_type_name"] = product_type_name
                     d["client_name"] = client_name
                     d["reader_serial"] = reader_serial
                     d["reader_hostname"] = reader_hostname
                     d["reader_type_name"] = reader_type_name
+                    d["created_by_username"] = created_by_username
+                    d["mounted_by_username"] = mounted_by_username
+                    d["tested_by_username"] = tested_by_username
+                    d["shipped_by_username"] = shipped_by_username
+                    d["activated_by_username"] = activated_by_username
                     decoded.append(d)
                 return decoded
         except Exception as e:
