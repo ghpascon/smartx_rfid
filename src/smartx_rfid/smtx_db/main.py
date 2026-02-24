@@ -396,12 +396,12 @@ class SmtxDb:
             logging.error(f"Error fetching product orders for product_type_id {product_type_id}: {e}")
             return []
 
-    def get_product_orders_by_date(self, start_date: datetime, end_date: datetime):
+    def get_product_orders_by_date(self, start_date: datetime, end_date: datetime, field: str = "created_at"):
         try:
             with self.db_manager.get_session() as session:
                 results = (
                     session.query(ProductsOrders)
-                    .filter(ProductsOrders.created_at >= start_date, ProductsOrders.created_at <= end_date)
+                    .filter(getattr(ProductsOrders, field) >= start_date, getattr(ProductsOrders, field) <= end_date)
                     .all()
                 )
                 return [r.id for r in results]
