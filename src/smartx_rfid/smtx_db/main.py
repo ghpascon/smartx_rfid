@@ -484,9 +484,6 @@ class SmtxDb:
                 if not product_order:
                     return False, f"ProductsOrders with id {order_id} not found"
 
-                if product_order.reader_id is not None:
-                    return False, f"ProductsOrders with id {order_id} already has a reader assigned"
-
                 reader = session.query(Readers).filter_by(id=reader_id).first()
                 if not reader:
                     return False, f"Reader with id {reader_id} not found"
@@ -503,13 +500,15 @@ class SmtxDb:
     def add_comment_to_product_order(self, order_id: int, comment: str, user: str | None = None):
         if user is None:
             user = "Unknown"
-        comment = f"{datetime.now().isoformat()} - {user}: {comment}\n"
+        comment = f"{datetime.now().isoformat()} - {user}: {comment}"
         try:
             with self.db_manager.get_session() as session:
                 product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
                 if not product_order:
                     return False, f"ProductsOrders with id {order_id} not found"
-                product_order.comments += f"{comment}"
+                existing_comments = product_order.comments or ""
+                updated_comments = existing_comments + "\n" + comment if existing_comments else comment
+                product_order.comments = updated_comments
         except Exception as e:
             logging.error(f"Error adding comment to product order: {e}")
             return False, str(e)
