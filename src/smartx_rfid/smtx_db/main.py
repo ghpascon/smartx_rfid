@@ -398,6 +398,9 @@ class SmtxDb:
 
     def get_product_orders_by_date(self, start_date: datetime, end_date: datetime, field: str = "created_at"):
         try:
+            if getattr(ProductsOrders, field, None) is None:
+                logging.error(f"Invalid field '{field}' for date filtering in ProductsOrders")
+                return []
             with self.db_manager.get_session() as session:
                 results = (
                     session.query(ProductsOrders)
