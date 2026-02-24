@@ -478,6 +478,7 @@ class SmtxDb:
         return True, None
 
     def add_reader_to_product_order(self, order_id: int, reader_id: int):
+        logging.info(f"Adding reader id={reader_id} to product order id={order_id}")
         try:
             with self.db_manager.get_session() as session:
                 product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
@@ -501,6 +502,7 @@ class SmtxDb:
         if user is None:
             user = "Unknown"
         comment = f"{datetime.now().isoformat()} - {user}: {comment}"
+        logging.info(f"Adding comment to product order id={order_id}: {comment}")
         try:
             with self.db_manager.get_session() as session:
                 product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
