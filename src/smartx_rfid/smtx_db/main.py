@@ -37,6 +37,7 @@ class SmtxDb:
             return None
 
     def add_customer(self, name: str):
+        logging.info(f"Adding customer {name}")
         try:
             with self.db_manager.get_session() as session:
                 customer = Customer(NAME=name)
@@ -115,6 +116,7 @@ class SmtxDb:
             return None
 
     def add_product_type(self, name: str, description: str | None = None):
+        logging.info(f"Adding product type: name={name}, description={description}")
         try:
             with self.db_manager.get_session() as session:
                 product_type = ProductsType(name=name, description=description)
@@ -126,6 +128,7 @@ class SmtxDb:
             return False, None
 
     def update_product_type(self, product_type_id: int, name: str | None = None, description: str | None = None):
+        logging.info(f"Updating product type id={product_type_id}, name={name}, description={description}")
         try:
             with self.db_manager.get_session() as session:
                 product_type = session.query(ProductsType).filter_by(id=product_type_id).first()
@@ -172,6 +175,7 @@ class SmtxDb:
             return None
 
     def add_reader_type(self, name: str, description: str | None = None):
+        logging.info(f"Adding reader type: name={name}, description={description}")
         try:
             with self.db_manager.get_session() as session:
                 reader_type = ReadersType(name=name, description=description)
@@ -183,6 +187,7 @@ class SmtxDb:
             return False, None
 
     def update_reader_type(self, reader_type_id: int, name: str | None = None, description: str | None = None):
+        logging.info(f"Updating reader type id={reader_type_id}, name={name}, description={description}")
         try:
             with self.db_manager.get_session() as session:
                 reader_type = session.query(ReadersType).filter_by(id=reader_type_id).first()
@@ -210,6 +215,9 @@ class SmtxDb:
         return True, None
 
     def add_reader(self, reader_type_id: int, serial_number: str, hostname: str | None = None):
+        logging.info(
+            f"Adding reader: reader_type_id={reader_type_id}, serial_number={serial_number}, hostname={hostname}"
+        )
         try:
             with self.db_manager.get_session() as session:
                 if not session.query(ReadersType).filter_by(id=reader_type_id).first():
@@ -257,6 +265,9 @@ class SmtxDb:
         hostname: str | None = None,
         available: bool | None = None,
     ):
+        logging.info(
+            f"Updating reader id={reader_id}, reader_type_id={reader_type_id}, serial_number={serial_number}, hostname={hostname}, available={available}"
+        )
         try:
             with self.db_manager.get_session() as session:
                 reader = session.query(Readers).filter_by(id=reader_id).first()
@@ -399,6 +410,9 @@ class SmtxDb:
             return []
 
     def add_product_order(self, product_type_id: int, client_id: int, reader_id: int | None, created_by: int):
+        logging.info(
+            f"Adding product order: product_type_id={product_type_id}, client_id={client_id}, reader_id={reader_id}, created_by={created_by}"
+        )
         try:
             with self.db_manager.get_session() as session:
                 # Validate product_type_id
@@ -433,6 +447,7 @@ class SmtxDb:
             return False, None
 
     def update_product_order(self, order_id: int, **kwargs):
+        logging.info(f"Updating product order id={order_id}, updates={kwargs}")
         try:
             with self.db_manager.get_session() as session:
                 product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
@@ -485,20 +500,20 @@ class SmtxDb:
             return False, str(e)
         return True, None
 
-    def add_comment_to_product_order(self, order_id: int, comment: str):
+    def add_comment_to_product_order(self, order_id: int, comment: str, user: str | None = None):
+        if user is None:
+            user = "Unknown"
+        comment = f"{datetime.now().isoformat()} - {user}: {comment}\n"
         try:
             with self.db_manager.get_session() as session:
                 product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
                 if not product_order:
                     return False, f"ProductsOrders with id {order_id} not found"
-                if product_order.comments:
-                    product_order.comments += f"\n{comment}"
-                else:
-                    product_order.comments = comment
+                product_order.comments += f"{comment}"
         except Exception as e:
             logging.error(f"Error adding comment to product order: {e}")
             return False, str(e)
-        return True, None
+        return True, comment
 
     # [ Product Orders Workflow ]
     def product_order_mount(self, order_id: int, mounted_by: int):
@@ -765,6 +780,7 @@ class SmtxDb:
             return None
 
     def add_user(self, username: str, password_hash: str, role: str = "user"):
+        logging.info(f"Adding user: username={username}, role={role}")
         try:
             with self.db_manager.get_session() as session:
                 if session.query(Users).filter_by(username=username).first():
@@ -778,6 +794,7 @@ class SmtxDb:
             return False, None
 
     def update_user(self, user_id: int, **kwargs):
+        logging.info(f"Updating user id={user_id}, updates={kwargs}")
         try:
             with self.db_manager.get_session() as session:
                 user = session.query(Users).filter_by(id=user_id).first()
