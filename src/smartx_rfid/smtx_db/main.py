@@ -558,7 +558,7 @@ class SmtxDb:
         return self.update_product_order(order_id, activated_at=datetime.now(), activated_by=activated_by)
 
     # [ DECODED ]
-    def get_decoded_orders(self):
+    def get_decoded_orders(self, reverted: bool = False):
         CreatedBy = aliased(Users)
         MountedBy = aliased(Users)
         TestedBy = aliased(Users)
@@ -617,6 +617,8 @@ class SmtxDb:
                     d["shipped_by_username"] = shipped_by_username
                     d["activated_by_username"] = activated_by_username
                     decoded.append(d)
+                if reverted:
+                    decoded.reverse()
                 return decoded
         except Exception as e:
             logging.error(f"Error fetching decoded orders: {e}")
