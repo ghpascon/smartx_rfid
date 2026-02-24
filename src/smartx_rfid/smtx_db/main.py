@@ -257,6 +257,15 @@ class SmtxDb:
             logging.error(f"Error fetching reader with id {reader_id}: {e}")
             return None
 
+    def get_reader_by_serial(self, serial_number: str):
+        try:
+            with self.db_manager.get_session() as session:
+                result = session.query(Readers).filter_by(serial_number=serial_number).first()
+                return result.to_dict() if result else None
+        except Exception as e:
+            logging.error(f"Error fetching reader with serial number {serial_number}: {e}")
+            return None
+
     def update_reader(
         self,
         reader_id: int,
@@ -410,6 +419,15 @@ class SmtxDb:
                 return [r.id for r in results]
         except Exception as e:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
+            return []
+
+    def get_product_orders_by_reader(self, reader_id: int):
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(ProductsOrders).filter_by(reader_id=reader_id).all()
+                return [r.id for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching product orders for reader_id {reader_id}: {e}")
             return []
 
     def add_product_order(self, product_type_id: int, client_id: int, reader_id: int | None, created_by: int):
