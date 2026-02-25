@@ -198,6 +198,9 @@ class SmtxDb:
 
     # Product Orders
     def get_product_orders(self, filters: dict | None = None):
+        """
+        Busca pedidos de produto, aceitando filtros de igualdade e de intervalo (__gte, __lte).
+        """
         try:
             with self.db_manager.get_session() as session:
                 CreatedBy = aliased(Users)
@@ -227,10 +230,18 @@ class SmtxDb:
                     .outerjoin(ActivatedBy, Orders.activated_by == ActivatedBy.id)
                 )
 
-                # Apply filters if provided
+                # Aplica filtros de igualdade e de intervalo
                 if filters:
                     for field, value in filters.items():
-                        if hasattr(Orders, field):
+                        if "__gte" in field:
+                            base_field = field.replace("__gte", "")
+                            if hasattr(Orders, base_field):
+                                query = query.filter(getattr(Orders, base_field) >= value)
+                        elif "__lte" in field:
+                            base_field = field.replace("__lte", "")
+                            if hasattr(Orders, base_field):
+                                query = query.filter(getattr(Orders, base_field) <= value)
+                        elif hasattr(Orders, field):
                             query = query.filter(getattr(Orders, field) == value)
                         elif hasattr(Readers, field):
                             query = query.filter(getattr(Readers, field) == value)
@@ -292,29 +303,19 @@ class SmtxDb:
         return orders
 
     def get_product_orders_by_date(self, start_date: datetime, end_date: datetime, field: str = "created_at"):
+        if getattr(Orders, field, None) is None:
+            logging.error(f"Invalid field '{field}' for date filtering in Orders")
+            return []
+        filters = {f"{field}__gte": start_date, f"{field}__lte": end_date}
         try:
-            if getattr(Orders, field, None) is None:
-                logging.error(f"Invalid field '{field}' for date filtering in Orders")
-                return []
-            with self.db_manager.get_session() as session:
-                results = (
-                    session.query(Orders)
-                    .filter(getattr(Orders, field) >= start_date, getattr(Orders, field) <= end_date)
-                    .all()
-                )
-                return [r.to_dict() for r in results]
+            return self.get_product_orders(filters)
         except Exception as e:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
     def get_product_orders_by_reader(self, reader_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                results = session.query(Orders).filter_by(reader_id=reader_id).all()
-                return [r.to_dict() for r in results]
-        except Exception as e:
-            logging.error(f"Error fetching product orders for reader_id {reader_id}: {e}")
-            return []
+        orders = self.get_product_orders(filters={"reader_id": reader_id})
+        return orders
 
     def add_product_order(
         self,
