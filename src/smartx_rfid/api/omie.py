@@ -224,4 +224,8 @@ class ApiOmie:
             total_items = len(enriched_orders)
             logging.info(f"[OMIE] Process completed: {total_items} enriched orders")
 
-            return {"success": True, "total_items": total_items, "orders": enriched_orders}
+            return {
+                "success": True,
+                "total_items": total_items,
+                "orders": [order for order in enriched_orders if order.get("familia_produto").startswith("Zona")],
+            }
