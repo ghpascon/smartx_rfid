@@ -10,16 +10,6 @@ from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime
 from .mixin import Base, BaseMixin
 
 
-class ProductsType(Base, BaseMixin):
-    __tablename__ = "products_type"
-
-    # Primary key
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    name = Column(String(100), nullable=False, index=True, unique=True)
-    description = Column(Text, nullable=True)
-
-
 class ReadersType(Base, BaseMixin):
     __tablename__ = "readers_type"
 
@@ -41,14 +31,19 @@ class Readers(Base, BaseMixin):
     available = Column(Boolean, nullable=False, default=True, index=True)
 
 
-class ProductsOrders(Base, BaseMixin):
-    __tablename__ = "products_orders"
+class Orders(Base, BaseMixin):
+    __tablename__ = "orders"
 
     # Primary key
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    product_type_id = Column(Integer, nullable=False, index=True)
-    client_id = Column(Integer, nullable=False, index=True)
+    order_number = Column(Integer, nullable=False, index=True)
+    client_name = Column(String(255), nullable=False, index=True)
+    client_cnpj = Column(String(25), nullable=True, index=True)
+    product_code = Column(String(100), nullable=False, index=True)
+    product_description = Column(String(255), nullable=True, index=False)
+    product_family = Column(String(255), nullable=True, index=False)
+
     reader_id = Column(Integer, nullable=True, index=True)
 
     mounted_at = Column(DateTime(timezone=True), nullable=True, index=True)
@@ -63,17 +58,3 @@ class ProductsOrders(Base, BaseMixin):
     activated_by = Column(Integer, nullable=True, index=False)
 
     comments = Column(Text, nullable=True)
-
-
-class Customer(Base, BaseMixin):
-    __tablename__ = "customer"
-
-    # Dynamically suppress all Column instances inherited from Base (legacy table)
-    for _k, _v in vars(Base).items():
-        if isinstance(_v, Column):
-            locals()[_k] = None
-    del _k, _v
-
-    # Primary key
-    ID = Column(Integer, primary_key=True, autoincrement=True)
-    NAME = Column(String(255), nullable=False, index=True, unique=True)

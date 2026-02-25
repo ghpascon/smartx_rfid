@@ -1,8 +1,7 @@
 import logging
 from sqlalchemy.orm import aliased
 from smartx_rfid.db._main import DatabaseManager
-from .encode_helpers import parse_encode_rule, build_epc
-from smartx_rfid.models.products import ProductsType, ProductsOrders, ReadersType, Readers, Customer
+from smartx_rfid.models.orders import ReadersType, Readers, Orders
 from datetime import datetime
 from smartx_rfid.models.users import Users
 
@@ -14,146 +13,6 @@ class SmtxDb:
         self.connection_string = connection_string
         self.db_manager = DatabaseManager(self.connection_string)
         self.db_manager.initialize()
-
-    # [ Customers ]
-    def get_customers(self, limit: int | None = None):
-        try:
-            with self.db_manager.get_session() as session:
-                q = session.query(Customer)
-                if limit is not None:
-                    q = q.limit(limit)
-                return [r.to_dict() for r in q.all()]
-        except Exception as e:
-            logging.error(f"Error fetching customers: {e}")
-            return []
-
-    def get_customer(self, client_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                result = session.query(Customer).filter_by(ID=client_id).first()
-                return result.to_dict() if result else None
-        except Exception as e:
-            logging.error(f"Error fetching customer with id {client_id}: {e}")
-            return None
-
-    def add_customer(self, name: str):
-        logging.info(f"Adding customer {name}")
-        try:
-            with self.db_manager.get_session() as session:
-                customer = Customer(NAME=name)
-                session.add(customer)
-                session.flush()  # Ensure ID is generated
-                return True, customer.ID
-        except Exception as e:
-            logging.error(f"Error adding customer: {e}")
-            return False, None
-
-    # [ Orders ]
-    def get_orders(self, client_id: int):
-        query = f"SELECT * FROM production_order WHERE customer_id = {client_id}"
-        return self.db_manager.execute_query(query)
-
-    def get_batches(self, order_id: int):
-        query = f"SELECT * FROM production_order_batch WHERE production_order_id = {order_id}"
-        return self.db_manager.execute_query(query)
-
-    def get_encode_rule(self, rule_id: int | None = None):
-        query = "SELECT params FROM enc_rule"
-        if rule_id is not None:
-            query += f" WHERE id = {rule_id}"
-        return self.db_manager.execute_query(query)
-
-    def generate_epc_list(self, qtd: int, order_id: int):
-        logging.info(f"Generating EPC list for order_id {order_id} with quantity {qtd}.")
-
-        # Max serial
-        max_serial_query = (
-            f"SELECT MAX(serial) AS max_serial FROM production_order_tag WHERE production_order_id = {order_id}"
-        )
-        max_serial_result = self.db_manager.execute_query(max_serial_query)
-        logging.info(f"Max serial result: {max_serial_result}")
-        max_serial = (
-            max_serial_result[0]["max_serial"]
-            if max_serial_result and max_serial_result[0]["max_serial"] is not None
-            else 0
-        )
-
-        # Encoding rule
-        encode_rule_query = (
-            f"SELECT params FROM enc_rule WHERE id = (SELECT enc_rule_id FROM production_order WHERE id = {order_id})"
-        )
-        encode_rule_result = self.db_manager.execute_query(encode_rule_query)
-        logging.info(f"Encode rule result: {encode_rule_result}")
-
-        if not encode_rule_result:
-            raise ValueError(f"No encode rule found for order_id {order_id}")
-
-        rule = parse_encode_rule(encode_rule_result[0]["params"])
-        logging.info(f"Parsed encode rule: {rule}")
-
-        epc_list = [build_epc(max_serial + i, rule) for i in range(1, qtd + 1)]
-        logging.info(f"Generated {len(epc_list)} EPCs starting from serial {max_serial + 1}.")
-        return epc_list
-
-    # [ Products ]
-    # Product Types
-    def get_product_types(self):
-        try:
-            with self.db_manager.get_session() as session:
-                results = session.query(ProductsType).all()
-                return [r.to_dict() for r in results]
-        except Exception as e:
-            logging.error(f"Error fetching product types: {e}")
-            return []
-
-    def get_product_type(self, product_type_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                result = session.query(ProductsType).filter_by(id=product_type_id).first()
-                return result.to_dict() if result else None
-        except Exception as e:
-            logging.error(f"Error fetching product type with id {product_type_id}: {e}")
-            return None
-
-    def add_product_type(self, name: str, description: str | None = None):
-        logging.info(f"Adding product type: name={name}, description={description}")
-        try:
-            with self.db_manager.get_session() as session:
-                product_type = ProductsType(name=name, description=description)
-                session.add(product_type)
-                session.flush()  # Ensure ID is generated
-                return True, product_type.id
-        except Exception as e:
-            logging.error(f"Error adding product type: {e}")
-            return False, None
-
-    def update_product_type(self, product_type_id: int, name: str | None = None, description: str | None = None):
-        logging.info(f"Updating product type id={product_type_id}, name={name}, description={description}")
-        try:
-            with self.db_manager.get_session() as session:
-                product_type = session.query(ProductsType).filter_by(id=product_type_id).first()
-                if not product_type:
-                    return False, f"ProductType with id {product_type_id} not found"
-                if name is not None:
-                    product_type.name = name
-                if description is not None:
-                    product_type.description = description
-        except Exception as e:
-            logging.error(f"Error updating product type: {e}")
-            return False, str(e)
-        return True, None
-
-    def delete_product_type(self, product_type_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                product_type = session.query(ProductsType).filter_by(id=product_type_id).first()
-                if not product_type:
-                    return False, f"ProductType with id {product_type_id} not found"
-                session.delete(product_type)
-        except Exception as e:
-            logging.error(f"Error deleting product type: {e}")
-            return False, str(e)
-        return True, None
 
     # Readers Type
     def get_reader_types(self):
@@ -303,7 +162,7 @@ class SmtxDb:
                 reader = session.query(Readers).filter_by(id=reader_id).first()
                 if not reader:
                     return False, f"Reader with id {reader_id} not found"
-                in_use = session.query(ProductsOrders).filter_by(reader_id=reader_id).first()
+                in_use = session.query(Orders).filter_by(reader_id=reader_id).first()
                 if in_use:
                     return False, f"Reader with id {reader_id} is in use by a product order"
                 session.delete(reader)
@@ -369,54 +228,108 @@ class SmtxDb:
             return []
 
     # Product Orders
-    def get_product_orders(self):
+    def get_product_orders(self, filters: dict | None = None):
         try:
             with self.db_manager.get_session() as session:
-                results = session.query(ProductsOrders).all()
-                return [r.to_dict() for r in results]
+                CreatedBy = aliased(Users)
+                MountedBy = aliased(Users)
+                TestedBy = aliased(Users)
+                ShippedBy = aliased(Users)
+                ActivatedBy = aliased(Users)
+
+                query = (
+                    session.query(
+                        Orders,
+                        Readers.serial_number.label("reader_serial"),
+                        Readers.hostname.label("reader_hostname"),
+                        ReadersType.name.label("reader_type_name"),
+                        CreatedBy.username.label("created_by_username"),
+                        MountedBy.username.label("mounted_by_username"),
+                        TestedBy.username.label("tested_by_username"),
+                        ShippedBy.username.label("shipped_by_username"),
+                        ActivatedBy.username.label("activated_by_username"),
+                    )
+                    .outerjoin(Readers, Orders.reader_id == Readers.id)
+                    .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
+                    .outerjoin(CreatedBy, Orders.created_by == CreatedBy.id)
+                    .outerjoin(MountedBy, Orders.mounted_by == MountedBy.id)
+                    .outerjoin(TestedBy, Orders.tested_by == TestedBy.id)
+                    .outerjoin(ShippedBy, Orders.shipped_by == ShippedBy.id)
+                    .outerjoin(ActivatedBy, Orders.activated_by == ActivatedBy.id)
+                )
+
+                # Apply filters if provided
+                if filters:
+                    for field, value in filters.items():
+                        if hasattr(Orders, field):
+                            query = query.filter(getattr(Orders, field) == value)
+                        elif hasattr(Readers, field):
+                            query = query.filter(getattr(Readers, field) == value)
+                        elif hasattr(ReadersType, field):
+                            query = query.filter(getattr(ReadersType, field) == value)
+                        else:
+                            logging.warning(f"Unknown filter field: {field}")
+
+                results = query.all()
+                decoded = []
+                for (
+                    order,
+                    reader_serial,
+                    reader_hostname,
+                    reader_type_name,
+                    created_by_username,
+                    mounted_by_username,
+                    tested_by_username,
+                    shipped_by_username,
+                    activated_by_username,
+                ) in results:
+                    d = order.to_dict()
+                    d["reader_serial"] = reader_serial
+                    d["reader_hostname"] = reader_hostname
+                    d["reader_type_name"] = reader_type_name
+                    d["created_by_username"] = created_by_username
+                    d["mounted_by_username"] = mounted_by_username
+                    d["tested_by_username"] = tested_by_username
+                    d["shipped_by_username"] = shipped_by_username
+                    d["activated_by_username"] = activated_by_username
+                    decoded.append(d)
+                return decoded
         except Exception as e:
             logging.error(f"Error fetching product orders: {e}")
             return []
 
     def get_product_order(self, order_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                result = session.query(ProductsOrders).filter_by(id=order_id).first()
-                return result.to_dict() if result else None
-        except Exception as e:
-            logging.error(f"Error fetching product order with id {order_id}: {e}")
-            return None
+        order = self.get_product_orders(filters={"id": order_id})
+        return order[0] if order else None
 
-    def get_product_orders_by_client(self, client_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                results = session.query(ProductsOrders).filter_by(client_id=client_id).all()
-                return [r.id for r in results]
-        except Exception as e:
-            logging.error(f"Error fetching product orders for client_id {client_id}: {e}")
-            return []
+    def get_product_orders_by_client(self, client: str):
+        orders = self.get_product_orders(filters={"client_name": client})
+        return orders
 
-    def get_product_orders_by_product_type(self, product_type_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                results = session.query(ProductsOrders).filter_by(product_type_id=product_type_id).all()
-                return [r.id for r in results]
-        except Exception as e:
-            logging.error(f"Error fetching product orders for product_type_id {product_type_id}: {e}")
-            return []
+    def get_product_orders_by_cnpj(self, cnpj: str):
+        orders = self.get_product_orders(filters={"client_cnpj": cnpj})
+        return orders
+
+    def get_product_orders_by_product_code(self, product_code: str):
+        orders = self.get_product_orders(filters={"product_code": product_code})
+        return orders
+
+    def get_product_orders_by_order_number(self, order_number: int):
+        orders = self.get_product_orders(filters={"order_number": order_number})
+        return orders
 
     def get_product_orders_by_date(self, start_date: datetime, end_date: datetime, field: str = "created_at"):
         try:
-            if getattr(ProductsOrders, field, None) is None:
-                logging.error(f"Invalid field '{field}' for date filtering in ProductsOrders")
+            if getattr(Orders, field, None) is None:
+                logging.error(f"Invalid field '{field}' for date filtering in Orders")
                 return []
             with self.db_manager.get_session() as session:
                 results = (
-                    session.query(ProductsOrders)
-                    .filter(getattr(ProductsOrders, field) >= start_date, getattr(ProductsOrders, field) <= end_date)
+                    session.query(Orders)
+                    .filter(getattr(Orders, field) >= start_date, getattr(Orders, field) <= end_date)
                     .all()
                 )
-                return [r.id for r in results]
+                return [r.to_dict() for r in results]
         except Exception as e:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
@@ -424,25 +337,31 @@ class SmtxDb:
     def get_product_orders_by_reader(self, reader_id: int):
         try:
             with self.db_manager.get_session() as session:
-                results = session.query(ProductsOrders).filter_by(reader_id=reader_id).all()
-                return [r.id for r in results]
+                results = session.query(Orders).filter_by(reader_id=reader_id).all()
+                return [r.to_dict() for r in results]
         except Exception as e:
             logging.error(f"Error fetching product orders for reader_id {reader_id}: {e}")
             return []
 
-    def add_product_order(self, product_type_id: int, client_id: int, reader_id: int | None, created_by: int):
+    def add_product_order(
+        self,
+        order_number: int,
+        client_name: str,
+        client_cnpj: str | None,
+        product_code: str,
+        product_description: str | None,
+        product_family: str | None,
+        reader_id: int | None,
+        created_by: int,
+    ):
         logging.info(
-            f"Adding product order: product_type_id={product_type_id}, client_id={client_id}, reader_id={reader_id}, created_by={created_by}"
+            f"Adding product order: order_number={order_number}, client_name={client_name}, product_code={product_code}, reader_id={reader_id}, created_by={created_by}"
         )
         try:
             with self.db_manager.get_session() as session:
-                # Validate product_type_id
-                if not session.query(ProductsType).filter_by(id=product_type_id).first():
-                    return False, f"ProductType with id {product_type_id} not found"
-
-                # Validate client_id
-                if not session.query(Customer).filter_by(ID=client_id).first():
-                    return False, f"Customer with id {client_id} not found"
+                # Validate created_by user exists
+                if not session.query(Users).filter_by(id=created_by).first():
+                    return False, f"User with id {created_by} not found"
 
                 # Validate reader_id and check availability
                 if reader_id is not None:
@@ -452,9 +371,13 @@ class SmtxDb:
                     if not reader.available:
                         return False, f"Reader with id {reader_id} is not available"
 
-                product_order = ProductsOrders(
-                    product_type_id=product_type_id,
-                    client_id=client_id,
+                product_order = Orders(
+                    order_number=order_number,
+                    client_name=client_name,
+                    client_cnpj=client_cnpj,
+                    product_code=product_code,
+                    product_description=product_description,
+                    product_family=product_family,
                     reader_id=reader_id,
                     created_by=created_by,
                 )
@@ -471,9 +394,9 @@ class SmtxDb:
         logging.info(f"Updating product order id={order_id}, updates={kwargs}")
         try:
             with self.db_manager.get_session() as session:
-                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                product_order = session.query(Orders).filter_by(id=order_id).first()
                 if not product_order:
-                    return False, f"ProductsOrders with id {order_id} not found"
+                    return False, f"Orders with id {order_id} not found"
                 for key, value in kwargs.items():
                     if hasattr(product_order, key):
                         setattr(product_order, key, value)
@@ -485,9 +408,9 @@ class SmtxDb:
     def delete_product_order(self, order_id: int):
         try:
             with self.db_manager.get_session() as session:
-                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                product_order = session.query(Orders).filter_by(id=order_id).first()
                 if not product_order:
-                    return False, f"ProductsOrders with id {order_id} not found"
+                    return False, f"Orders with id {order_id} not found"
                 # Restore reader availability
                 reader = session.query(Readers).filter_by(id=product_order.reader_id).first()
                 if reader:
@@ -502,15 +425,21 @@ class SmtxDb:
         logging.info(f"Adding reader id={reader_id} to product order id={order_id}")
         try:
             with self.db_manager.get_session() as session:
-                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                product_order = session.query(Orders).filter_by(id=order_id).first()
                 if not product_order:
-                    return False, f"ProductsOrders with id {order_id} not found"
+                    return False, f"Orders with id {order_id} not found"
 
                 reader = session.query(Readers).filter_by(id=reader_id).first()
                 if not reader:
                     return False, f"Reader with id {reader_id} not found"
                 if not reader.available:
                     return False, f"Reader with id {reader_id} is not available"
+
+                # Free previous reader if any
+                if product_order.reader_id:
+                    old_reader = session.query(Readers).filter_by(id=product_order.reader_id).first()
+                    if old_reader:
+                        old_reader.available = True
 
                 product_order.reader_id = reader_id
                 reader.available = False
@@ -526,9 +455,9 @@ class SmtxDb:
         logging.info(f"Adding comment to product order id={order_id}: {comment}")
         try:
             with self.db_manager.get_session() as session:
-                product_order = session.query(ProductsOrders).filter_by(id=order_id).first()
+                product_order = session.query(Orders).filter_by(id=order_id).first()
                 if not product_order:
-                    return False, f"ProductsOrders with id {order_id} not found"
+                    return False, f"Orders with id {order_id} not found"
                 existing_comments = product_order.comments or ""
                 updated_comments = existing_comments + "\n" + comment if existing_comments else comment
                 product_order.comments = updated_comments
@@ -541,7 +470,7 @@ class SmtxDb:
     def product_order_mount(self, order_id: int, mounted_by: int):
         order = self.get_product_order(order_id)
         if not order:
-            return False, f"ProductsOrders with id {order_id} not found"
+            return False, f"Orders with id {order_id} not found"
         if order.get("reader_id") is None:
             return False, "Order must have a reader assigned before mounting"
         if order.get("mounted_at") is not None:
@@ -551,7 +480,7 @@ class SmtxDb:
     def product_order_test(self, order_id: int, tested_by: int):
         order = self.get_product_order(order_id)
         if not order:
-            return False, f"ProductsOrders with id {order_id} not found"
+            return False, f"Orders with id {order_id} not found"
         if order.get("mounted_at") is None:
             return False, "Order must be mounted before testing"
         if order.get("tested_at") is not None:
@@ -561,7 +490,7 @@ class SmtxDb:
     def product_order_ship(self, order_id: int, shipped_by: int):
         order = self.get_product_order(order_id)
         if not order:
-            return False, f"ProductsOrders with id {order_id} not found"
+            return False, f"Orders with id {order_id} not found"
         if order.get("tested_at") is None:
             return False, "Order must be tested before shipping"
         if order.get("shipped_at") is not None:
@@ -571,209 +500,12 @@ class SmtxDb:
     def product_order_activate(self, order_id: int, activated_by: int):
         order = self.get_product_order(order_id)
         if not order:
-            return False, f"ProductsOrders with id {order_id} not found"
+            return False, f"Orders with id {order_id} not found"
         if order.get("shipped_at") is None:
             return False, "Order must be shipped before activation"
         if order.get("activated_at") is not None:
             return False, "Order already activated"
         return self.update_product_order(order_id, activated_at=datetime.now(), activated_by=activated_by)
-
-    # [ DECODED ]
-    def get_decoded_orders(self, reverted: bool = False):
-        CreatedBy = aliased(Users)
-        MountedBy = aliased(Users)
-        TestedBy = aliased(Users)
-        ShippedBy = aliased(Users)
-        ActivatedBy = aliased(Users)
-        try:
-            with self.db_manager.get_session() as session:
-                results = (
-                    session.query(
-                        ProductsOrders,
-                        ProductsType.name.label("product_type_name"),
-                        Customer.NAME.label("client_name"),
-                        Readers.serial_number.label("reader_serial"),
-                        Readers.hostname.label("reader_hostname"),
-                        ReadersType.name.label("reader_type_name"),
-                        CreatedBy.username.label("created_by_username"),
-                        MountedBy.username.label("mounted_by_username"),
-                        TestedBy.username.label("tested_by_username"),
-                        ShippedBy.username.label("shipped_by_username"),
-                        ActivatedBy.username.label("activated_by_username"),
-                    )
-                    .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
-                    .join(Customer, ProductsOrders.client_id == Customer.ID)
-                    .outerjoin(Readers, ProductsOrders.reader_id == Readers.id)
-                    .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
-                    .outerjoin(CreatedBy, ProductsOrders.created_by == CreatedBy.id)
-                    .outerjoin(MountedBy, ProductsOrders.mounted_by == MountedBy.id)
-                    .outerjoin(TestedBy, ProductsOrders.tested_by == TestedBy.id)
-                    .outerjoin(ShippedBy, ProductsOrders.shipped_by == ShippedBy.id)
-                    .outerjoin(ActivatedBy, ProductsOrders.activated_by == ActivatedBy.id)
-                    .all()
-                )
-                decoded = []
-                for (
-                    order,
-                    product_type_name,
-                    client_name,
-                    reader_serial,
-                    reader_hostname,
-                    reader_type_name,
-                    created_by_username,
-                    mounted_by_username,
-                    tested_by_username,
-                    shipped_by_username,
-                    activated_by_username,
-                ) in results:
-                    d = order.to_dict()
-                    d["product_type_name"] = product_type_name
-                    d["client_name"] = client_name
-                    d["reader_serial"] = reader_serial
-                    d["reader_hostname"] = reader_hostname
-                    d["reader_type_name"] = reader_type_name
-                    d["created_by_username"] = created_by_username
-                    d["mounted_by_username"] = mounted_by_username
-                    d["tested_by_username"] = tested_by_username
-                    d["shipped_by_username"] = shipped_by_username
-                    d["activated_by_username"] = activated_by_username
-                    decoded.append(d)
-                if reverted:
-                    decoded.reverse()
-                return decoded
-        except Exception as e:
-            logging.error(f"Error fetching decoded orders: {e}")
-            return []
-
-    def get_decoded_order(self, order_id: int):
-        CreatedBy = aliased(Users)
-        MountedBy = aliased(Users)
-        TestedBy = aliased(Users)
-        ShippedBy = aliased(Users)
-        ActivatedBy = aliased(Users)
-        try:
-            with self.db_manager.get_session() as session:
-                result = (
-                    session.query(
-                        ProductsOrders,
-                        ProductsType.name.label("product_type_name"),
-                        Customer.NAME.label("client_name"),
-                        Readers.serial_number.label("reader_serial"),
-                        Readers.hostname.label("reader_hostname"),
-                        ReadersType.name.label("reader_type_name"),
-                        CreatedBy.username.label("created_by_username"),
-                        MountedBy.username.label("mounted_by_username"),
-                        TestedBy.username.label("tested_by_username"),
-                        ShippedBy.username.label("shipped_by_username"),
-                        ActivatedBy.username.label("activated_by_username"),
-                    )
-                    .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
-                    .join(Customer, ProductsOrders.client_id == Customer.ID)
-                    .outerjoin(Readers, ProductsOrders.reader_id == Readers.id)
-                    .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
-                    .outerjoin(CreatedBy, ProductsOrders.created_by == CreatedBy.id)
-                    .outerjoin(MountedBy, ProductsOrders.mounted_by == MountedBy.id)
-                    .outerjoin(TestedBy, ProductsOrders.tested_by == TestedBy.id)
-                    .outerjoin(ShippedBy, ProductsOrders.shipped_by == ShippedBy.id)
-                    .outerjoin(ActivatedBy, ProductsOrders.activated_by == ActivatedBy.id)
-                    .filter(ProductsOrders.id == order_id)
-                    .first()
-                )
-                if not result:
-                    return None
-                (
-                    order,
-                    product_type_name,
-                    client_name,
-                    reader_serial,
-                    reader_hostname,
-                    reader_type_name,
-                    created_by_username,
-                    mounted_by_username,
-                    tested_by_username,
-                    shipped_by_username,
-                    activated_by_username,
-                ) = result
-                d = order.to_dict()
-                d["product_type_name"] = product_type_name
-                d["client_name"] = client_name
-                d["reader_serial"] = reader_serial
-                d["reader_hostname"] = reader_hostname
-                d["reader_type_name"] = reader_type_name
-                d["created_by_username"] = created_by_username
-                d["mounted_by_username"] = mounted_by_username
-                d["tested_by_username"] = tested_by_username
-                d["shipped_by_username"] = shipped_by_username
-                d["activated_by_username"] = activated_by_username
-                return d
-        except Exception as e:
-            logging.error(f"Error fetching decoded order with id {order_id}: {e}")
-            return None
-
-    def get_decoded_orders_by_ids(self, order_ids: list[int]):
-        CreatedBy = aliased(Users)
-        MountedBy = aliased(Users)
-        TestedBy = aliased(Users)
-        ShippedBy = aliased(Users)
-        ActivatedBy = aliased(Users)
-        try:
-            with self.db_manager.get_session() as session:
-                results = (
-                    session.query(
-                        ProductsOrders,
-                        ProductsType.name.label("product_type_name"),
-                        Customer.NAME.label("client_name"),
-                        Readers.serial_number.label("reader_serial"),
-                        Readers.hostname.label("reader_hostname"),
-                        ReadersType.name.label("reader_type_name"),
-                        CreatedBy.username.label("created_by_username"),
-                        MountedBy.username.label("mounted_by_username"),
-                        TestedBy.username.label("tested_by_username"),
-                        ShippedBy.username.label("shipped_by_username"),
-                        ActivatedBy.username.label("activated_by_username"),
-                    )
-                    .join(ProductsType, ProductsOrders.product_type_id == ProductsType.id)
-                    .join(Customer, ProductsOrders.client_id == Customer.ID)
-                    .outerjoin(Readers, ProductsOrders.reader_id == Readers.id)
-                    .outerjoin(ReadersType, Readers.reader_type_id == ReadersType.id)
-                    .outerjoin(CreatedBy, ProductsOrders.created_by == CreatedBy.id)
-                    .outerjoin(MountedBy, ProductsOrders.mounted_by == MountedBy.id)
-                    .outerjoin(TestedBy, ProductsOrders.tested_by == TestedBy.id)
-                    .outerjoin(ShippedBy, ProductsOrders.shipped_by == ShippedBy.id)
-                    .outerjoin(ActivatedBy, ProductsOrders.activated_by == ActivatedBy.id)
-                    .filter(ProductsOrders.id.in_(order_ids))
-                    .all()
-                )
-                decoded = []
-                for (
-                    order,
-                    product_type_name,
-                    client_name,
-                    reader_serial,
-                    reader_hostname,
-                    reader_type_name,
-                    created_by_username,
-                    mounted_by_username,
-                    tested_by_username,
-                    shipped_by_username,
-                    activated_by_username,
-                ) in results:
-                    d = order.to_dict()
-                    d["product_type_name"] = product_type_name
-                    d["client_name"] = client_name
-                    d["reader_serial"] = reader_serial
-                    d["reader_hostname"] = reader_hostname
-                    d["reader_type_name"] = reader_type_name
-                    d["created_by_username"] = created_by_username
-                    d["mounted_by_username"] = mounted_by_username
-                    d["tested_by_username"] = tested_by_username
-                    d["shipped_by_username"] = shipped_by_username
-                    d["activated_by_username"] = activated_by_username
-                    decoded.append(d)
-                return decoded
-        except Exception as e:
-            logging.error(f"Error fetching decoded orders by ids {order_ids}: {e}")
-            return []
 
     # [ USERS ]
     def get_users(self):
@@ -855,3 +587,29 @@ class SmtxDb:
             logging.error(f"Error deleting user by username {username}: {e}")
             return False, str(e)
         return True, None
+
+    # [ UTILS ]
+    def _get_column_values(self, model, column_name):
+        try:
+            with self.db_manager.get_session() as session:
+                column = getattr(model, column_name, None)
+                if column is None:
+                    logging.error(f"Model {model.__name__} does not have column {column_name}")
+                    return []
+                results = session.query(column).distinct().all()
+                return [getattr(r, column_name) for r in results if getattr(r, column_name) is not None]
+        except Exception as e:
+            logging.error(f"Error fetching column values for {model.__name__}.{column_name}: {e}")
+            return []
+
+    def get_customers(self):
+        return self._get_column_values(Orders, "client_name")
+
+    def get_cnpjs(self):
+        return self._get_column_values(Orders, "client_cnpj")
+
+    def get_orders_numbers(self):
+        return self._get_column_values(Orders, "order_number")
+
+    def get_product_codes(self):
+        return self._get_column_values(Orders, "product_code")

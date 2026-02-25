@@ -6,7 +6,10 @@ Run directly: python examples/smtx_db/test_all.py
 import json
 import logging
 import sys
-from smartx_rfid.smtx_db.main import SmtxDb, ProductsOrders, ProductsType, ReadersType, Readers
+from datetime import datetime
+from smartx_rfid.smtx_db.main import SmtxDb
+from smartx_rfid.models.orders import ReadersType, Readers, Orders
+from smartx_rfid.models.users import Users
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
@@ -32,12 +35,12 @@ def ok(success: bool, detail=None):
 # Setup
 # ─────────────────────────────────────────────
 section("CONNECTION")
-default_conn = "mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx_teste"
+default_conn = "mysql+pymysql://root:admin@localhost:3306/orders"
 conn = input(f"  Connection string [{default_conn}]: ").strip() or default_conn
 
 try:
     db = SmtxDb(conn)
-    db.db_manager.register_models(ProductsType, ReadersType, Readers, ProductsOrders)
+    db.db_manager.register_models(ReadersType, Readers, Orders, Users)
     db.db_manager.create_tables()  # Ensure tables exist for testing
     print("  Connected.")
 except Exception as e:
@@ -46,46 +49,40 @@ except Exception as e:
 
 
 # ─────────────────────────────────────────────
-# CUSTOMERS
+# USERS
 # ─────────────────────────────────────────────
-section("CUSTOMERS")
+section("USERS")
 
-print("\n[get_customers(limit=5)]")
-customers = db.get_customers(limit=5)
-p("customers", customers)
+print("\n[get_users]")
+users = db.get_users()
+p("users", users)
 
-client_id_str = input("\n  Enter a customer ID to test get_customer (or ENTER to skip): ").strip()
-if client_id_str:
-    client_id = int(client_id_str)
-    print(f"\n[get_customer({client_id})]")
-    p("customer", db.get_customer(client_id))
+user_id = None
+username = input("\n  New username to create (or ENTER to skip): ").strip()
+if username:
+    password_hash = "hashed_password_123"  # In real app, use proper hashing
+    role = input("  Role [user]: ").strip() or "user"
+    print("\n[add_user]")
+    success, user_id = db.add_user(username, password_hash, role)
+    ok(success, f"id={user_id}")
 
+    if success and user_id:
+        print(f"\n[get_user({user_id})]")
+        p("user", db.get_user(user_id))
 
-# ─────────────────────────────────────────────
-# PRODUCT TYPES
-# ─────────────────────────────────────────────
-section("PRODUCT TYPES")
+        print(f"\n[get_user_by_username('{username}')]")
+        p("user_by_username", db.get_user_by_username(username))
 
-print("\n[get_product_types]")
-p("product_types", db.get_product_types())
+        print(f"\n[update_user({user_id})]")
+        ok(*db.update_user(user_id, role="admin"))
 
-pt_name = input("\n  New product type name (or ENTER to skip): ").strip()
-pt_id = None
-if pt_name:
-    pt_desc = input("  Description (optional): ").strip() or None
-    print("\n[add_product_type]")
-    success, pt_id = db.add_product_type(pt_name, pt_desc)
-    ok(success, f"id={pt_id}")
+        print(f"\n[get_user({user_id}) after update]")
+        p("user", db.get_user(user_id))
 
-    if success and pt_id:
-        print(f"\n[get_product_type({pt_id})]")
-        p("product_type", db.get_product_type(pt_id))
-
-        print(f"\n[update_product_type({pt_id})]")
-        ok(*db.update_product_type(pt_id, name=pt_name + " (updated)"))
-
-        print(f"\n[get_product_type({pt_id}) after update]")
-        p("product_type", db.get_product_type(pt_id))
+# Test with existing user if available
+if users and not user_id:
+    user_id = users[0]["id"]
+    username = users[0]["username"]
 
 
 # ─────────────────────────────────────────────
@@ -111,6 +108,11 @@ if rt_name:
         print(f"\n[update_reader_type({rt_id})]")
         ok(*db.update_reader_type(rt_id, name=rt_name + " (updated)"))
 
+# Use existing reader type if available
+reader_types = db.get_reader_types()
+if reader_types and not rt_id:
+    rt_id = reader_types[0]["id"]
+
 
 # ─────────────────────────────────────────────
 # READERS
@@ -123,28 +125,38 @@ p("readers", db.get_readers())
 print("\n[get_available_readers]")
 p("available_readers", db.get_available_readers())
 
+print("\n[get_decoded_readers]")
+p("decoded_readers", db.get_decoded_readers())
+
 reader_id = None
-use_rt_id = rt_id
-if use_rt_id is None:
-    rt_id_str = input("\n  Enter a reader_type_id to add a reader (or ENTER to skip): ").strip()
-    use_rt_id = int(rt_id_str) if rt_id_str else None
+if rt_id:
+    serial = input("\n  Reader serial number (or ENTER to skip): ").strip()
+    if serial:
+        hostname = input("  Reader hostname (optional): ").strip() or None
+        print("\n[add_reader]")
+        success, reader_id = db.add_reader(rt_id, serial, hostname)
+        ok(success, f"id={reader_id}")
 
-if use_rt_id:
-    serial = input("  Reader serial number: ").strip()
-    hostname = input("  Reader hostname (optional): ").strip() or None
-    print("\n[add_reader]")
-    success, reader_id = db.add_reader(use_rt_id, serial, hostname)
-    ok(success, f"id={reader_id}")
+        if success and reader_id:
+            print(f"\n[get_reader({reader_id})]")
+            p("reader", db.get_reader(reader_id))
 
-    if success and reader_id:
-        print(f"\n[get_reader({reader_id})]")
-        p("reader", db.get_reader(reader_id))
+            print(f"\n[get_reader_by_serial('{serial}')]")
+            p("reader_by_serial", db.get_reader_by_serial(serial))
 
-        print(f"\n[update_reader({reader_id}, hostname='updated-host')]")
-        ok(*db.update_reader(reader_id, hostname="updated-host"))
+            print(f"\n[update_reader({reader_id}, hostname='updated-host')]")
+            ok(*db.update_reader(reader_id, hostname="updated-host"))
 
-        print(f"\n[get_reader({reader_id}) after update]")
-        p("reader", db.get_reader(reader_id))
+            print(f"\n[get_decoded_reader({reader_id})]")
+            p("decoded_reader", db.get_decoded_reader(reader_id))
+
+            print(f"\n[get_decoded_readers_by_ids([{reader_id}])]")
+            p("decoded_readers_by_ids", db.get_decoded_readers_by_ids([reader_id]))
+
+# Use existing reader if available
+readers = db.get_readers()
+if readers and not reader_id:
+    reader_id = readers[0]["id"]
 
 # Invalid reader_type_id test
 print("\n[add_reader with invalid reader_type_id=99999]")
@@ -160,80 +172,159 @@ print("\n[get_product_orders]")
 p("product_orders", db.get_product_orders())
 
 order_id = None
-use_pt_id = pt_id
-use_reader_id = reader_id
+if user_id:
+    order_number = int(input("\n  Order number (or ENTER to skip): ").strip() or "0")
+    if order_number:
+        client_name = input("  Client name: ").strip()
+        client_cnpj = input("  Client CNPJ (optional): ").strip() or None
+        product_code = input("  Product code: ").strip()
+        product_description = input("  Product description (optional): ").strip() or None
+        product_family = input("  Product family (optional): ").strip() or None
 
-if use_pt_id is None:
-    pt_id_str = input("\n  Enter a product_type_id to add an order (or ENTER to skip): ").strip()
-    use_pt_id = int(pt_id_str) if pt_id_str else None
+        print("\n[add_product_order]")
+        success, order_id = db.add_product_order(
+            order_number=order_number,
+            client_name=client_name,
+            client_cnpj=client_cnpj,
+            product_code=product_code,
+            product_description=product_description,
+            product_family=product_family,
+            reader_id=reader_id,
+            created_by=user_id,
+        )
+        ok(success, f"id={order_id}")
 
-if use_reader_id is None:
-    r_id_str = input("  Enter a reader_id to add an order (or ENTER to skip): ").strip()
-    use_reader_id = int(r_id_str) if r_id_str else None
+        if success and order_id:
+            # Reader should now be unavailable if assigned
+            if reader_id:
+                print(f"\n[get_available_readers] (reader {reader_id} should be gone)")
+                p("available_readers", db.get_available_readers())
 
-if client_id_str is None or not client_id_str:
-    c_id_str = input("  Enter a client_id (customer ID) to add an order (or ENTER to skip): ").strip()
-    use_client_id = int(c_id_str) if c_id_str else None
-else:
-    use_client_id = int(client_id_str)
+            print(f"\n[get_product_order({order_id})]")
+            p("product_order", db.get_product_order(order_id))
 
-if use_pt_id and use_client_id and use_reader_id:
-    version = input("  Version (e.g. 1.0.0): ").strip() or "1.0.0"
-    print("\n[add_product_order]")
-    success, order_id = db.add_product_order(use_pt_id, use_client_id, use_reader_id, version)
-    ok(success, f"id={order_id}")
+            # Test filter methods
+            print(f"\n[get_product_orders_by_client('{client_name}')]")
+            p("orders_by_client", db.get_product_orders_by_client(client_name))
 
-    # Reader should now be unavailable
-    if success and order_id:
-        print(f"\n[get_available_readers] (reader {use_reader_id} should be gone)")
-        p("available_readers", db.get_available_readers())
+            if client_cnpj:
+                print(f"\n[get_product_orders_by_cnpj('{client_cnpj}')]")
+                p("orders_by_cnpj", db.get_product_orders_by_cnpj(client_cnpj))
 
-        print(f"\n[get_product_order({order_id})]")
-        p("product_order", db.get_product_order(order_id))
+            print(f"\n[get_product_orders_by_product_code('{product_code}')]")
+            p("orders_by_product_code", db.get_product_orders_by_product_code(product_code))
 
-        print(f"\n[get_product_orders_by_client({use_client_id})]")
-        p("orders_by_client", db.get_product_orders_by_client(use_client_id))
+            print(f"\n[get_product_orders_by_order_number({order_number})]")
+            p("orders_by_number", db.get_product_orders_by_order_number(order_number))
 
-        print(f"\n[get_product_orders_by_product_type({use_pt_id})]")
-        p("orders_by_product_type", db.get_product_orders_by_product_type(use_pt_id))
+            if reader_id:
+                print(f"\n[get_product_orders_by_reader({reader_id})]")
+                p("orders_by_reader", db.get_product_orders_by_reader(reader_id))
 
-        print(f"\n[product_order_mount({order_id})]")
-        ok(*db.product_order_mount(order_id))
-        print("  Double mount attempt:")
-        ok(*db.product_order_mount(order_id))
+            # Test date filtering
+            print("\n[get_product_orders_by_date] (today)")
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+            p("orders_by_date", db.get_product_orders_by_date(today_start, today_end))
 
-        print(f"\n[product_order_ship({order_id})]")
-        ok(*db.product_order_ship(order_id))
-        print("  Double ship attempt:")
-        ok(*db.product_order_ship(order_id))
+            # Test filters with dict
+            print("\n[get_product_orders with filters]")
+            p("filtered_orders", db.get_product_orders({"client_name": client_name}))
 
-        print(f"\n[product_order_activate({order_id})]")
-        ok(*db.product_order_activate(order_id))
-        print("  Double activate attempt:")
-        ok(*db.product_order_activate(order_id))
+            # Test comments
+            print("\n[add_comment_to_product_order]")
+            ok(*db.add_comment_to_product_order(order_id, "Test comment", username))
 
-        print(f"\n[get_product_order({order_id}) after lifecycle]")
-        p("product_order", db.get_product_order(order_id))
+            print("\n[get_product_order after comment]")
+            p("order_with_comment", db.get_product_order(order_id))
 
-    # Invalid order
-    print("\n[add_product_order with invalid product_type_id=99999]")
-    ok(*db.add_product_order(99999, use_client_id, use_reader_id, "x"))
+            # Test reader management
+            if reader_id:
+                # Remove reader
+                print("\n[update_product_order - remove reader]")
+                ok(*db.update_product_order(order_id, reader_id=None))
 
-    print("\n[add_product_order with invalid client_id=99999]")
-    ok(*db.add_product_order(use_pt_id, 99999, use_reader_id, "x"))
+                # Check reader is available again
+                print(f"\n[get_available_readers] (reader {reader_id} should be back)")
+                p("available_readers", db.get_available_readers())
 
-    if use_reader_id:
-        print(f"\n[add_product_order with unavailable reader {use_reader_id}]")
-        ok(*db.add_product_order(use_pt_id, use_client_id, use_reader_id, "x"))
+                # Add reader back
+                print("\n[add_reader_to_product_order]")
+                ok(*db.add_reader_to_product_order(order_id, reader_id))
 
 
 # ─────────────────────────────────────────────
-# DECODED ORDERS
+# WORKFLOW TESTING
 # ─────────────────────────────────────────────
-section("DECODED ORDERS")
+section("WORKFLOW TESTING")
 
-print("\n[get_decoded_orders]")
-p("decoded_orders", db.get_decoded_orders())
+if order_id and user_id:
+    print(f"\n[product_order_mount({order_id})]")
+    ok(*db.product_order_mount(order_id, user_id))
+    print("  Double mount attempt:")
+    ok(*db.product_order_mount(order_id, user_id))
+
+    print(f"\n[product_order_test({order_id})]")
+    ok(*db.product_order_test(order_id, user_id))
+    print("  Double test attempt:")
+    ok(*db.product_order_test(order_id, user_id))
+
+    print(f"\n[product_order_ship({order_id})]")
+    ok(*db.product_order_ship(order_id, user_id))
+    print("  Double ship attempt:")
+    ok(*db.product_order_ship(order_id, user_id))
+
+    print(f"\n[product_order_activate({order_id})]")
+    ok(*db.product_order_activate(order_id, user_id))
+    print("  Double activate attempt:")
+    ok(*db.product_order_activate(order_id, user_id))
+
+    print(f"\n[get_product_order({order_id}) after complete lifecycle]")
+    p("final_order", db.get_product_order(order_id))
+
+
+# ─────────────────────────────────────────────
+# ERROR TESTING
+# ─────────────────────────────────────────────
+section("ERROR TESTING")
+
+print("\n[add_product_order with invalid created_by=99999]")
+ok(
+    *db.add_product_order(
+        order_number=99999,
+        client_name="Test Client",
+        client_cnpj=None,
+        product_code="TEST",
+        product_description=None,
+        product_family=None,
+        reader_id=None,
+        created_by=99999,
+    )
+)
+
+if reader_id and user_id:
+    print(f"\n[add_product_order with unavailable reader {reader_id}]")
+    ok(
+        *db.add_product_order(
+            order_number=88888,
+            client_name="Test Client",
+            client_cnpj=None,
+            product_code="TEST",
+            product_description=None,
+            product_family=None,
+            reader_id=reader_id,
+            created_by=user_id,
+        )
+    )
+
+
+# ─────────────────────────────────────────────
+# FINAL DATA DISPLAY
+# ─────────────────────────────────────────────
+section("FINAL DATA DISPLAY")
+
+print("\n[get_product_orders - final state]")
+p("final_orders", db.get_product_orders())
 
 
 # ─────────────────────────────────────────────
@@ -246,8 +337,9 @@ if do_cleanup:
     if order_id:
         print(f"\n[delete_product_order({order_id})]")
         ok(*db.delete_product_order(order_id))
-        print(f"  Reader {use_reader_id} should be available again:")
-        p("reader", db.get_reader(use_reader_id))
+        if reader_id:
+            print(f"  Reader {reader_id} should be available again:")
+            p("reader", db.get_reader(reader_id))
 
     if reader_id:
         print(f"\n[delete_reader({reader_id})]")
@@ -257,9 +349,9 @@ if do_cleanup:
         print(f"\n[delete_reader_type({rt_id})]")
         ok(*db.delete_reader_type(rt_id))
 
-    if pt_id:
-        print(f"\n[delete_product_type({pt_id})]")
-        ok(*db.delete_product_type(pt_id))
+    if user_id:
+        print(f"\n[delete_user({user_id})]")
+        ok(*db.delete_user(user_id))
 
     print("\n  Cleanup done.")
 else:
