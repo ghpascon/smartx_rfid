@@ -99,7 +99,7 @@ class ApiOmie:
         logging.info(f"[OMIE] Total clients: {len(clients_dict)}")
         return clients_dict
 
-    async def _fetch_all_orders_raw(self, client: httpx.AsyncClient) -> List[dict]:
+    async def _fetch_all_orders_raw(self, client: httpx.AsyncClient, filters: dict | None = None) -> List[dict]:
         """Fetch all orders and return raw order items with client codes"""
         all_orders = []
         page = 1
@@ -107,9 +107,11 @@ class ApiOmie:
         has_errors = False
 
         while True:
+            if filters is None:
+                filters = {}
             payload = {
                 "call": "ListarPedidos",
-                "param": [{"pagina": page, "registros_por_pagina": per_page, "apenas_importado_api": "N"}],
+                "param": [{"pagina": page, "registros_por_pagina": per_page, "apenas_importado_api": "N", **filters}],
             }
             success, data = await self._call_api(client, "produtos/pedido", payload)
 
@@ -231,3 +233,21 @@ class ApiOmie:
                 "total_items": total_items,
                 "orders": enriched_orders,
             }
+
+    async def get_orders_filtered(self, filters: dict) -> dict:
+        timeout = httpx.Timeout(30.0, connect=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            orders = await self._fetch_all_orders_raw(client, filters=filters)
+            return orders
+
+    async def get_order_by_number(self, order_number: int) -> dict:
+        filters = {
+            "numero_pedido_de": order_number,
+            "numero_pedido_ate": order_number,
+        }
+        try:
+            orders = await self.get_orders_filtered(filters)
+            return True, orders[0] if orders else None
+        except Exception as e:
+            logging.error(f"[OMIE] Failed to fetch order by number {order_number}: {e}")
+            return False, {"error": str(e)}
