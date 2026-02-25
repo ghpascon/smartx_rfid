@@ -51,7 +51,7 @@ class Orders(Base, BaseMixin):
     shipped_at = Column(DateTime(timezone=True), nullable=True, index=True)
     activated_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
-    created_by = Column(Integer, nullable=False, index=False)
+    created_by = Column(Integer, nullable=True, index=False)
     mounted_by = Column(Integer, nullable=True, index=False)
     tested_by = Column(Integer, nullable=True, index=False)
     shipped_by = Column(Integer, nullable=True, index=False)

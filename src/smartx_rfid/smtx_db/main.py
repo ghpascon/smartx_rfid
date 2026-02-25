@@ -324,8 +324,8 @@ class SmtxDb:
         product_code: str,
         product_description: str | None,
         product_family: str | None,
-        reader_id: int | None,
-        created_by: int,
+        reader_id: int | None = None,
+        created_by: int | None = None,
     ):
         logging.info(
             f"Adding product order: order_number={order_number}, client_name={client_name}, product_code={product_code}, reader_id={reader_id}, created_by={created_by}"
