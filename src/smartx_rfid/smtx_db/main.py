@@ -89,41 +89,66 @@ class SmtxDb:
             logging.error(f"Error adding reader: {e}")
             return False, None
 
-    def get_readers(self):
+    # Readers
+    def get_readers(self, filters: dict | None = None):
         try:
             with self.db_manager.get_session() as session:
-                results = session.query(Readers).all()
-                return [r.to_dict() for r in results]
+                query = session.query(Readers, ReadersType.name.label("reader_type_name")).outerjoin(
+                    ReadersType, Readers.reader_type_id == ReadersType.id
+                )
+
+                # Apply filters if provided
+                if filters:
+                    for field, value in filters.items():
+                        if hasattr(Readers, field):
+                            query = query.filter(getattr(Readers, field) == value)
+                        elif hasattr(ReadersType, field):
+                            query = query.filter(getattr(ReadersType, field) == value)
+                        else:
+                            logging.warning(f"Unknown filter field: {field}")
+
+                results = query.all()
+                decoded = []
+                for reader, reader_type_name in results:
+                    d = reader.to_dict()
+                    d["reader_type_name"] = reader_type_name
+                    decoded.append(d)
+                return decoded
         except Exception as e:
             logging.error(f"Error fetching readers: {e}")
             return []
 
     def get_available_readers(self):
-        try:
-            with self.db_manager.get_session() as session:
-                results = session.query(Readers).filter_by(available=True).all()
-                return [r.id for r in results]
-        except Exception as e:
-            logging.error(f"Error fetching available readers: {e}")
-            return []
+        readers = self.get_readers(filters={"available": True})
+        return readers
+
+    def get_readers_by_type(self, reader_type_id: int):
+        readers = self.get_readers(filters={"reader_type_id": reader_type_id})
+        return readers
+
+    def get_readers_by_type_name(self, type_name: str):
+        readers = self.get_readers(filters={"name": type_name})
+        return readers
+
+    def get_readers_by_availability(self, available: bool):
+        readers = self.get_readers(filters={"available": available})
+        return readers
 
     def get_reader(self, reader_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                result = session.query(Readers).filter_by(id=reader_id).first()
-                return result.to_dict() if result else None
-        except Exception as e:
-            logging.error(f"Error fetching reader with id {reader_id}: {e}")
-            return None
+        readers = self.get_readers(filters={"id": reader_id})
+        return readers[0] if readers else None
+
+    def get_reader_by_hostname(self, hostname: str):
+        readers = self.get_readers(filters={"hostname": hostname})
+        return readers[0] if readers else None
+
+    def get_reader_by_ids(self, reader_ids: list):
+        readers = self.get_readers(filters={"id": reader_ids})
+        return readers
 
     def get_reader_by_serial(self, serial_number: str):
-        try:
-            with self.db_manager.get_session() as session:
-                result = session.query(Readers).filter_by(serial_number=serial_number).first()
-                return result.to_dict() if result else None
-        except Exception as e:
-            logging.error(f"Error fetching reader with serial number {serial_number}: {e}")
-            return None
+        readers = self.get_readers(filters={"serial_number": serial_number})
+        return readers[0] if readers else None
 
     def update_reader(
         self,
@@ -170,62 +195,6 @@ class SmtxDb:
             logging.error(f"Error deleting reader: {e}")
             return False, str(e)
         return True, None
-
-    def get_decoded_readers(self):
-        try:
-            with self.db_manager.get_session() as session:
-                results = (
-                    session.query(Readers, ReadersType.name.label("reader_type_name"))
-                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
-                    .all()
-                )
-                decoded = []
-                for reader, reader_type_name in results:
-                    d = reader.to_dict()
-                    d["reader_type_name"] = reader_type_name
-                    decoded.append(d)
-                return decoded
-        except Exception as e:
-            logging.error(f"Error fetching decoded readers: {e}")
-            return []
-
-    def get_decoded_reader(self, reader_id: int):
-        try:
-            with self.db_manager.get_session() as session:
-                result = (
-                    session.query(Readers, ReadersType.name.label("reader_type_name"))
-                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
-                    .filter(Readers.id == reader_id)
-                    .first()
-                )
-                if not result:
-                    return None
-                reader, reader_type_name = result
-                d = reader.to_dict()
-                d["reader_type_name"] = reader_type_name
-                return d
-        except Exception as e:
-            logging.error(f"Error fetching decoded reader with id {reader_id}: {e}")
-            return None
-
-    def get_decoded_readers_by_ids(self, reader_ids: list[int]):
-        try:
-            with self.db_manager.get_session() as session:
-                results = (
-                    session.query(Readers, ReadersType.name.label("reader_type_name"))
-                    .join(ReadersType, Readers.reader_type_id == ReadersType.id)
-                    .filter(Readers.id.in_(reader_ids))
-                    .all()
-                )
-                decoded = []
-                for reader, reader_type_name in results:
-                    d = reader.to_dict()
-                    d["reader_type_name"] = reader_type_name
-                    decoded.append(d)
-                return decoded
-        except Exception as e:
-            logging.error(f"Error fetching decoded readers by ids {reader_ids}: {e}")
-            return []
 
     # Product Orders
     def get_product_orders(self, filters: dict | None = None):
@@ -301,6 +270,10 @@ class SmtxDb:
     def get_product_order(self, order_id: int):
         order = self.get_product_orders(filters={"id": order_id})
         return order[0] if order else None
+
+    def get_product_orders_by_ids(self, order_ids: list):
+        orders = self.get_product_orders(filters={"id": order_ids})
+        return orders
 
     def get_product_orders_by_client(self, client: str):
         orders = self.get_product_orders(filters={"client_name": client})
