@@ -73,6 +73,7 @@ class SmtxDb:
             return False, str(e)
         return True, None
 
+    # Readers
     def add_reader(self, reader_type_id: int, serial_number: str, hostname: str | None = None):
         logging.info(
             f"Adding reader: reader_type_id={reader_type_id}, serial_number={serial_number}, hostname={hostname}"
@@ -89,7 +90,6 @@ class SmtxDb:
             logging.error(f"Error adding reader: {e}")
             return False, None
 
-    # Readers
     def get_readers(self, filters: dict | None = None):
         try:
             with self.db_manager.get_session() as session:
