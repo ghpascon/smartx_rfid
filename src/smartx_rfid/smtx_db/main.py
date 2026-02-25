@@ -333,8 +333,9 @@ class SmtxDb:
         try:
             with self.db_manager.get_session() as session:
                 # Validate created_by user exists
-                if not session.query(Users).filter_by(id=created_by).first():
-                    return False, f"User with id {created_by} not found"
+                if created_by is not None:
+                    if not session.query(Users).filter_by(id=created_by).first():
+                        return False, f"User with id {created_by} not found"
 
                 # Validate reader_id and check availability
                 if reader_id is not None:
