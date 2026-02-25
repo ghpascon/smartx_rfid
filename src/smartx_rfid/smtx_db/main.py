@@ -313,6 +313,16 @@ class SmtxDb:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
+    def get_product_orders_by_reader_type(self, reader_type_id: int):
+        return self.get_product_orders(filters={"reader_type_id": reader_type_id})
+
+    def get_product_orders_by_reader_type_name(self, reader_type_name: str):
+        type_id = self.get_reader_types()
+        type_id = next((t.get("id") for t in type_id if t.get("name") == reader_type_name), None)
+        if type_id is None:
+            return []
+        return self.get_product_orders(filters={"reader_type_id": type_id})
+
     def get_product_orders_by_reader(self, reader_id: int):
         orders = self.get_product_orders(filters={"reader_id": reader_id})
         return orders
