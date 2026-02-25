@@ -362,7 +362,7 @@ class SmtxDb:
                 return True, product_order.id
         except Exception as e:
             logging.error(f"Error adding product order: {e}")
-            return False, None
+            return False, str(e)
 
     def update_product_order(self, order_id: int, **kwargs):
         logging.info(f"Updating product order id={order_id}, updates={kwargs}")
