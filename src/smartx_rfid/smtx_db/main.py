@@ -327,6 +327,27 @@ class SmtxDb:
         orders = self.get_product_orders(filters={"reader_id": reader_id})
         return orders
 
+    def get_serial_from_product(self, product_code: str):
+        """
+        Retorna o próximo serial para o product_code informado.
+        Se não houver nenhum, retorna 1.
+        """
+        try:
+            with self.db_manager.get_session() as session:
+                max_serial = (
+                    session.query(Orders.product_serial)
+                    .filter(Orders.product_code == product_code)
+                    .order_by(Orders.product_serial.desc())
+                    .first()
+                )
+                if max_serial and max_serial[0] is not None:
+                    return max_serial[0] + 1
+                else:
+                    return 1
+        except Exception as e:
+            logging.error(f"Error fetching product serial for product code {product_code}: {e}")
+            return 1
+
     def add_product_order(
         self,
         order_number: int,
@@ -338,9 +359,6 @@ class SmtxDb:
         reader_id: int | None = None,
         created_by: int | None = None,
     ):
-        logging.info(
-            f"Adding product order: order_number={order_number}, client_name={client_name}, product_code={product_code}, reader_id={reader_id}, created_by={created_by}"
-        )
         try:
             with self.db_manager.get_session() as session:
                 # Validate created_by user exists
@@ -356,6 +374,8 @@ class SmtxDb:
                     if not reader.available:
                         return False, f"Reader with id {reader_id} is not available"
 
+                serial = self.get_serial_from_product(product_code)
+
                 product_order = Orders(
                     order_number=order_number,
                     client_name=client_name,
@@ -365,6 +385,7 @@ class SmtxDb:
                     product_family=product_family,
                     reader_id=reader_id,
                     created_by=created_by,
+                    product_serial=serial,
                 )
                 session.add(product_order)
                 if reader_id is not None:

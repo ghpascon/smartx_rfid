@@ -43,6 +43,7 @@ class Orders(Base, BaseMixin):
     product_code = Column(String(100), nullable=False, index=True)
     product_description = Column(String(255), nullable=True, index=False)
     product_family = Column(String(255), nullable=True, index=False)
+    product_serial = Column(Integer, nullable=False, index=True)
 
     reader_id = Column(Integer, nullable=True, index=True)
 
@@ -58,3 +59,14 @@ class Orders(Base, BaseMixin):
     activated_by = Column(Integer, nullable=True, index=False)
 
     comments = Column(Text, nullable=True)
+
+
+class Products(Base, BaseMixin):
+    __tablename__ = "products"
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    code = Column(String(100), nullable=False, index=True)
+    serial = Column(Integer, nullable=False, index=True)
+    integrated = Column(Boolean, nullable=False, default=False, index=True)

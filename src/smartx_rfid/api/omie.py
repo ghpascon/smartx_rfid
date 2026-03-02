@@ -99,7 +99,9 @@ class ApiOmie:
         logging.info(f"[OMIE] Total clients: {len(clients_dict)}")
         return clients_dict
 
-    async def _fetch_all_orders_raw(self, client: httpx.AsyncClient, filters: dict | None = None) -> List[dict]:
+    async def _fetch_all_orders_raw(
+        self, client: httpx.AsyncClient, filters: dict | None = None, raw_order: bool = False
+    ) -> List[dict]:
         """Fetch all orders and return raw order items with client codes"""
         all_orders = []
         page = 1
@@ -124,6 +126,9 @@ class ApiOmie:
             page_orders = []
 
             for order in orders:
+                if raw_order:
+                    page_orders.append(order)
+                    continue
                 try:
                     cabecalho = order.get("cabecalho", {})
                     etapa = int(cabecalho.get("etapa", 0))
@@ -140,14 +145,22 @@ class ApiOmie:
                     for produto_data in produtos:
                         try:
                             produto = produto_data.get("produto", {})
-                            page_orders.append(
-                                {
-                                    "numero_pedido": int(numero_pedido),
-                                    "codigo_cliente": codigo_cliente,  # Será substituído depois
-                                    "codigo_produto": produto.get("codigo"),  # Será enriquecido depois
-                                    "etapa": etapa,
-                                }
-                            )
+                            codigo = produto.get("codigo")
+                            qtd = produto.get("quantidade", 1)
+                            if codigo:
+                                try:
+                                    qtd_int = int(float(qtd))
+                                except Exception:
+                                    qtd_int = 1
+                                for _ in range(qtd_int):
+                                    page_orders.append(
+                                        {
+                                            "numero_pedido": int(numero_pedido),
+                                            "codigo_cliente": codigo_cliente,  # Será substituído depois
+                                            "codigo_produto": codigo,  # Será enriquecido depois
+                                            "etapa": etapa,
+                                        }
+                                    )
                         except Exception as e:
                             logging.error(f"[OMIE] Erro ao processar produto do pedido {numero_pedido}: {e}")
                             has_errors = True
@@ -237,7 +250,7 @@ class ApiOmie:
     async def get_orders_filtered(self, filters: dict) -> dict:
         timeout = httpx.Timeout(30.0, connect=5.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            orders = await self._fetch_all_orders_raw(client, filters=filters)
+            orders = await self._fetch_all_orders_raw(client, filters=filters, raw_order=True)
             return orders
 
     async def get_order_by_number(self, order_number: int) -> dict:
@@ -251,3 +264,69 @@ class ApiOmie:
         except Exception as e:
             logging.error(f"[OMIE] Failed to fetch order by number {order_number}: {e}")
             return False, {"error": str(e)}
+
+    async def get_order(self, order_number: int) -> dict:
+        # Consultar
+        payload = {
+            "call": "ConsultarPedido",
+            "param": [
+                {
+                    "numero_pedido": str(order_number),
+                }
+            ],
+        }
+        success, order_data = await self._call_api(httpx.AsyncClient(), "produtos/pedido", payload)
+        if not success:
+            logging.error(f"[OMIE] Failed to fetch order {order_number} for updating: {order_data}")
+            return False, order_data
+        return True, order_data
+
+    async def get_order_data(self, order_number: int) -> dict:
+        success, order_data = await self.get_order(order_number)
+        if not success:
+            logging.error(f"[OMIE] Failed to get cod_order for order {order_number}: {order_data}")
+            return False, order_data
+        cod_order = order_data.get("pedido_venda_produto", {}).get("cabecalho", {}).get("codigo_pedido")
+        etapa = order_data.get("pedido_venda_produto", {}).get("cabecalho", {}).get("etapa")
+        can_update = etapa and int(etapa) >= 20 and int(etapa) < 60
+        if not cod_order or not etapa:
+            logging.error(f"[OMIE] cod_order not found for order {order_number}")
+            return False, {"error": "cod_order not found"}
+        dets = order_data.get("pedido_venda_produto", {}).get("det", [])
+        product_codes = []
+        for p in dets:
+            prod = p.get("produto", {})
+            codigo = prod.get("codigo")
+            qtd = prod.get("quantidade", 1)
+            if codigo:
+                try:
+                    qtd_int = int(float(qtd))
+                except Exception:
+                    qtd_int = 1
+                product_codes.extend([codigo] * qtd_int)
+        return True, {
+            "cod_order": cod_order,
+            "can_update": can_update,
+            "product_codes": product_codes,
+        }
+
+    async def add_serial_to_nf(self, cod_order: int, extra_data: str) -> dict:
+        # Alterar
+        payload = {
+            "call": "AlterarPedidoVenda",
+            "param": [
+                {
+                    "cabecalho": {
+                        "codigo_pedido": cod_order,
+                    },
+                    "informacoes_adicionais": {"dados_adicionais_nf": extra_data},
+                }
+            ],
+        }
+
+        success, response = await self._call_api(httpx.AsyncClient(), "produtos/pedido", payload)
+        if not success:
+            logging.error(f"[OMIE] Failed to update order {cod_order} with extra data: {response}")
+            return False, response
+        logging.info(f"[OMIE] Successfully added extra fiscal data to order {cod_order}")
+        return True, response
