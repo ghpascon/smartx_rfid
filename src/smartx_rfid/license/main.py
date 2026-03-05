@@ -176,12 +176,17 @@ class LicenseManager:
         self.license_data = data
         logging.info("License loaded and valid")
 
-    def validate_license(self, license_string: str) -> bool:
+    def validate_license(self) -> bool:
+        if not self.license_data:
+            return False
         try:
-            self.load_license(license_string)
+            expires = self.license_data.get("expires")
+            if expires:
+                exp = datetime.fromisoformat(expires)
+                if datetime.now() > exp:
+                    return False
             return True
-        except Exception as e:
-            logging.info(f"License validation failed: {e}")
+        except Exception:
             return False
 
     # ==========================================================
