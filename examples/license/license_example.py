@@ -10,13 +10,16 @@ private_pem, public_pem = LicenseManager.generate_key_pair()
 logging.info("Key pair generated.")
 
 # Save public key to file
-license_dir = os.path.join(os.path.dirname(__file__), "..", "license_files")
-license_dir = os.path.abspath(license_dir)
+license_dir = "license_files"
 os.makedirs(license_dir, exist_ok=True)
 public_key_path = os.path.join(license_dir, "public_key.pem")
+private_key_path = os.path.join(license_dir, "private_key.pem")
 with open(public_key_path, "w") as f:
     f.write(public_pem)
+with open(private_key_path, "w") as f:
+    f.write(private_pem)
 logging.info(f"Public key saved to {public_key_path}")
+logging.info(f"Private key saved to {private_key_path}")
 
 # Instantiate license manager
 manager = LicenseManager(private_key_pem=private_pem, public_key_pem=public_pem)

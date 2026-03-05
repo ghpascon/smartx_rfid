@@ -40,13 +40,15 @@ class LicenseManager:
     # ==========================================================
     # LICENSE REQUEST STRING
     # ==========================================================
-    @staticmethod
-    def build_license_request_string(public_key_pem: str, hardware_id: Optional[str] = None) -> str:
+    def build_license_request_string(self, public_key_pem: str | None = None, hardware_id: Optional[str] = None) -> str:
         """
         Returns a base64 string containing hardware_id and public_key.
         Useful for license activation systems.
         """
-
+        if not self.public_key and not public_key_pem:
+            raise Exception("Public key must be provided either in constructor or as argument")
+        if public_key_pem is None:
+            public_key_pem = self.public_key
         if hardware_id is None:
             hardware_id = LicenseManager.get_hardware_id()
 

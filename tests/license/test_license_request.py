@@ -23,7 +23,7 @@ def public_manager(key_pair):
 def test_license_request_string(manager, key_pair):
     _, pub = key_pair
     hardware_id = "TEST-HW-ID"
-    req_str = LicenseManager.build_license_request_string(pub, hardware_id=hardware_id)
+    req_str = LicenseManager().build_license_request_string(pub, hardware_id=hardware_id)
     decoded = LicenseManager.parse_license_request_string(req_str)
     assert decoded["hardware_id"] == hardware_id
     assert decoded["public_key"] == pub
@@ -31,7 +31,7 @@ def test_license_request_string(manager, key_pair):
 
 def test_license_request_string_auto_hw(manager, key_pair):
     _, pub = key_pair
-    req_str = LicenseManager.build_license_request_string(pub)
+    req_str = LicenseManager().build_license_request_string(pub)
     decoded = LicenseManager.parse_license_request_string(req_str)
     assert "hardware_id" in decoded
     assert decoded["public_key"] == pub
