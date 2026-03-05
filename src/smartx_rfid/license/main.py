@@ -29,6 +29,7 @@ class LicenseManager:
     def __init__(self, private_key_pem: Optional[str] = None, public_key_pem: Optional[str] = None):
         self.private_key = None
         self.public_key = None
+        self.public_key_pem: Optional[str] = None
         self.license_data: Optional[Dict[str, Any]] = None
 
         if private_key_pem:
@@ -45,10 +46,10 @@ class LicenseManager:
         Returns a base64 string containing hardware_id and public_key.
         Useful for license activation systems.
         """
-        if not self.public_key and not public_key_pem:
+        if not self.public_key_pem and not public_key_pem:
             raise Exception("Public key must be provided either in constructor or as argument")
         if public_key_pem is None:
-            public_key_pem = self.public_key
+            public_key_pem = self.public_key_pem
         if hardware_id is None:
             hardware_id = LicenseManager.get_hardware_id()
 
@@ -100,6 +101,7 @@ class LicenseManager:
 
     def load_public_key(self, public_key_pem: str):
         self.public_key = serialization.load_pem_public_key(public_key_pem.encode())
+        self.public_key_pem = public_key_pem
 
     # ==========================================================
     # HARDWARE ID

@@ -40,3 +40,13 @@ def test_license_request_string_auto_hw(manager, key_pair):
 def test_license_request_string_invalid():
     with pytest.raises(ValueError):
         LicenseManager.parse_license_request_string("not_base64!!")
+
+
+def test_license_request_string_no_public_key():
+    public_key_path = "license_files/public_key.pem"
+    public_pem = None
+    with open(public_key_path, "r") as f:
+        public_pem = f.read()
+    manager = LicenseManager(public_key_pem=public_pem)
+    generate_key = manager.build_license_request_string()
+    assert generate_key is not None
