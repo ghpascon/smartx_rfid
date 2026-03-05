@@ -3,12 +3,19 @@ from smartx_rfid.api.omie import ApiOmie
 from smartx_rfid.smtx_db import SmtxDb
 from smartx_rfid.models.orders import Orders
 import logging
+import os
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO)
 
+load_dotenv()
+
+OMIE_APP_KEY = os.getenv("OMIE_APP_KEY")
+OMIE_APP_SECRET = os.getenv("OMIE_APP_SECRET")
+
 omie = ApiOmie(
-    app_key="1318987347678",
-    app_secret="8b7293a77ae7773a5e9e638f5af46fd2",
+    app_key=OMIE_APP_KEY,
+    app_secret=OMIE_APP_SECRET,
 )
 smtx_db = SmtxDb("mysql+pymysql://root:admin@localhost:3306/orders")
 smtx_db.db_manager.initialize()
@@ -76,7 +83,7 @@ async def main():
     # step 5: Add Info to nf
     for order_number in omie_orders_numbers:
         product_orders = smtx_db.get_product_orders_by_order_number(order_number)
-        serial_numbers = ",".join(f"{po.get('product_code')}_{po.get('product_serial')}" for po in product_orders)
+        serial_numbers = ",".join(po.get("label_code") for po in product_orders)
         success, order_data = await omie.get_order_data(order_number)
         if not success:
             logging.error(f"Step 5: Failed to fetch order data for order {order_number}")

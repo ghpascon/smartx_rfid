@@ -5,7 +5,9 @@ Defines the Tag and Event models for storing RFID reader data
 with proper indexing and relationships.
 """
 
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime
+# Adiciona event listener para gerar serial e label_code automaticamente
+from sqlalchemy.orm import Session
+from sqlalchemy import event, select, Boolean, Column, Integer, String, Text, DateTime
 
 from .mixin import Base, BaseMixin
 
@@ -44,6 +46,7 @@ class Orders(Base, BaseMixin):
     product_description = Column(String(255), nullable=True, index=False)
     product_family = Column(String(255), nullable=True, index=False)
     product_serial = Column(Integer, nullable=False, index=True)
+    label_code = Column(String(100), nullable=False, index=True, unique=True)
 
     reader_id = Column(Integer, nullable=True, index=True)
 
@@ -61,12 +64,19 @@ class Orders(Base, BaseMixin):
     comments = Column(Text, nullable=True)
 
 
-class Products(Base, BaseMixin):
-    __tablename__ = "products"
-
-    # Primary key
-    id = Column(Integer, primary_key=True, autoincrement=True)
-
-    code = Column(String(100), nullable=False, index=True)
-    serial = Column(Integer, nullable=False, index=True)
-    integrated = Column(Boolean, nullable=False, default=False, index=True)
+@event.listens_for(Orders, "before_insert")
+def set_serial_and_label_code(mapper, connection, target):
+    # Gera o próximo serial para o product_code
+    session = Session(bind=connection)
+    max_serial = session.execute(
+        select(Orders.product_serial)
+        .where(Orders.product_code == target.product_code)
+        .order_by(Orders.product_serial.desc())
+    ).first()
+    if max_serial and max_serial[0] is not None:
+        target.product_serial = max_serial[0] + 1
+    else:
+        target.product_serial = 1
+    # Gera o label_code no formato product_code-serial
+    target.label_code = f"{target.product_code}-{target.product_serial}"
+    session.close()
