@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "smartx-rfid"
-version = "6.1.1"
+version = "6.2.0"
 description = "SmartX RFID library"
 authors = ["Gabriel Henrique Pascon <gh.pascon@gmail.com>"]
 license = "MIT"
@@ -32,6 +32,7 @@ psycopg2 = "^2.9.11"
 argon2-cffi = "^25.1.0"
 pyjwt = "^2.11.0"
 dotenv = "^0.9.9"
+cryptography = "^46.0.5"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

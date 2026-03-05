@@ -302,6 +302,10 @@ class SmtxDb:
         orders = self.get_product_orders(filters={"order_number": order_number})
         return orders
 
+    def get_product_orders_by_label_code(self, label_code: str):
+        orders = self.get_product_orders(filters={"label_code": label_code})
+        return orders
+
     def get_product_orders_by_date(self, start_date: datetime, end_date: datetime, field: str = "created_at"):
         if getattr(Orders, field, None) is None:
             logging.error(f"Invalid field '{field}' for date filtering in Orders")
