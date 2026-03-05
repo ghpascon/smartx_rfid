@@ -53,6 +53,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         prefix: str = "",
         protected_inventory_active: bool = False,
         protected_inventory_password: str | None = "12345678",
+        range_control: int = 100,
         # Antenna config
         # If ant_dict is provided use it else use the other vars
         ant_dict: dict | None = None,
@@ -87,6 +88,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             prefix: Text to add before tag data
             protected_inventory_active: Enable protected reading
             protected_inventory_password: Password for protected reading
+            range_control: Control read range (0-100)
             ant_dict: Custom antenna settings
             active_ant: Which antennas to use
             read_power: TX power in dBm
@@ -185,6 +187,11 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             protected_inventory_password = ""
         self.protected_inventory_active = protected_inventory_active
         self.protected_inventory_password = protected_inventory_password
+
+        # Range Control
+        if not isinstance(range_control, int) or not (0 <= range_control <= 100):
+            range_control = 100
+        self.range_control = range_control
 
         # ANTENNA CONFIG
         if ant_dict is not None:
