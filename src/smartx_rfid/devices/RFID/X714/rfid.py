@@ -69,19 +69,8 @@ class RfidCommands:
         # setup
         cmds.append("#setup_reader")
 
-        # Range Control
-        cmds.append(f"#range_control:{self.range_control}")
-
-        # cmd = "".join(cmds)
-        # self.write(cmd)
         for cmd in cmds:
             self.write(cmd)
-
-        # Start Reading
-        # if self.start_reading:
-        #     asyncio.create_task(self.start_inventory())
-        # else:
-        #     asyncio.create_task(self.stop_inventory())
 
     def protected_inventory(self, active: bool, password: str = None):
         if active:
