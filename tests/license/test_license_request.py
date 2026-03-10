@@ -20,33 +20,40 @@ def public_manager(key_pair):
     return LicenseManager(public_key_pem=pub)
 
 
-def test_license_request_string(manager, key_pair):
-    _, pub = key_pair
-    hardware_id = "TEST-HW-ID"
-    req_str = LicenseManager().build_license_request_string(pub, hardware_id=hardware_id)
-    decoded = LicenseManager.parse_license_request_string(req_str)
-    assert decoded["hardware_id"] == hardware_id
-    assert decoded["public_key"] == pub
-
-
-def test_license_request_string_auto_hw(manager, key_pair):
-    _, pub = key_pair
-    req_str = LicenseManager().build_license_request_string(pub)
-    decoded = LicenseManager.parse_license_request_string(req_str)
-    assert "hardware_id" in decoded
-    assert decoded["public_key"] == pub
-
-
 def test_license_request_string_invalid():
     with pytest.raises(ValueError):
         LicenseManager.parse_license_request_string("not_base64!!")
 
 
-def test_license_request_string_no_public_key():
-    public_key_path = "license_files/public_key.pem"
-    public_pem = None
-    with open(public_key_path, "r") as f:
-        public_pem = f.read()
-    manager = LicenseManager(public_key_pem=public_pem)
-    generate_key = manager.build_license_request_string()
-    assert generate_key is not None
+def test_encode_keys_to_base64_and_from_base64_keys(key_pair):
+    priv, pub = key_pair
+    b64 = LicenseManager.encode_keys(public_key=pub)
+    import base64
+    import json
+
+    decoded = json.loads(base64.b64decode(b64).decode())
+    assert decoded["public_key"] == pub
+    assert "private_key" not in decoded
+    manager = LicenseManager.from_encoded_keys(b64)
+    assert manager.private_key is None
+    assert manager.public_key is not None
+
+
+def test_encode_keys_to_base64_only_public(key_pair):
+    _, pub = key_pair
+    b64 = LicenseManager.encode_keys(public_key=pub)
+    import base64
+    import json
+
+    decoded = json.loads(base64.b64decode(b64).decode())
+    assert decoded["public_key"] == pub
+    assert "private_key" not in decoded
+
+    manager = LicenseManager.from_encoded_keys(b64)
+    assert manager.private_key is None
+    assert manager.public_key is not None
+
+
+def test_from_encoded_keys_invalid():
+    with pytest.raises(ValueError):
+        LicenseManager.from_encoded_keys("not_base64!!")

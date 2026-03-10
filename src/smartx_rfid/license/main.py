@@ -216,36 +216,3 @@ class LicenseManager:
     # ==========================================================
     def is_loaded(self) -> bool:
         return self.license_data is not None
-
-    # ==========================================================
-    # KEY ENCODING/DECODING
-    # ==========================================================
-    @staticmethod
-    def encode_keys(public_key: str = None, private_key: str = None) -> str:
-        """
-        Encodes keys into a base64 string.
-         - If only public key is provided, encodes only public key.
-         - If only private key is provided, encodes only private key.
-        """
-        keys = {}
-        if public_key:
-            keys["public_key"] = public_key
-        if private_key:
-            keys["private_key"] = private_key
-        payload = json.dumps(keys, sort_keys=True).encode()
-        return base64.b64encode(payload).decode()
-
-    @classmethod
-    def from_encoded_keys(cls, encoded_string: str) -> "LicenseManager":
-        """
-        Creates an instance of LicenseManager from a base64 string containing the keys.
-        """
-        try:
-            payload = base64.b64decode(encoded_string)
-            keys = json.loads(payload.decode())
-        except Exception as e:
-            raise ValueError(f"Invalid base64 key string: {e}")
-
-        private_key = keys.get("private_key")
-        public_key = keys.get("public_key")
-        return cls(private_key_pem=private_key, public_key_pem=public_key)
