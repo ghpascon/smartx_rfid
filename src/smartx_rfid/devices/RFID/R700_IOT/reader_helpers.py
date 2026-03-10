@@ -245,7 +245,9 @@ class ReaderHelpers:
                 return None
 
             info = response.json()
-            self.serial_number = info.get("serialNumber", "Unknown")
+            self.serial_number = info.get("serialNumber")
+            self.on_event(self.name, "serial_number", self.serial_number)
+
             logging.info(f"{self.name} - Reader Serial Number: {self.serial_number}")
             return info
 
