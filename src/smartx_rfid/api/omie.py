@@ -190,17 +190,21 @@ class ApiOmie:
             client = clients_dict.get(order["codigo_cliente"], {})
             # Get product info
             product = products_dict.get(order["codigo_produto"], {})
-            family = product.get("familia", "")
-            if not family.startswith("Zona"):
+            product_code = order.get("codigo_produto")
+            if not product_code:
                 continue
+            product_code = product_code.lower()
+            if not product_code.startswith("smtx") or product_code[4:5].isdigit():
+                continue
+
             enriched_order = {
-                "numero_pedido": order["numero_pedido"],
-                "etapa": order["etapa"],
+                "numero_pedido": order.get("numero_pedido"),
+                "etapa": order.get("etapa"),
                 "nome_cliente": client.get("nome"),
                 "cnpj_cliente": client.get("cnpj"),
-                "codigo_produto": order["codigo_produto"],
+                "codigo_produto": order.get("codigo_produto"),
                 "descricao_produto": product.get("descricao"),
-                "familia_produto": family,
+                "familia_produto": product.get("familia", ""),
             }
             enriched_orders.append(enriched_order)
 
