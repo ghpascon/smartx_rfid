@@ -577,11 +577,12 @@ class DeviceManager:
     def get_serial_number(self, device_name: str) -> Optional[str]:
         device = self.get_device(device_name)
         if device is None:
-            logging.error(f"❌ Device '{device_name}' not found.")
             return False, "Device not found."
 
+        if not device.is_connected:
+            return False, "Device is not connected."
+
         if not getattr(device, "serial_number", False):
-            logging.error(f"❌ Device '{device_name}' does not have a serial number.")
             return False, "Device does not have a serial number."
 
         return True, getattr(device, "serial_number", None)
