@@ -100,7 +100,7 @@ class ApiOmie:
         return clients_dict
 
     async def _fetch_all_orders_raw(
-        self, client: httpx.AsyncClient, filters: dict | None = None, raw_order: bool = False
+        self, client: httpx.AsyncClient, filters: dict | None = None, raw_order: bool = False, start_date: str = None
     ) -> List[dict]:
         """Fetch all orders and return raw order items with client codes"""
         all_orders = []
@@ -115,6 +115,8 @@ class ApiOmie:
                 "call": "ListarPedidos",
                 "param": [{"pagina": page, "registros_por_pagina": per_page, "apenas_importado_api": "N", **filters}],
             }
+            if start_date:
+                payload["param"][0]["filtrar_por_data_de"] = start_date
             success, data = await self._call_api(client, "produtos/pedido", payload)
 
             if not success:
@@ -210,8 +212,10 @@ class ApiOmie:
 
         return enriched_orders
 
-    async def get_all_orders(self, per_page: int = 100) -> dict:
+    async def get_all_orders(self, per_page: int = 100, start_date: str = None) -> dict:
         """Fetch all orders with parallel API calls and data enrichment"""
+        # validate start_date
+
         timeout = httpx.Timeout(30.0, connect=10.0)
 
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -220,7 +224,7 @@ class ApiOmie:
             # Execute all API calls in parallel
             products_task = self._fetch_all_products(client)
             clients_task = self._fetch_all_clients(client)
-            orders_task = self._fetch_all_orders_raw(client)
+            orders_task = self._fetch_all_orders_raw(client, start_date=start_date)
 
             # Wait for all tasks to complete
             products_dict, clients_dict, raw_orders = await asyncio.gather(
