@@ -27,6 +27,7 @@ class SerialProtocol(asyncio.Protocol):
         self.is_connected = False
         self.is_reading = False
         self.on_event(self.name, "connection", False)
+        self.serial_number = None
 
         if self.on_con_lost:
             self.on_con_lost.set()

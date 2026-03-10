@@ -179,6 +179,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self.is_reading = False
         self.on_event(self.name, "reading", False)
         self.on_event(self.name, "connection", False)
+        self.serial_number = None
 
     async def close(self):
         """Graceful shutdown for R700: stop stream and cancel background tasks."""
@@ -272,6 +273,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                     self._session = None
                 self.is_connected = False
                 self.on_event(self.name, "connection", False)
+                self.serial_number = None
                 await asyncio.sleep(2)
 
     async def write_gpo(
@@ -312,9 +314,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             target_value: Current tag value to match
             new_epc: New EPC code to write
             password: Tag access password
-        """
-        """
-        Writes a new EPC (Electronic Product Code) to RFID tags.
         """
         try:
             validated_tag = WriteTagValidator(

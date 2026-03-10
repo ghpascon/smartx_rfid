@@ -87,6 +87,8 @@ class TCPProtocol(TCPHelpers):
                 self.is_connected = False
                 self.is_reading = False
                 self.on_event(self.name, "connection", False)
+                self.serial_number = None
+
                 logging.info(f"🔌 [DISCONNECTED] {self.name} - Reconnecting...")
 
             except asyncio.TimeoutError:
@@ -109,6 +111,7 @@ class TCPProtocol(TCPHelpers):
                     await self.writer.wait_closed()
                 except Exception:
                     pass
+                self.serial_number = None
                 self.writer = None
                 self.reader = None
                 self.is_connected = False
@@ -131,6 +134,7 @@ class TCPProtocol(TCPHelpers):
                     self.is_connected = False
                     self.is_reading = False
                     self.on_event(self.name, "connection", False)
+                    self.serial_number = None
 
     async def periodic_ping(self, interval: int):
         while self.is_connected:

@@ -327,6 +327,9 @@ class DeviceManager:
         device_type: str = getattr(device, "device_type", "UNKNOWN")
         can_print: bool = getattr(device, "can_print", False)
         to_print: int = len(getattr(device, "_to_print", []))
+        has_serial, serial_number = self.get_serial_number(name)
+        serial_number = serial_number if has_serial else "Unknown"
+        device_class = device.__class__.__name__ if device else "Unknown"
         return {
             "name": device.name,
             "is_connected": is_connected,
@@ -335,6 +338,8 @@ class DeviceManager:
             "is_gpi_trigger_on": is_gpi_trigger_on,
             "can_print": can_print,
             "to_print": to_print,
+            "serial_number": serial_number,
+            "device_class": device_class,
         }
 
     def any_device_reading(self) -> bool:

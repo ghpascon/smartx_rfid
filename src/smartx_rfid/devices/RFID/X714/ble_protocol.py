@@ -71,6 +71,7 @@ class BLEProtocol:
                     self.is_connected = False
                     self.is_reading = False
                     self.on_event(self.name, "connection", False)
+                    self.serial_number = None
 
                 # Escolhe o endereço conforme o modo
                 if self.is_auto:
