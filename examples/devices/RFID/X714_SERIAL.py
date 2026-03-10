@@ -40,6 +40,8 @@ async def main():
     # Keep the main loop running
     while True:
         await asyncio.sleep(1)
+        # x714_serial.get_reader_info()  # Request reader info to get serial number
+        logging.info(f"Serial Number: {x714_serial.serial_number}")
         # await x714_serial.start_inventory() if not x714_serial.is_reading else await x714_serial.stop_inventory()
 
 

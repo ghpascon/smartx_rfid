@@ -229,3 +229,26 @@ class ReaderHelpers:
                 ]
             }
         return gpo_command
+
+    async def get_reader_info(self, session=None):
+        """Request reader information like firmware version, serial number, etc."""
+        endpoint = self.endpoint_info
+        try:
+            if session is None:
+                async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=5.0) as client:
+                    response = await client.get(endpoint)
+            else:
+                response = await session.get(endpoint)
+
+            if response.status_code != 200:
+                logging.warning(f"{self.name} - Failed to get reader info: {response.status_code}")
+                return None
+
+            info = response.json()
+            self.serial_number = info.get("serialNumber", "Unknown")
+            logging.info(f"{self.name} - Reader Serial Number: {self.serial_number}")
+            return info
+
+        except Exception as e:
+            logging.warning(f"{self.name} - Error GET {endpoint}: {e}")
+            return None

@@ -200,6 +200,8 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
                 self.ant_dict[ant]["power"] = read_power
                 self.ant_dict[ant]["rssi"] = read_rssi
 
+        self.serial_number = None
+
         self.transport = None
         self.on_con_lost = None
         self.rx_buffer = bytearray()

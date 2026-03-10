@@ -53,6 +53,7 @@ async def main():
             end_time = datetime.now()
             elapsed_time = end_time - start_time
             logging.info(f" ===== Elapsed time: {elapsed_time} ===== ")
+            logging.info(f"Serial Number: {r700_iot.serial_number}")
 
 
 if __name__ == "__main__":

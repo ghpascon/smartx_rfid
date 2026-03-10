@@ -126,6 +126,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self.endpoint_gpo = f"{self.urlBase}/device/gpos"
         self.endpoint_write = f"{self.urlBase}/profiles/inventory/tag-access"
         self.endpoint_status = f"{self.urlBase}/status"
+        self.endpoint_info = f"{self.urlBase}/system"
 
         self.interface_config = {"rfidInterface": "rest"}
         self.auth = httpx.BasicAuth(self.username, self.password)
@@ -148,6 +149,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
 
         self.is_connected = False
         self.is_reading = False
+        self.serial_number = None
         self.is_gpi_trigger_on = "startTriggers" in self.reading_config or "stopTriggers" in self.reading_config
         if self.is_gpi_trigger_on:
             self.start_reading = False
@@ -232,6 +234,9 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                         await self._session.aclose()
                         self._session = None
                         await asyncio.sleep(1)
+
+                # Get reader info to retrieve serial number
+                await self.get_reader_info()
 
                 # Start inventory if needed
                 if self.start_reading or self.is_gpi_trigger_on:

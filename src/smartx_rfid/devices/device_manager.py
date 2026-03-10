@@ -568,3 +568,15 @@ class DeviceManager:
         except Exception as e:
             logging.error(f"❌ Error writing GPO on device '{device_name}': {e}")
             return False, str(e)
+
+    def get_serial_number(self, device_name: str) -> Optional[str]:
+        device = self.get_device(device_name)
+        if device is None:
+            logging.error(f"❌ Device '{device_name}' not found.")
+            return False, "Device not found."
+
+        if not getattr(device, "serial_number", False):
+            logging.error(f"❌ Device '{device_name}' does not have a serial number.")
+            return False, "Device does not have a serial number."
+
+        return True, getattr(device, "serial_number", None)

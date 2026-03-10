@@ -40,6 +40,11 @@ class OnReceive:
         elif data == "#setup_done":
             self.on_event(self.name, "setup_done", True)
 
+        elif data.startswith("#name:"):
+            _, serial = data.split(":", 1)
+            self.serial_number = serial.strip()
+            self.on_event(self.name, "serial_number", self.serial_number)
+
         # fallback
         else:
             self.on_event(self.name, "receive", data)

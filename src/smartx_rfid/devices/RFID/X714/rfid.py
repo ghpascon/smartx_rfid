@@ -25,6 +25,8 @@ class RfidCommands:
     def config_reader(self):
         """Configure reader settings like antennas, session, etc."""
         logging.info(f"{self.name} - Configuring reader settings...")
+        self.get_reader_info()
+
         cmds = []
         # PROTECTED INVENTORY
         self.protected_inventory(self.protected_inventory_active)
@@ -82,3 +84,7 @@ class RfidCommands:
     def protected_mode(self, epc: str, password: str = None, active: bool = True):
         pwd = password if password is not None else self.protected_inventory_password
         self.write(f"#protected_mode:{epc};{pwd};{'on' if active else 'off'}")
+
+    def get_reader_info(self):
+        """Request reader information like firmware version, serial number, etc."""
+        self.write("#get_info")
