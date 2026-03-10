@@ -94,7 +94,7 @@ class LicenseManager:
             .decode()
         )
 
-        return private_pem, public_pem
+        return private_pem.strip(), public_pem.strip()
 
     def load_private_key(self, private_key_pem: str):
         self.private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
