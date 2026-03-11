@@ -10,6 +10,7 @@ from .RFID.ACUPAD._main import ACUPAD
 
 # PRINTER DEVICES
 from .printer.SATO._main import SatoPrinter
+from .printer.SATO_WS4._main import SatoWs4Printer
 
 # Device Manager
 from .device_manager import DeviceManager

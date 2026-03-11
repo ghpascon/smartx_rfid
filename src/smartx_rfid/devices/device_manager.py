@@ -8,6 +8,7 @@ from smartx_rfid.devices import (
     X714,
     ACUPAD,
     SatoPrinter,
+    SatoWs4Printer,
 )
 import asyncio
 from typing import List, Dict, Optional, Tuple
@@ -96,6 +97,8 @@ class DeviceManager:
         ### SATO
         elif device_type == "SATO":
             self.devices.append(SatoPrinter(name=name, **data))
+        elif device_type == "SATO_WS4":
+            self.devices.append(SatoWs4Printer(name=name, **data))
 
         ### ACUPAD
         elif device_type == "ACUPAD":
