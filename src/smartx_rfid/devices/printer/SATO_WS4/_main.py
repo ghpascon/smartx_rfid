@@ -41,6 +41,7 @@ class SatoWs4Printer(DeviceBase, Helpers):
         self.is_connected = False
         self.can_print = False
         self.last_status = None
+        self.last_can_print = False
         self.on_event: Callable = on_event
 
         self._to_print: list[str] = []

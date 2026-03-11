@@ -75,11 +75,15 @@ class Helpers:
         # Ready to print
         if status == "00000":
             self.can_print = True
+            print_sent = False
+
             if self._print_sent:
+                print_sent = True
                 self.on_event(self.name, "print_success", f"{self._zpl_id}")
                 self._print_sent = False
                 self._zpl_id = None
-            self.on_event(self.name, "status", "ready")
+            if not self.last_can_print or print_sent:
+                self.on_event(self.name, "status", "ready")
         # error:
         elif status == "00001":
             if self._print_sent:
@@ -89,3 +93,5 @@ class Helpers:
             self.on_event(self.name, "status", f"error: {status}")
         else:
             self.on_event(self.name, "status", status)
+
+        self.last_can_print = self.can_print
