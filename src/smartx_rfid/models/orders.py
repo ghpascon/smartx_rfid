@@ -22,6 +22,12 @@ class ReadersType(Base, BaseMixin):
     description = Column(Text, nullable=True)
 
 
+@event.listens_for(ReadersType, "before_insert")
+def lowercase_name(mapper, connection, target):
+    if target.name:
+        target.name = target.name.lower()
+
+
 class Readers(Base, BaseMixin):
     __tablename__ = "readers"
 
@@ -31,6 +37,15 @@ class Readers(Base, BaseMixin):
     serial_number = Column(String(100), nullable=False, index=True, unique=True)
     hostname = Column(String(255), nullable=True, index=True)
     available = Column(Boolean, nullable=False, default=True, index=True)
+
+
+@event.listens_for(Readers, "before_insert")
+def check_reader_type_id(mapper, connection, target):
+    session = Session(bind=connection)
+    exists = session.execute(select(ReadersType.id).where(ReadersType.id == target.reader_type_id)).first()
+    session.close()
+    if not exists:
+        raise ValueError(f"reader_type_id {target.reader_type_id} não existe em ReadersType.")
 
 
 class Orders(Base, BaseMixin):
