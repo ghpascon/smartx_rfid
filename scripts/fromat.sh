@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 poetry run pytest
 poetry run python -m ruff check --fix
 poetry run python -m ruff format
