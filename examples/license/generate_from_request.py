@@ -30,9 +30,10 @@ def get_private_key_from_db(public_key: str) -> str:
 
 
 private_key = get_private_key_from_db(public_key)
-logging.info(f"Private key: {private_key}")
+if not private_key:
+    raise Exception("Private key not found for the given public key")
 license_manager = LicenseManager(private_key_pem=private_key, public_key_pem=public_key)
 license_str = license_manager.create_license(
-    hardware_id=hardware_id, duration_days=7, data={"example_data": "This is an example license data field"}
+    hardware_id=hardware_id, duration_days=365, data={"example_data": "This is an example license data field"}
 )
 logging.info(f"Generated license string: {license_str}")

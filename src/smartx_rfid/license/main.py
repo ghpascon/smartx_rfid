@@ -1,8 +1,11 @@
 import json
 import base64
 import hashlib
+import platform
+import subprocess
+import sys
 import logging
-import uuid
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -108,9 +111,44 @@ class LicenseManager:
     # ==========================================================
     @staticmethod
     def get_hardware_id() -> str:
-        mac = uuid.getnode()
-        raw = str(mac).encode()
-        return hashlib.sha256(raw).hexdigest()
+        """
+        Build a stable hardware identifier from:
+        - Hostname
+        - A unique computer identifier
+
+        Raises if no unique computer identifier can be determined.
+        """
+        hostname = platform.node().strip()
+        unique_id: Optional[str] = None
+
+        if sys.platform == "win32":
+            try:
+                output = subprocess.check_output(
+                    ["wmic", "csproduct", "get", "uuid"],
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                )
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                if len(lines) >= 2:
+                    unique_id = lines[1]
+            except Exception:
+                unique_id = None
+        else:
+            for path in ("/etc/machine-id", "/var/lib/dbus/machine-id", "/sys/class/dmi/id/product_uuid"):
+                try:
+                    value = Path(path).read_text(encoding="utf-8").strip()
+                    if value:
+                        unique_id = value
+                        break
+                except Exception:
+                    continue
+
+        if not unique_id:
+            raise RuntimeError("Could not determine a unique computer ID; refusing hostname-only hardware ID")
+
+        raw_id = f"{hostname}|{unique_id}"
+        return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
 
     # ==========================================================
     # LICENSE CREATION
