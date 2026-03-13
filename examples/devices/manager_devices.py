@@ -27,7 +27,7 @@ def on_event(name: str, event_type: str, event_data=None):
 
 
 async def main():
-    devices = DeviceManager(devices_path="devices", event_func=on_event)
+    devices = DeviceManager(devices_path="devices/ble", event_func=on_event)
     asyncio.create_task(devices.connect_devices())
 
     # Keep the main loop running

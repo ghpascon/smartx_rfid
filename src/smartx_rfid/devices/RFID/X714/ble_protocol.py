@@ -25,6 +25,7 @@ class BLEProtocol:
     def init_ble_vars(self):
         self.client_ble: Optional[BleakClient] = None
         self._ble_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ble_thread: Optional[threading.Thread] = None
         self.ble_stop = False
         self.notify_enabled = False
 
@@ -171,19 +172,35 @@ class BLEProtocol:
 
         Declared async so it can be awaited in async contexts (e.g. _main.py),
         even though the actual loop runs in a separate OS thread.
+
+        Important: keep this coroutine alive while BLE thread is running.
+        Some managers await `connect()` and interpret a quick return as finish,
+        triggering cleanup immediately.
         """
 
-        def run_loop():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            self._ble_loop = loop
-            try:
-                loop.run_until_complete(self.connect_and_run())
-            finally:
-                loop.close()
-                self._ble_loop = None
+        if self._ble_thread and self._ble_thread.is_alive():
+            logging.info(f"{self.name} - BLE thread already running")
+        else:
+            self.ble_stop = False
 
-        threading.Thread(target=run_loop, daemon=True, name=f"ble-{self.name}").start()
+            def run_loop():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._ble_loop = loop
+                try:
+                    loop.run_until_complete(self.connect_and_run())
+                finally:
+                    loop.close()
+                    self._ble_loop = None
+
+            self._ble_thread = threading.Thread(target=run_loop, daemon=True, name=f"ble-{self.name}")
+            self._ble_thread.start()
+
+        while not self.ble_stop:
+            if self._ble_thread and not self._ble_thread.is_alive():
+                logging.warning(f"{self.name} - BLE thread stopped unexpectedly")
+                break
+            await asyncio.sleep(0.2)
 
     async def close_ble(self):
         """Stop BLE loop and force disconnect."""
