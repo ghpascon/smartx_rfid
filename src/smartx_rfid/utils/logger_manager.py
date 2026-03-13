@@ -104,12 +104,14 @@ class LoggerManager:
     def __init__(self, log_path: str, base_filename: str, storage_days: int = 7):
         self.base_filename = base_filename
         self.storage_days = storage_days
-        self.log_path = Path(log_path).resolve()
-        self.log_path.mkdir(parents=True, exist_ok=True)
+        self.current_date = datetime.now(timezone.utc).date()
+
+        requested_path = Path(log_path).expanduser().resolve()
+        self.default_log_path = (Path.cwd() / "logs").resolve()
+        self.log_path = self._resolve_writable_log_path(requested_path)
 
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=10_000)
         self.stop_event = threading.Event()
-        self.current_date = datetime.now(timezone.utc).date()
         self.filename = self._get_filename_for_date(self.current_date)
 
         self.worker_thread = threading.Thread(target=self._worker, name="LogWriterThread", daemon=True)
@@ -133,6 +135,57 @@ class LoggerManager:
     def _get_filename_for_date(self, date: datetime.date) -> str:
         return str(self.log_path / f"{date:%Y-%m-%d}_{self.base_filename}.json")
 
+    def _is_writable_path(self, path: Path) -> bool:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".write_probe"
+            with open(probe, "a", encoding="utf-8"):
+                pass
+            try:
+                probe.unlink()
+            except OSError:
+                pass
+            return True
+        except Exception:
+            return False
+
+    def _resolve_writable_log_path(self, requested_path: Path) -> Path:
+        for candidate in (requested_path, self.default_log_path):
+            if self._is_writable_path(candidate):
+                if candidate != requested_path:
+                    print(
+                        f"[LoggerManager] Sem permissão em '{requested_path}'. Usando fallback '{candidate}'.",
+                        file=sys.stderr,
+                    )
+                return candidate
+
+        # Last resort to keep application running even on strict environments.
+        last_resort = Path("/tmp/logs").resolve()
+        if self._is_writable_path(last_resort):
+            print(
+                f"[LoggerManager] Falha no path solicitado e no padrão. Usando fallback '{last_resort}'.",
+                file=sys.stderr,
+            )
+            return last_resort
+
+        raise PermissionError(
+            f"Nenhum diretório de log gravável disponível: '{requested_path}', '{self.default_log_path}' e '{last_resort}'."
+        )
+
+    def _switch_to_default_path(self, failed_path: Path, error: Exception) -> bool:
+        if failed_path == self.default_log_path:
+            return False
+        if not self._is_writable_path(self.default_log_path):
+            return False
+        self.log_path = self.default_log_path
+        self.filename = self._get_filename_for_date(self.current_date)
+        print(
+            f"[LoggerManager] Falha ao escrever em '{failed_path}' ({error}). "
+            f"Alternando para fallback '{self.default_log_path}'.",
+            file=sys.stderr,
+        )
+        return True
+
     # -------------------
     # Worker for async writing
     # -------------------
@@ -153,8 +206,16 @@ class LoggerManager:
             self.current_date = today
             self.filename = self._get_filename_for_date(today)
             self._cleanup_old_logs()
-        with open(self.filename, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
+        try:
+            with open(self.filename, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except (PermissionError, OSError) as e:
+            failed_path = self.log_path
+            if self._switch_to_default_path(failed_path=failed_path, error=e):
+                with open(self.filename, "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+            else:
+                raise
 
     # -------------------
     # Cleanup old logs
@@ -164,7 +225,13 @@ class LoggerManager:
             return
 
         logs = []
-        for f in self.log_path.glob(f"*_{self.base_filename}.json"):
+        try:
+            files = list(self.log_path.glob(f"*_{self.base_filename}.json"))
+        except Exception as e:
+            logging.getLogger().warning(f"Falha ao listar logs em {self.log_path}: {e}")
+            return
+
+        for f in files:
             try:
                 date_str = f.name.split("_")[0]
                 file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -234,5 +301,9 @@ class LoggerManager:
         self.worker_thread.join(timeout=3)
         while not self.log_queue.empty():
             msg = self.log_queue.get_nowait()
-            self._write(msg)
+            try:
+                self._write(msg)
+            except Exception as e:
+                print(f"[LoggerManager] Falha ao finalizar escrita de logs: {e}", file=sys.stderr)
+                break
         logging.getLogger().info("Logger closed")
