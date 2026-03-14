@@ -1,11 +1,9 @@
 import json
 import base64
 import hashlib
-import platform
-import subprocess
-import sys
 import logging
-from pathlib import Path
+import machineid
+import platform
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -112,45 +110,25 @@ class LicenseManager:
     @staticmethod
     def get_hardware_id() -> str:
         """
-        Build a stable hardware identifier from:
-        - Hostname
-        - A unique computer identifier
-
-        Raises if no unique computer identifier can be determined.
+        Build a stable hardware identifier using py-machineid.
+        If py-machineid is empty, use a simple platform fingerprint fallback.
         """
-        hostname = platform.node().strip()
-        unique_id: Optional[str] = None
-
-        if sys.platform == "win32":
-            try:
-                output = subprocess.check_output(
-                    ["wmic", "csproduct", "get", "uuid"],
-                    stderr=subprocess.DEVNULL,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                )
-                lines = [line.strip() for line in output.splitlines() if line.strip()]
-                if len(lines) >= 2:
-                    unique_id = lines[1]
-            except Exception:
-                unique_id = None
-        else:
-            for path in ("/etc/machine-id", "/var/lib/dbus/machine-id", "/sys/class/dmi/id/product_uuid"):
-                try:
-                    value = Path(path).read_text(encoding="utf-8").strip()
-                    if value:
-                        unique_id = value
-                        break
-                except Exception:
-                    continue
+        unique_id = machineid.id().strip()
+        if not unique_id:
+            fallback_parts = [
+                platform.node().strip(),
+                platform.system().strip(),
+                platform.machine().strip(),
+                platform.processor().strip(),
+            ]
+            unique_id = "|".join(part for part in fallback_parts if part)
+            logging.warning("py-machineid empty; using simple platform fallback fingerprint")
 
         if not unique_id:
-            raise RuntimeError("Could not determine a unique computer ID; refusing hostname-only hardware ID")
+            raise RuntimeError("Could not determine hardware identifier")
 
-        raw_id = f"{hostname}|{unique_id}"
-        return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
+        return hashlib.sha256(unique_id.encode("utf-8")).hexdigest()
 
-    # ==========================================================
     # LICENSE CREATION
     # ==========================================================
     def create_license(
