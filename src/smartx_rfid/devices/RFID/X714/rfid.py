@@ -33,7 +33,9 @@ class RfidCommands:
 
         # ANTENNAS
         for antenna, ant in self.ant_dict.items():
-            ant_cmd = f"#set_ant:{antenna},{ant.get('active')},{ant.get('power')},{abs(ant.get('rssi'))}"
+            ant_cmd = (
+                f"#set_ant:{antenna},{'on' if ant.get('active') else 'off'},{ant.get('power')},{abs(ant.get('rssi'))}"
+            )
             cmds.append(ant_cmd)
 
         # SESSION
