@@ -1,5 +1,7 @@
 import logging
+from typing_extensions import Literal
 from smartx_rfid.schemas.tag import WriteTagValidator
+import asyncio
 
 
 class WriteCommands:
@@ -33,3 +35,25 @@ class WriteCommands:
             self.write(f"#WRITE:{epc};{password}", False)
         else:
             self.write(f"#WRITE:{epc};{password};{identifier};{value}", False)
+
+    async def write_gpo(
+        self, pin: int = 1, state: bool = True, control: Literal["static", "pulsed"] = "static", time: int = 1000
+    ):
+        if control not in ["static", "pulsed"]:
+            logging.warning(f"{self.name} - Invalid control type: {control}")
+            raise ValueError("Control must be 'static' or 'pulsed'")
+
+        if pin < 1 or pin > 3:
+            logging.warning(f"{self.name} - Invalid GPO pin: {pin}")
+            raise ValueError("Pin must be between 1 and 3")
+
+        if control == "static":
+            command = f"#GPO:{pin};{'ON' if state else 'OFF'}"
+            self.write(command)
+            return
+
+        cmd_1 = f"#GPO:{pin};{'ON' if state else 'OFF'}"
+        cmd_2 = f"#GPO:{pin};{'OFF' if state else 'ON'}"
+        self.write(cmd_1)
+        await asyncio.sleep(time / 1000)
+        self.write(cmd_2)
