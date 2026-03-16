@@ -48,12 +48,12 @@ class WriteCommands:
             raise ValueError("Pin must be between 1 and 3")
 
         if control == "static":
-            command = f"#GPO:{pin};{'ON' if state else 'OFF'}"
+            command = f"#GPO:{pin},{'ON' if state else 'OFF'}"
             self.write(command)
             return
 
-        cmd_1 = f"#GPO:{pin};{'ON' if state else 'OFF'}"
-        cmd_2 = f"#GPO:{pin};{'OFF' if state else 'ON'}"
+        cmd_1 = f"#GPO:{pin},{'ON' if state else 'OFF'}"
+        cmd_2 = f"#GPO:{pin},{'OFF' if state else 'ON'}"
         self.write(cmd_1)
         await asyncio.sleep(time / 1000)
         self.write(cmd_2)
