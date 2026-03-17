@@ -247,7 +247,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
     def on_connected(self):
         """Called when connection is established. Sets up reader."""
         self.config_reader()
-        self.on_event(self.name, "connected", True)
+        self.on_event(self.name, "connection", True)
 
     async def close(self):
         """Close connections and cancel background tasks for X714."""

@@ -185,7 +185,7 @@ class TestX714:
 
             # Should call config_reader and on_event
             x714_device.config_reader.assert_called_once()
-            x714_device.on_event.assert_called_once_with("X714", "connected", True)
+            x714_device.on_event.assert_called_once_with("X714", "connection", True)
 
     def test_invalid_prefix(self):
         x714_device = X714(prefix="GHIJKL")
