@@ -24,6 +24,7 @@ jobs:
         run: poetry config virtualenvs.create false
 
       - name: Install dependencies
+        run: poetry lock
         run: poetry install --no-interaction
 
       - name: Run tests
