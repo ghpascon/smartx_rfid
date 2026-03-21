@@ -106,10 +106,19 @@ class BLEProtocol:
                         def handle_notification(sender, data: bytearray):
                             self.on_receive(data.decode(errors="ignore"))
 
+                        # Log all available services and characteristics
+                        logging.info(f"{self.name} - Available services and characteristics:")
+                        for service in client.services:
+                            logging.info(f"  Service: {service.uuid}")
+                            for char in service.characteristics:
+                                logging.info(f"    Characteristic: {char.uuid} | properties: {char.properties}")
+
                         # Tenta registrar na característica TX conhecida
                         self.notify_enabled = False
                         try:
+                            logging.info(f"{self.name} - Attempting to start notify on {CHARACTERISTIC_TX}...")
                             await client.start_notify(CHARACTERISTIC_TX, handle_notification)
+                            logging.info(f"{self.name} - ✅ Notify started on {CHARACTERISTIC_TX}")
                             self.notify_enabled = True
                         except Exception as e:
                             logging.warning(f"{self.name} - [Notify TX Error] {e} — trying fallback...")
@@ -127,6 +136,7 @@ class BLEProtocol:
                                 if self.notify_enabled:
                                     break
 
+                        logging.info(f"{self.name} - Notify enabled: {self.notify_enabled}")
                         if not self.notify_enabled:
                             logging.warning(f"{self.name} - ⚠️ No notify characteristic found, retrying...")
                             await asyncio.sleep(self.reconnection_time)
