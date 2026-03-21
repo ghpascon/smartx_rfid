@@ -23,8 +23,10 @@ jobs:
       - name: Configure Poetry
         run: poetry config virtualenvs.create false
 
-      - name: Install dependencies
+      - name: Lock dependencies
         run: poetry lock
+
+      - name: Install dependencies
         run: poetry install --no-interaction
 
       - name: Run tests
