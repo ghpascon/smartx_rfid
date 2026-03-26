@@ -3,11 +3,13 @@ import logging
 import sys
 from pathlib import Path
 
+PROJECT_PATH = None
+
 
 def get_frozen_path(relative_path: str) -> Path:
     """
     Return the absolute path to a file or directory, taking into account
-    whether the application is running from source or as a frozen executable.
+    whether the application is running from source, as a frozen executable, or with a custom project path.
 
     Args:
         relative_path: Relative path to the file or directory.
@@ -17,21 +19,14 @@ def get_frozen_path(relative_path: str) -> Path:
     """
     if getattr(sys, "frozen", False):
         base_path = Path(sys._MEIPASS)
+    elif PROJECT_PATH is not None:
+        base_path = Path(PROJECT_PATH)
     else:
-        # Procura a raiz do projeto subindo diretórios até encontrar pyproject.toml, setup.py ou requirements.txt
-        current = Path(__file__).resolve()
-        for parent in [current] + list(current.parents):
-            if any(
-                (parent / marker).exists()
-                for marker in ["pyproject.toml", "main.py", "setup.py", "requirements.txt", "README.md", "run.py"]
-            ):
-                base_path = parent
-                break
-        else:
-            # Se não encontrar, usa o diretório do arquivo atual
-            base_path = current.parent
+        base_path = Path(sys.argv[0]).resolve().parent
 
-    return base_path / relative_path
+    final_path = base_path / relative_path
+    logging.info(f"Resolved path: {final_path}")
+    return final_path
 
 
 def get_prefix_from_path(current_file: str, base_dir: str = "routers") -> str:
