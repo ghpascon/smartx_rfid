@@ -140,6 +140,7 @@ class TagList:
         chip_name = self.chip_map.get(tid_key, "Unknown")
         stored_tag = {
             "timestamp": now,
+            "first_seen": now,
             "device": device,
             **tag,
             "gtin": gtin,
