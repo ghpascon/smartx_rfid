@@ -18,7 +18,18 @@ def get_frozen_path(relative_path: str) -> Path:
     if getattr(sys, "frozen", False):
         base_path = Path(sys._MEIPASS)
     else:
-        base_path = Path(sys.argv[0]).resolve().parent
+        # Procura a raiz do projeto subindo diretórios até encontrar pyproject.toml, setup.py ou requirements.txt
+        current = Path(__file__).resolve()
+        for parent in [current] + list(current.parents):
+            if any(
+                (parent / marker).exists()
+                for marker in ["pyproject.toml", "main.py", "setup.py", "requirements.txt", "README.md", "run.py"]
+            ):
+                base_path = parent
+                break
+        else:
+            # Se não encontrar, usa o diretório do arquivo atual
+            base_path = current.parent
 
     return base_path / relative_path
 
