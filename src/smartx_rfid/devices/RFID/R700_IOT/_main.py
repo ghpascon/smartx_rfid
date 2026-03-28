@@ -35,6 +35,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         active_ant: list[int] = [1],
         read_power: int = 3000,
         read_rssi: int = -80,
+        search_mode: str = "single-target",
+        rf_mode: int = 4,
         gpi_start: bool = False,
         protected_inventory_active: bool = False,
         protected_inventory_password: str | None = "12345678",
@@ -67,6 +69,12 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 read_power = 3000
             if not isinstance(read_rssi, int):
                 read_rssi = -80
+            if not isinstance(search_mode, str):
+                search_mode = "single-target"
+            if search_mode not in ["single-target", "dual-target"]:
+                search_mode = "single-target"
+            if not isinstance(rf_mode, int):
+                rf_mode = 4
             if not isinstance(protected_inventory_active, bool):
                 protected_inventory_active = False
             if not regex_hex(str(protected_inventory_password), 8):
@@ -88,6 +96,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 ant_cfg["receiveSensitivityDbm"] = read_rssi
                 ant_cfg["transmitPowerCdbm"] = read_power
                 ant_cfg["protectedModePinHex"] = protected_inventory_password
+                ant_cfg["inventorySearchMode"] = search_mode
+                ant_cfg["rfMode"] = rf_mode
                 if not protected_inventory_active:
                     ant_cfg.pop("protectedModePinHex")
                 reading_config["antennaConfigs"].append(ant_cfg)
@@ -153,6 +163,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self.is_gpi_trigger_on = "startTriggers" in self.reading_config or "stopTriggers" in self.reading_config
         if self.is_gpi_trigger_on:
             self.start_reading = False
+
+        logging.info(f"{self.name} initialized with config: {self.reading_config}")
 
     async def disconnect(self):
         """Safely disconnect from reader and stop reading."""
