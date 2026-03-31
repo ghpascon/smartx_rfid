@@ -232,3 +232,28 @@ class LicenseManager:
     # ==========================================================
     def is_loaded(self) -> bool:
         return self.license_data is not None
+
+    def is_expired(self) -> bool:
+        if not self.license_data:
+            return True
+        expires = self.license_data.get("expires")
+        if not expires:
+            return False
+        try:
+            exp = datetime.fromisoformat(expires)
+            return datetime.now() > exp
+        except Exception:
+            return True
+
+    def expires_in(self) -> Optional[int]:
+        if not self.license_data:
+            return None
+        expires = self.license_data.get("expires")
+        if not expires:
+            return None
+        try:
+            exp = datetime.fromisoformat(expires)
+            delta = exp - datetime.now()
+            return max(delta.days, 0)
+        except Exception:
+            return None
