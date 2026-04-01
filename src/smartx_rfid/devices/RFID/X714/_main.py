@@ -187,7 +187,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         self.protected_inventory_password = protected_inventory_password
 
         # ANTENNA CONFIG
-        if ant_dict is not None:
+        if isinstance(ant_dict, dict) and not ant_dict == {}:
             self.ant_dict = ant_dict
         else:
             self.ant_dict = ant_default_config
@@ -199,6 +199,8 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
                     self.ant_dict[ant]["active"] = False
                 self.ant_dict[ant]["power"] = read_power
                 self.ant_dict[ant]["rssi"] = read_rssi
+
+        logging.info(f"[{self.name}] ANTENNA CONFIG: {self.ant_dict}")
 
         self.serial_number = None
 
