@@ -41,6 +41,7 @@ class TagList:
             "e2801160": "Impinj Monza R6",
             "e2801170": "Impinj Monza R6-P",
             "e2801191": "Impinj M730",
+            "e2806915": "Impinj M730",
             "e2801190": "Impinj M750",
             "e28011a0": "Impinj M770",
             "e28011c0": "Impinj M780",
