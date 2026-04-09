@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 
 class RfidCommands:
@@ -25,7 +26,7 @@ class RfidCommands:
     def config_reader(self):
         """Configure reader settings like antennas, session, etc."""
         logging.info(f"{self.name} - Configuring reader settings...")
-        self.get_reader_info()
+        asyncio.create_task(self.get_reader_info())
 
         cmds = []
         # PROTECTED INVENTORY
@@ -87,6 +88,8 @@ class RfidCommands:
         pwd = password if password is not None else self.protected_inventory_password
         self.write(f"#protected_mode:{epc};{pwd};{'on' if active else 'off'}")
 
-    def get_reader_info(self):
+    async def get_reader_info(self):
         """Request reader information like firmware version, serial number, etc."""
-        self.write("#get_info")
+        while self.is_connected and self.serial_number is None:
+            self.write("#get_info")
+            await asyncio.sleep(1)
