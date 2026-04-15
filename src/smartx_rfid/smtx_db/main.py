@@ -521,13 +521,13 @@ class SmtxDb:
             logging.error(f"Error fetching user with username {username}: {e}")
             return None
 
-    def add_user(self, username: str, password_hash: str, role: str = "user"):
+    def add_user(self, username: str, password_hash: str, role: str = "user", email: str | None = None):
         logging.info(f"Adding user: username={username}, role={role}")
         try:
             with self.db_manager.get_session() as session:
                 if session.query(Users).filter_by(username=username).first():
                     return False, f"User with username {username} already exists"
-                user = Users(username=username, password_hash=password_hash, role=role)
+                user = Users(username=username, password_hash=password_hash, role=role, email=email)
                 session.add(user)
                 session.flush()  # Ensure ID is generated
                 return True, user.id
