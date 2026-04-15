@@ -1,3 +1,5 @@
+import pytest
+
 from smartx_rfid.email.main import EmailManager
 
 
@@ -18,18 +20,20 @@ def test_email_manager_init():
     assert manager.default_from == "noreply@example.com"
 
 
-def test_email_manager_test_connection_fail():
+@pytest.mark.asyncio
+async def test_email_manager_test_connection_fail():
     manager = EmailManager(
         smtp_server="invalid.smtp.server", smtp_port=587, username="user@example.com", password="wrongpassword"
     )
-    assert manager.test_connection() is False
+    assert await manager.test_connection() is False
 
 
-def test_send_email_fail():
+@pytest.mark.asyncio
+async def test_send_email_fail():
     manager = EmailManager(
         smtp_server="invalid.smtp.server", smtp_port=587, username="user@example.com", password="wrongpassword"
     )
-    result = manager.send_email(
+    result = await manager.send_email(
         subject="Test Email", body="This is a test email.", to_addresses=["recipient@example.com"]
     )
     assert result is False

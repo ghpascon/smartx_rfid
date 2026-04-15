@@ -1,3 +1,4 @@
+import asyncio
 import os
 from smartx_rfid.email.main import EmailManager
 import logging
@@ -13,12 +14,13 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-if __name__ == "__main__":
+
+async def main():
     # Example usage
     smtp_email = os.getenv("SMTP_EMAIL", "user@example.com")
     smtp_password = os.getenv("SMTP_PASSWORD", "password123")
     manager = EmailManager(
-        smtp_server="smtp.gmail.com",
+        smtp_server="smtp.smartx.com.br",
         smtp_port=587,
         username=smtp_email,
         password=smtp_password,
@@ -27,19 +29,23 @@ if __name__ == "__main__":
     )
 
     # Test connection
-    if manager.test_connection():
+    if await manager.test_connection():
         print("SMTP connection successful.")
     else:
         print("SMTP connection failed.")
 
     # Send a test email (edit the addresses and credentials for real use)
-    result = manager.send_email(
+    result = await manager.send_email(
         subject="Test Email",
-        body="This is a test email sent from EmailManager.",
-        to_addresses=["ghpascon.dev@gmail.com"],
+        body="This is an async test email sent from EmailManager.",
+        to_addresses=["gh.pascon@gmail.com"],
         attachments=None,
     )
     if result:
         print("Email sent successfully.")
     else:
         print("Failed to send email.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
