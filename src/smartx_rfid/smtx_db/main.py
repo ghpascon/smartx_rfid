@@ -521,6 +521,17 @@ class SmtxDb:
             logging.error(f"Error fetching user with username {username}: {e}")
             return None
 
+    def get_users_by_role(self, role: str | list):
+        if isinstance(role, str):
+            role = [role]
+        try:
+            with self.db_manager.get_session() as session:
+                results = session.query(Users).filter(Users.role.in_(role)).all()
+                return [r.to_dict() for r in results]
+        except Exception as e:
+            logging.error(f"Error fetching users with role {role}: {e}")
+            return []
+
     def add_user(self, username: str, password_hash: str, role: str = "user", email: str | None = None):
         logging.info(f"Adding user: username={username}, role={role}")
         try:
