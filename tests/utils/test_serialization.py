@@ -1,4 +1,6 @@
+import asyncio
 import pytest
+import httpx
 from smartx_rfid.webhook import WebhookManager
 from datetime import datetime, date
 from decimal import Decimal
@@ -10,6 +12,42 @@ class CustomClass:
     def __init__(self, name: str, value: int):
         self.name = name
         self.value = value
+
+
+class MockWebhookResponse:
+    def __init__(self, status_code=200, text="ok"):
+        self.status_code = status_code
+        self.text = text
+
+
+class MockWebhookAsyncClient:
+    instances_created = 0
+    post_calls = []
+    post_side_effects = []
+
+    def __init__(self, *args, **kwargs):
+        MockWebhookAsyncClient.instances_created += 1
+        self.is_closed = False
+
+    @classmethod
+    def reset(cls):
+        cls.instances_created = 0
+        cls.post_calls = []
+        cls.post_side_effects = []
+
+    async def post(self, url, json=None, headers=None):
+        MockWebhookAsyncClient.post_calls.append({"url": url, "json": json, "headers": dict(headers or {})})
+
+        if MockWebhookAsyncClient.post_side_effects:
+            effect = MockWebhookAsyncClient.post_side_effects.pop(0)
+            if isinstance(effect, Exception):
+                raise effect
+            return effect
+
+        return MockWebhookResponse(status_code=200, text="ok")
+
+    async def aclose(self):
+        self.is_closed = True
 
 
 class TestSerialization:
@@ -173,3 +211,92 @@ class TestSerialization:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@pytest.mark.asyncio
+async def test_post_event_builds_standard_payload(monkeypatch):
+    MockWebhookAsyncClient.reset()
+    monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
+
+    manager = WebhookManager(url="http://example.com/webhook")
+    success = await manager.post_event(device="reader-01", event_type="tag_read", event_data={"epc": "ABC"})
+
+    assert success is True
+    assert len(MockWebhookAsyncClient.post_calls) == 1
+    sent_payload = MockWebhookAsyncClient.post_calls[0]["json"]
+    assert sent_payload == {"device": "reader-01", "event_type": "tag_read", "event_data": {"epc": "ABC"}}
+
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_accepts_custom_payload_and_custom_url(monkeypatch):
+    MockWebhookAsyncClient.reset()
+    monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
+
+    manager = WebhookManager(url="http://base.url/webhook")
+    payload = {"type": "heartbeat", "status": "ok", "count": 3}
+
+    success = await manager.post(payload=payload, url="http://override.url/custom")
+    assert success is True
+
+    assert len(MockWebhookAsyncClient.post_calls) == 1
+    assert MockWebhookAsyncClient.post_calls[0]["url"] == "http://override.url/custom"
+    assert MockWebhookAsyncClient.post_calls[0]["json"] == payload
+
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_does_not_leak_headers_between_calls(monkeypatch):
+    MockWebhookAsyncClient.reset()
+    monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
+
+    manager = WebhookManager(url="http://example.com/webhook")
+    await manager.post(payload={"one": 1}, headers={"X-Test": "first-call"})
+    await manager.post(payload={"two": 2})
+
+    assert len(MockWebhookAsyncClient.post_calls) == 2
+    assert MockWebhookAsyncClient.post_calls[0]["headers"]["X-Test"] == "first-call"
+    assert "X-Test" not in MockWebhookAsyncClient.post_calls[1]["headers"]
+
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_retries_on_timeout_then_succeeds(monkeypatch):
+    MockWebhookAsyncClient.reset()
+    MockWebhookAsyncClient.post_side_effects = [
+        httpx.TimeoutException("timeout"),
+        MockWebhookResponse(status_code=200, text="ok"),
+    ]
+    monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
+
+    async def _no_sleep(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    manager = WebhookManager(url="http://example.com/webhook", max_retries=1)
+    success = await manager.post(payload={"retry": True})
+
+    assert success is True
+    assert len(MockWebhookAsyncClient.post_calls) == 2
+
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_handles_burst_and_reuses_client(monkeypatch):
+    MockWebhookAsyncClient.reset()
+    monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
+
+    manager = WebhookManager(url="http://example.com/webhook", max_concurrent_requests=10)
+
+    results = await asyncio.gather(*[manager.post(payload={"index": i}) for i in range(80)])
+
+    assert all(results)
+    assert len(MockWebhookAsyncClient.post_calls) == 80
+    assert MockWebhookAsyncClient.instances_created == 1
+
+    await manager.aclose()
