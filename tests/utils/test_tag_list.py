@@ -87,7 +87,7 @@ class TestSERIAL:
 
     def test_invalid_tag(self):
         tags = TagList()
-        result, stored = tags.add({"epc": "0001"})
+        result, stored = tags.add({"epc": "g001"})
         assert result is False
         assert stored is None
 

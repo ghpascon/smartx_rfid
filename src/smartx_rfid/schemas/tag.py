@@ -16,9 +16,7 @@ class TagSchema(BaseModel):
     def validate_epc_length_and_hex(cls, v, field):
         if v is None:
             return v
-        if len(v) != 24:
-            raise ValueError(f"{field} must have exactly 24 characters")
-        if not regex_hex(v, 24):
+        if not regex_hex(v):
             raise ValueError(f"{field} must contain only hexadecimal characters (0-9, a-f)")
         return v.lower()
 
@@ -43,8 +41,6 @@ class WriteTagValidator(BaseModel):
         if v is None or v == "None":
             v = "0" * 24
 
-        if len(v) != 24:
-            raise ValueError(f"{field} must have exactly 24 characters")
         if not regex_hex(v, 24):
             raise ValueError(f"{field} must contain only hexadecimal characters (0-9, a-f)")
         return v.lower()
