@@ -1,4 +1,4 @@
-from typing import Literal, Dict, Any, Optional, Tuple
+from typing import Literal, Dict, Any, Optional, Tuple, Callable
 from datetime import datetime
 from threading import Lock
 import logging
@@ -222,26 +222,6 @@ class TagList:
         with self._lock:
             self._tags.clear()
 
-    def remove_tags_before_timestamp(self, timestamp: datetime) -> None:
-        """
-        Remove tags older than a given timestamp.
-
-        Args:
-            timestamp: Minimum timestamp to keep.
-        """
-        with self._lock:
-            self._tags = {k: v for k, v in self._tags.items() if v.get("timestamp") and v["timestamp"] >= timestamp}
-
-    def remove_tags_by_device(self, device: str) -> None:
-        """
-        Remove all tags associated with a specific device.
-
-        Args:
-            device: Device identifier.
-        """
-        with self._lock:
-            self._tags = {k: v for k, v in self._tags.items() if v.get("device") != device}
-
     def get_tid_from_epc(self, epc: str) -> Optional[str]:
         """
         Retrieve the TID associated with a given EPC.
@@ -284,3 +264,73 @@ class TagList:
                 gtin_counts[gtin] = gtin_counts.get(gtin, 0) + 1
 
         return gtin_counts
+
+    ### REMOVE
+    def _remove_where(self, predicate: Callable[[Dict[str, Any]], bool]) -> list[Dict[str, Any]]:
+        """
+        Remove tags that match a predicate using a single pass.
+
+        This method expects the caller to hold the lock.
+        """
+        removed_tags: list[Dict[str, Any]] = []
+        kept_tags: Dict[str, Dict[str, Any]] = {}
+
+        for key, tag in self._tags.items():
+            if predicate(tag):
+                removed_tags.append(tag)
+            else:
+                kept_tags[key] = tag
+
+        self._tags = kept_tags
+        return removed_tags
+
+    def remove_tag_by_identifier(self, identifier_value: str, identifier_type: str = "epc") -> list[Dict[str, Any]]:
+        """
+        Remove a tag by its identifier.
+
+        Args:
+            identifier_value: The value of the identifier (EPC or TID).
+            identifier_type: The type of identifier ("epc" or "tid").
+
+        Returns:
+            A list with all removed tags.
+        """
+        if identifier_type not in ("epc", "tid"):
+            identifier_type = "epc"
+
+        removed_tags: list[Dict[str, Any]] = []
+
+        with self._lock:
+            if self.unique_identifier == identifier_type:
+                removed_tag = self._tags.pop(identifier_value, None)
+                if removed_tag is not None:
+                    removed_tags.append(removed_tag)
+                return removed_tags
+
+            return self._remove_where(lambda tag: tag.get(identifier_type) == identifier_value)
+
+    def remove_tags_before_timestamp(self, timestamp: datetime) -> list[Dict[str, Any]]:
+        """
+        Remove tags older than a given timestamp.
+
+        Args:
+            timestamp: Minimum timestamp to keep.
+
+        Returns:
+            A list with all removed tags.
+        """
+        with self._lock:
+            return self._remove_where(lambda tag: not tag.get("timestamp") or tag["timestamp"] < timestamp)
+
+    def remove_tags_by_device(self, device: str) -> list[Dict[str, Any]]:
+        """
+        Remove all tags associated with a specific device.
+
+        Args:
+            device: Device identifier.
+
+        Returns:
+            A list with all removed tags.
+        """
+        with self._lock:
+            return self._remove_where(lambda tag: tag.get("device") == device)

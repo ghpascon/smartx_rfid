@@ -1,7 +1,7 @@
 import pytest
 
 from smartx_rfid.utils import TagList
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class TestSERIAL:
@@ -138,6 +138,63 @@ class TestSERIAL:
 
         tags.add({"epc": "3035e1ddd0011fc000000003", "tid": "e28000000000000000000001"})
         assert tags.get_by_identifier("e28000000000000000000001", identifier_type="tid").get("gtin") == "07894900011517"
+
+    def test_remove_tag_by_identifier_returns_list_unique_key(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001"})
+
+        removed = tags.remove_tag_by_identifier("000000000000000000000001", identifier_type="epc")
+
+        assert isinstance(removed, list)
+        assert len(removed) == 1
+        assert removed[0].get("epc") == "000000000000000000000001"
+        assert len(tags) == 0
+
+    def test_remove_tag_by_identifier_returns_multiple_for_same_epc(self):
+        tags = TagList(unique_identifier="tid")
+        tags.add({"epc": "000000000000000000000001", "tid": "e28000000000000000000001"})
+        tags.add({"epc": "000000000000000000000001", "tid": "e28000000000000000000002"})
+        tags.add({"epc": "000000000000000000000002", "tid": "e28000000000000000000003"})
+
+        removed = tags.remove_tag_by_identifier("000000000000000000000001", identifier_type="epc")
+
+        assert isinstance(removed, list)
+        assert len(removed) == 2
+        assert all(tag.get("epc") == "000000000000000000000001" for tag in removed)
+        assert len(tags) == 1
+        remaining = tags.get_all()
+        assert len(remaining) == 1
+        assert remaining[0].get("epc") == "000000000000000000000002"
+
+    def test_remove_tags_before_timestamp_returns_removed_list(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001"})
+        tags.add({"epc": "000000000000000000000002"})
+
+        old_timestamp = datetime.now() - timedelta(hours=1)
+        tags._tags["000000000000000000000001"]["timestamp"] = old_timestamp
+
+        removed = tags.remove_tags_before_timestamp(datetime.now() - timedelta(minutes=1))
+
+        assert isinstance(removed, list)
+        assert len(removed) == 1
+        assert removed[0].get("epc") == "000000000000000000000001"
+        assert len(tags) == 1
+        assert tags.get_by_identifier("000000000000000000000002") is not None
+
+    def test_remove_tags_by_device_returns_removed_list(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001"}, device="reader_a")
+        tags.add({"epc": "000000000000000000000002"}, device="reader_a")
+        tags.add({"epc": "000000000000000000000003"}, device="reader_b")
+
+        removed = tags.remove_tags_by_device("reader_a")
+
+        assert isinstance(removed, list)
+        assert len(removed) == 2
+        assert all(tag.get("device") == "reader_a" for tag in removed)
+        assert len(tags) == 1
+        assert tags.get_by_identifier("000000000000000000000003") is not None
 
 
 if __name__ == "__main__":

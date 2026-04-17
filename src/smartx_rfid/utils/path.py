@@ -54,15 +54,17 @@ def get_prefix_from_path(current_file: str, base_dir: str = "routers") -> str:
     return prefix_string.replace(".py", "")
 
 
-def include_all_routers(current_path: str, app) -> None:
+def include_all_routers(current_path: str, app, router_prefix: str | list = ["/api"]) -> None:
     """
     Recursively discover and include all API routers found in the given path.
     """
+    if isinstance(router_prefix, str):
+        router_prefix = [router_prefix]
     routes_path = get_frozen_path(current_path)
 
     for entry in Path(routes_path).iterdir():
         if entry.is_dir() and entry.name != "__pycache__":
-            include_all_routers(str(Path(current_path) / entry.name), app)
+            include_all_routers(str(Path(current_path) / entry.name), app, router_prefix)
 
         elif entry.is_file() and entry.suffix == ".py" and entry.name != "__init__.py":
             module_name = entry.stem
@@ -78,7 +80,7 @@ def include_all_routers(current_path: str, app) -> None:
                     prefix = getattr(module.router, "prefix", "") or ""
                     app.include_router(
                         module.router,
-                        include_in_schema=prefix.startswith("/api"),
+                        include_in_schema=any(prefix.startswith(p) for p in router_prefix),
                     )
 
                     try:
