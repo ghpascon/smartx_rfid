@@ -14,7 +14,12 @@ class TagList:
     Each tag is uniquely identified by either EPC or TID.
     """
 
-    def __init__(self, unique_identifier: Literal["epc", "tid"] = "epc", prefix: str | list | None = None):
+    def __init__(
+        self,
+        unique_identifier: Literal["epc", "tid"] = "epc",
+        prefix: str | list | None = None,
+        fix_24_char_epc: bool = False,
+    ):
         """
         Initialize the tag list.
 
@@ -33,6 +38,8 @@ class TagList:
             prefix = [prefix]
         if prefix is not None:
             self.prefix = [p.lower() for p in prefix]
+
+        self.fix_24_char_epc = fix_24_char_epc
 
         self.chip_map: Dict[str, str] = {
             "e2801114": "Impinj Monza 4i",
@@ -89,6 +96,9 @@ class TagList:
         try:
             # Validate Tag
             tag = TagSchema(**tag).model_dump()
+            if self.fix_24_char_epc and not len(tag.get("epc")) == 24:
+                logging.warning("Tag EPC must have exactly 24 characters")
+                return False, None
 
             identifier_value = tag.get(self.unique_identifier)
             if not identifier_value:
