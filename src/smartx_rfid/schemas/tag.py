@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, computed_field, field_validator
 from smartx_rfid.utils import regex_hex
 
 
@@ -13,12 +13,22 @@ class TagSchema(BaseModel):
     model_config = {"extra": "allow"}
 
     @field_validator("epc", "tid")
-    def validate_epc_length_and_hex(cls, v, field):
+    def validate_epc_length_and_hex(cls, v, field: ValidationInfo):
         if v is None:
             return v
+        field_name = field.field_name
+        if field_name == "epc" and len(v) % 4 != 0:
+            raise ValueError("epc length must be divisible by 4")
+        if field_name == "tid" and len(v) != 24:
+            raise ValueError("tid must have exactly 24 characters")
         if not regex_hex(v):
-            raise ValueError(f"{field} must contain only hexadecimal characters (0-9, a-f)")
+            raise ValueError(f"{field_name} must contain only hexadecimal characters (0-9, a-f)")
         return v.lower()
+
+    @computed_field
+    @property
+    def epc_len(self) -> int:
+        return len(self.epc)
 
 
 class WriteTagValidator(BaseModel):
