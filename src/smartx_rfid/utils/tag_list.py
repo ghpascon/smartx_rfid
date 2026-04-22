@@ -1,6 +1,7 @@
 from typing import Literal, Dict, Any, Optional, Tuple, Callable
 from datetime import datetime
 from threading import Lock
+from collections import defaultdict
 import logging
 from pyepc import SGTIN
 from smartx_rfid.schemas.tag import TagSchema
@@ -31,13 +32,17 @@ class TagList:
 
         self.unique_identifier = unique_identifier
         self._tags: Dict[str, Dict[str, Any]] = {}
+        self._index: Dict[str, Dict[str, set[str]]] = {
+            "epc": defaultdict(set),
+            "tid": defaultdict(set),
+        }
         self._lock = Lock()
 
-        self.prefix: list | None = None
+        self.prefix: tuple[str, ...] | None = None
         if isinstance(prefix, str):
             prefix = [prefix]
         if prefix is not None:
-            self.prefix = [p.lower() for p in prefix]
+            self.prefix = tuple(p.lower() for p in prefix)
 
         self.fix_24_char_epc = fix_24_char_epc
 
@@ -70,19 +75,63 @@ class TagList:
         """
         Return the number of stored tags.
         """
-        return len(self._tags)
+        with self._lock:
+            return len(self._tags)
 
     def __contains__(self, identifier: str) -> bool:
         """
         Check if a tag identifier exists in the list.
         """
-        return identifier in self._tags
+        with self._lock:
+            return identifier in self._tags
 
     def __repr__(self) -> str:
         """
         Return a string representation of the stored tags.
         """
         return repr(self.get_all())
+
+    def _index_add(self, primary_key: str, tag: Dict[str, Any]) -> None:
+        epc = tag.get("epc")
+        tid = tag.get("tid")
+        if epc:
+            self._index["epc"][epc].add(primary_key)
+        if tid:
+            self._index["tid"][tid].add(primary_key)
+
+    def _index_remove(self, primary_key: str, tag: Dict[str, Any]) -> None:
+        epc = tag.get("epc")
+        tid = tag.get("tid")
+
+        if epc:
+            epc_set = self._index["epc"].get(epc)
+            if epc_set:
+                epc_set.discard(primary_key)
+                if not epc_set:
+                    self._index["epc"].pop(epc, None)
+
+        if tid:
+            tid_set = self._index["tid"].get(tid)
+            if tid_set:
+                tid_set.discard(primary_key)
+                if not tid_set:
+                    self._index["tid"].pop(tid, None)
+
+    def _index_move(
+        self, field: Literal["epc", "tid"], primary_key: str, old_value: Optional[str], new_value: Optional[str]
+    ) -> None:
+        if old_value == new_value:
+            return
+
+        if old_value:
+            old_set = self._index[field].get(old_value)
+            if old_set:
+                old_set.discard(primary_key)
+                if not old_set:
+                    self._index[field].pop(old_value, None)
+
+        if new_value:
+            self._index[field][new_value].add(primary_key)
 
     def add(self, tag: Dict[str, Any], device: str = "Unknown") -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
@@ -108,7 +157,7 @@ class TagList:
             # Check Prefix
             if self.prefix is not None:
                 epc = tag.get("epc")
-                if epc is None or not any(epc.startswith(p) for p in self.prefix):
+                if epc is None or not epc.startswith(self.prefix):
                     return False, None
 
             # handle tag
@@ -160,6 +209,7 @@ class TagList:
         }
 
         self._tags[tag[self.unique_identifier]] = stored_tag
+        self._index_add(tag[self.unique_identifier], stored_tag)
 
         return stored_tag
 
@@ -174,6 +224,10 @@ class TagList:
             The updated stored tag.
         """
         current = self._tags[tag[self.unique_identifier]]
+        primary_key = tag[self.unique_identifier]
+
+        old_epc = current.get("epc")
+        old_tid = current.get("tid")
 
         current["count"] += 1
         current["timestamp"] = datetime.now()
@@ -189,8 +243,13 @@ class TagList:
             except Exception:
                 gtin = None
             current["gtin"] = gtin
+        if tag.get("tid") is not None and not tag.get("tid") == current.get("tid"):
+            current["tid"] = tag.get("tid")
         if not tag.get("protected") == current.get("protected"):
             current["protected"] = tag.get("protected")
+
+        self._index_move("epc", primary_key, old_epc, current.get("epc"))
+        self._index_move("tid", primary_key, old_tid, current.get("tid"))
 
         return current
 
@@ -216,12 +275,18 @@ class TagList:
         if identifier_type not in ("epc", "tid"):
             identifier_type = "epc"
 
-        if self.unique_identifier == identifier_type:
-            return self._tags.get(identifier_value)
+        with self._lock:
+            if self.unique_identifier == identifier_type:
+                return self._tags.get(identifier_value)
 
-        for tag in self._tags.values():
-            if tag.get(identifier_type) == identifier_value:
-                return tag
+            primary_keys = self._index[identifier_type].get(identifier_value)
+            if not primary_keys:
+                return None
+
+            first_key = next(iter(primary_keys), None)
+            if first_key is None:
+                return None
+            return self._tags.get(first_key)
 
         return None
 
@@ -230,6 +295,8 @@ class TagList:
         Remove all stored tags.
         """
         with self._lock:
+            self._index["epc"].clear()
+            self._index["tid"].clear()
             self._tags.clear()
 
     def get_tid_from_epc(self, epc: str) -> Optional[str]:
@@ -243,7 +310,16 @@ class TagList:
             The TID if found, otherwise None.
         """
         with self._lock:
-            tag = self._tags.get(epc)
+            if self.unique_identifier == "epc":
+                tag = self._tags.get(epc)
+            else:
+                primary_keys = self._index["epc"].get(epc)
+                if not primary_keys:
+                    return None
+                first_key = next(iter(primary_keys), None)
+                if first_key is None:
+                    return None
+                tag = self._tags.get(first_key)
             if tag:
                 return tag.get("tid")
             return None
@@ -283,15 +359,18 @@ class TagList:
         This method expects the caller to hold the lock.
         """
         removed_tags: list[Dict[str, Any]] = []
-        kept_tags: Dict[str, Dict[str, Any]] = {}
+        keys_to_remove: list[str] = []
 
         for key, tag in self._tags.items():
             if predicate(tag):
                 removed_tags.append(tag)
-            else:
-                kept_tags[key] = tag
+                keys_to_remove.append(key)
 
-        self._tags = kept_tags
+        for key in keys_to_remove:
+            removed = self._tags.pop(key, None)
+            if removed is not None:
+                self._index_remove(key, removed)
+
         return removed_tags
 
     def remove_tag_by_identifier(self, identifier_value: str, identifier_type: str = "epc") -> list[Dict[str, Any]]:
@@ -314,6 +393,7 @@ class TagList:
             if self.unique_identifier == identifier_type:
                 removed_tag = self._tags.pop(identifier_value, None)
                 if removed_tag is not None:
+                    self._index_remove(identifier_value, removed_tag)
                     removed_tags.append(removed_tag)
                 return removed_tags
 
