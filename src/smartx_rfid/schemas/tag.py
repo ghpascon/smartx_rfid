@@ -25,6 +25,24 @@ class TagSchema(BaseModel):
             raise ValueError(f"{field_name} must contain only hexadecimal characters (0-9, a-f)")
         return v.lower()
 
+    @field_validator("rssi", mode="before")
+    def validate_rssi_to_int(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        if isinstance(v, str):
+            value = v.strip()
+            if value == "":
+                return None
+            try:
+                return int(float(value))
+            except ValueError as exc:
+                raise ValueError("rssi must be a valid number") from exc
+        raise ValueError("rssi must be int, float, or numeric string")
+
     @computed_field
     @property
     def epc_len(self) -> int:
