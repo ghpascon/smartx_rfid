@@ -1,3 +1,4 @@
+from itertools import islice
 from typing import Literal, Dict, Any, Optional, Tuple, Callable
 from datetime import datetime
 from threading import Lock
@@ -253,15 +254,17 @@ class TagList:
 
         return current
 
-    def get_all(self) -> list[Dict[str, Any]]:
+    def get_all(self, limit: int | None = None) -> list[Dict[str, Any]]:
         """
         Retrieve all stored tags.
 
         Returns:
             A list of tag dictionaries.
         """
+        if limit is not None and limit < 0:
+            limit = None
         with self._lock:
-            return list(self._tags.values())
+            return list(islice(self._tags.values(), limit))
 
     def get_by_identifier(self, identifier_value: str, identifier_type: str = "epc") -> Optional[Dict[str, Any]]:
         """
@@ -324,15 +327,17 @@ class TagList:
                 return tag.get("tid")
             return None
 
-    def get_epcs(self) -> list[str]:
+    def get_epcs(self, limit: int | None = None) -> list[str]:
         """
         Retrieve a list of all stored EPCs.
 
         Returns:
             A list of EPC strings.
         """
+        if limit is not None and limit < 0:
+            limit = None
         with self._lock:
-            return [tag["epc"] for tag in self._tags.values() if "epc" in tag]
+            return list(islice((tag.get("epc") for tag in self._tags.values()), limit))
 
     def get_gtin_counts(self) -> Dict[str, int]:
         """

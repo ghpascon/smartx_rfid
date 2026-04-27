@@ -30,6 +30,9 @@ class ReaderHelpers:
                 logging.warning(f"{self.name} - Failed to get firmware version: {response.status_code}")
                 return False
 
+            if not self.firmware_version:
+                return True
+
             version_info = response.json()
             firmware_version = version_info.get("primaryFirmware", "Unknown")
             return firmware_version.startswith(self.firmware_version)

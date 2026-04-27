@@ -30,7 +30,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         password: str = "impinj",
         start_reading: bool = False,
         # Firmware Version
-        firmware_version: str = "8.4.1",
+        firmware_version: str | None = None,
         session: int = 1,
         active_ant: list[int] = [1],
         read_power: int = 3000,
@@ -150,7 +150,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         self._session: httpx.AsyncClient | None = None  # Sessão HTTP reutilizável
 
         if not isinstance(firmware_version, str):
-            firmware_version = "8.4.1"
+            firmware_version = None
         self.firmware_version = firmware_version
 
         self.on_event = on_event

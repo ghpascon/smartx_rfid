@@ -196,6 +196,46 @@ class TestSERIAL:
         assert len(tags) == 1
         assert tags.get_by_identifier("000000000000000000000003") is not None
 
+    def test_get_all_limit(self):
+        tags = TagList()
+        for i in range(10):
+            tags.add({"epc": f"00000000000000000000000{i}"})
+        assert len(tags.get_all()) == 10
+        assert len(tags.get_all(limit=5)) == 5
+        assert len(tags.get_all(limit=0)) == 0
+
+    def test_get_all_limit_none(self):
+        tags = TagList()
+        for i in range(10):
+            tags.add({"epc": f"00000000000000000000000{i}"})
+        assert len(tags.get_all(limit=None)) == 10
+
+    def test_get_all_limit_negative(self):
+        tags = TagList()
+        for i in range(10):
+            tags.add({"epc": f"00000000000000000000000{i}"})
+        assert len(tags.get_all(limit=-1)) == 10
+
+    def test_get_epcs_limit(self):
+        tags = TagList()
+        for i in range(10):
+            tags.add({"epc": f"00000000000000000000000{i}"})
+        assert len(tags.get_epcs()) == 10
+        assert len(tags.get_epcs(limit=3)) == 3
+        assert len(tags.get_epcs(limit=0)) == 0
+
+    def test_get_epcs_limit_none(self):
+        tags = TagList()
+        for i in range(10):
+            tags.add({"epc": f"00000000000000000000000{i}"})
+        assert len(tags.get_epcs(limit=None)) == 10
+
+    def test_get_epcs_limit_negative(self):
+        tags = TagList()
+        for i in range(10):
+            tags.add({"epc": f"00000000000000000000000{i}"})
+        assert len(tags.get_epcs(limit=-5)) == 10
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

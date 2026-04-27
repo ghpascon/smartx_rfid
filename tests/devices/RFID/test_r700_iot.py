@@ -21,7 +21,7 @@ class TestR700_IOT:
             # Check basic default attributes
             assert r700_device.username == "root"
             assert r700_device.password == "impinj"
-            assert r700_device.firmware_version == "8.4.1"
+            assert r700_device.firmware_version is None
             assert r700_device.device_type == "rfid"
             assert r700_device.is_connected is False
             assert r700_device.is_reading is False
