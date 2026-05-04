@@ -2,7 +2,6 @@ from itertools import islice
 from typing import Literal, Dict, Any, Optional, Tuple, Callable
 from datetime import datetime
 from threading import Lock
-from collections import defaultdict
 import logging
 from pyepc import SGTIN
 from smartx_rfid.schemas.tag import TagSchema
@@ -33,9 +32,9 @@ class TagList:
 
         self.unique_identifier = unique_identifier
         self._tags: Dict[str, Dict[str, Any]] = {}
-        self._index: Dict[str, Dict[str, set[str]]] = {
-            "epc": defaultdict(set),
-            "tid": defaultdict(set),
+        self._index: Dict[str, Dict[str, str]] = {
+            "epc": {},
+            "tid": {},
         }
         self._lock = Lock()
 
@@ -96,43 +95,27 @@ class TagList:
         epc = tag.get("epc")
         tid = tag.get("tid")
         if epc:
-            self._index["epc"][epc].add(primary_key)
+            self._index["epc"][epc] = primary_key
         if tid:
-            self._index["tid"][tid].add(primary_key)
+            self._index["tid"][tid] = primary_key
 
     def _index_remove(self, primary_key: str, tag: Dict[str, Any]) -> None:
         epc = tag.get("epc")
         tid = tag.get("tid")
-
         if epc:
-            epc_set = self._index["epc"].get(epc)
-            if epc_set:
-                epc_set.discard(primary_key)
-                if not epc_set:
-                    self._index["epc"].pop(epc, None)
-
+            self._index["epc"].pop(epc, None)
         if tid:
-            tid_set = self._index["tid"].get(tid)
-            if tid_set:
-                tid_set.discard(primary_key)
-                if not tid_set:
-                    self._index["tid"].pop(tid, None)
+            self._index["tid"].pop(tid, None)
 
     def _index_move(
         self, field: Literal["epc", "tid"], primary_key: str, old_value: Optional[str], new_value: Optional[str]
     ) -> None:
         if old_value == new_value:
             return
-
         if old_value:
-            old_set = self._index[field].get(old_value)
-            if old_set:
-                old_set.discard(primary_key)
-                if not old_set:
-                    self._index[field].pop(old_value, None)
-
+            self._index[field].pop(old_value, None)
         if new_value:
-            self._index[field][new_value].add(primary_key)
+            self._index[field][new_value] = primary_key
 
     def add(self, tag: Dict[str, Any], device: str = "Unknown") -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
@@ -152,8 +135,13 @@ class TagList:
 
             identifier_value = tag.get(self.unique_identifier)
             if not identifier_value:
-                logging.warning(f"Tag missing '{self.unique_identifier}'")
-                return False, None
+                if self.unique_identifier == "epc":
+                    logging.warning(f"Tag missing '{self.unique_identifier}'")
+                    return False, None
+                else:
+                    # treat null tids
+                    identifier_value = f"_NULL_{tag.get('epc', 'UNKNOWN')}"
+                    tag[self.unique_identifier] = identifier_value
 
             # Check Prefix
             if self.prefix is not None:
@@ -228,7 +216,6 @@ class TagList:
         primary_key = tag[self.unique_identifier]
 
         old_epc = current.get("epc")
-        old_tid = current.get("tid")
 
         current["count"] += 1
         current["timestamp"] = datetime.now()
@@ -244,13 +231,10 @@ class TagList:
             except Exception:
                 gtin = None
             current["gtin"] = gtin
-        if tag.get("tid") is not None and not tag.get("tid") == current.get("tid"):
-            current["tid"] = tag.get("tid")
         if not tag.get("protected") == current.get("protected"):
             current["protected"] = tag.get("protected")
 
         self._index_move("epc", primary_key, old_epc, current.get("epc"))
-        self._index_move("tid", primary_key, old_tid, current.get("tid"))
 
         return current
 
@@ -282,16 +266,10 @@ class TagList:
             if self.unique_identifier == identifier_type:
                 return self._tags.get(identifier_value)
 
-            primary_keys = self._index[identifier_type].get(identifier_value)
-            if not primary_keys:
+            primary_key = self._index[identifier_type].get(identifier_value)
+            if primary_key is None:
                 return None
-
-            first_key = next(iter(primary_keys), None)
-            if first_key is None:
-                return None
-            return self._tags.get(first_key)
-
-        return None
+            return self._tags.get(primary_key)
 
     def clear(self) -> None:
         """
@@ -316,13 +294,10 @@ class TagList:
             if self.unique_identifier == "epc":
                 tag = self._tags.get(epc)
             else:
-                primary_keys = self._index["epc"].get(epc)
-                if not primary_keys:
+                primary_key = self._index["epc"].get(epc)
+                if primary_key is None:
                     return None
-                first_key = next(iter(primary_keys), None)
-                if first_key is None:
-                    return None
-                tag = self._tags.get(first_key)
+                tag = self._tags.get(primary_key)
             if tag:
                 return tag.get("tid")
             return None

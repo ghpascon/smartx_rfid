@@ -115,11 +115,12 @@ class TestSERIAL:
 
         assert len(tags) == 1
 
-    def test_invalid_tag_on_tid_identifier(self):
+    def test_null_on_tid_identifier(self):
         tags = TagList(unique_identifier="tid")
         result, tag_data = tags.add({"epc": "000000000000000000000001"})
-        assert not result
-        assert tag_data is None
+        assert result
+        assert tag_data.get("tid") == "_NULL_000000000000000000000001"
+        assert tag_data.get("epc") == "000000000000000000000001"
 
     def test_protected(self):
         tags = TagList()
