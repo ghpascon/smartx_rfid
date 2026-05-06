@@ -6,8 +6,10 @@ with proper indexing and relationships.
 """
 
 # Adiciona event listener para gerar serial e label_code automaticamente
+from datetime import datetime
+
 from sqlalchemy.orm import Session
-from sqlalchemy import event, select, Boolean, Column, Integer, String, Text, DateTime
+from sqlalchemy import event, func, select, Boolean, Column, Integer, String, Text, DateTime
 
 from .mixin import Base, BaseMixin
 
@@ -81,17 +83,18 @@ class Orders(Base, BaseMixin):
 
 @event.listens_for(Orders, "before_insert")
 def set_serial_and_label_code(mapper, connection, target):
-    # Gera o próximo serial para o product_code
+    year = datetime.now().year
+    year_suffix = str(year)[-3:]  # ex: "026" para 2026
+    year_start = datetime(year, 1, 1)
+    year_end = datetime(year + 1, 1, 1)
+
     session = Session(bind=connection)
     max_serial = session.execute(
-        select(Orders.product_serial)
-        .where(Orders.product_code == target.product_code)
-        .order_by(Orders.product_serial.desc())
-    ).first()
-    if max_serial and max_serial[0] is not None:
-        target.product_serial = max_serial[0] + 1
-    else:
-        target.product_serial = 1
-    # Gera o label_code no formato product_code-serial
-    target.label_code = f"{target.product_code}-{target.product_serial}"
+        select(func.max(Orders.product_serial))
+        .where(Orders.created_at >= year_start)
+        .where(Orders.created_at < year_end)
+    ).scalar()
     session.close()
+
+    target.product_serial = (max_serial + 1) if max_serial is not None else 1
+    target.label_code = f"{year_suffix}{str(target.product_serial).zfill(7)}"
