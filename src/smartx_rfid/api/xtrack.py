@@ -152,3 +152,19 @@ class ApiXtrack:
         else:
             logging.info(f"[ XTRACK ] get_identifications response: {xml_response}")
         return success, identification_list if success else response
+
+    async def move_object(self, idcode: str, location_id: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveLocation</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <location>{location_id}</location>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_object response: {response}")
+        return success, response
