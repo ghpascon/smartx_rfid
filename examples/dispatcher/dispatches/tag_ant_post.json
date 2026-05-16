@@ -1,0 +1,38 @@
+{
+    "_usage": {
+        "description": "HTTP POST dispatch example for tag events filtered by antenna.",
+        "notes": [
+            "This dispatch is triggered only for tag events from selected antennas.",
+            "Use {data[key]} placeholders because tag payload is dict-like."
+        ],
+        "filter_operators": [
+            "eq",
+            "ne",
+            "in",
+            "not_in",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "contains"
+        ]
+    },
+    "dispatch_type": "post",
+    "url": "http://localhost:5001",
+    "on_event": "tag",
+    "filters": [
+
+    ],
+    "headers": {
+        "Content-Type": "application/json"
+    },
+    "body": {
+        "device": "{name}",
+        "event_type": "{event_type}",
+        "epc": "{data[epc]}",
+        "tid": "{data[tid]}",
+        "ant": "{data[ant]}",
+        "rssi": "{data[rssi]}",
+        "timestamp": "{data[timestamp]}"
+    }
+}

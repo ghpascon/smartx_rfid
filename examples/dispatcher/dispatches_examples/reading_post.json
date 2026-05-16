@@ -1,0 +1,28 @@
+{
+    "_usage": {
+        "description": "HTTP POST dispatch example for reading events (bool payload).",
+        "notes": [
+            "reading events send data as boolean (true/false).",
+            "When payload is scalar, use {data} instead of {data[key]}."
+        ]
+    },
+    "dispatch_type": "post",
+    "url": "http://localhost:5001/device/reading",
+    "on_event": "reading",
+    "filters": [
+        {
+            "_description": "Only dispatch for XPAD.",
+            "key": "{name}",
+            "value": "XPAD",
+            "operator": "eq"
+        }
+    ],
+    "headers": {
+        "Content-Type": "application/json"
+    },
+    "body": {
+        "device": "{name}",
+        "event_type": "{event_type}",
+        "is_reading": "{data}"
+    }
+}

@@ -1,0 +1,31 @@
+{
+    "_usage": {
+        "description": "SQL dispatch example for serial_number events (string payload).",
+        "notes": [
+            "serial_number events usually send data as string.",
+            "Use bound params in SQL and pass scalar payload as {data}."
+        ],
+        "async_connection_string_examples": {
+            "postgresql": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+            "mysql": "mysql+aiomysql://user:password@localhost:3306/mydatabase",
+            "sqlite": "sqlite+aiosqlite:///./mydatabase.db"
+        }
+    },
+    "dispatch_type": "sql",
+    "connection_string": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+    "on_event": "serial_number",
+    "filters": [
+        {
+            "_description": "Only dispatch for XPAD.",
+            "key": "{name}",
+            "value": "XPAD",
+            "operator": "eq"
+        }
+    ],
+    "query": "INSERT INTO device_serial_events (device, serial_number, event_type) VALUES (:device, :serial_number, :event_type)",
+    "params": {
+        "device": "{name}",
+        "serial_number": "{data}",
+        "event_type": "{event_type}"
+    }
+}

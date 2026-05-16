@@ -1,0 +1,28 @@
+{
+    "_usage": {
+        "description": "HTTP POST dispatch example for serial_number events (string payload).",
+        "notes": [
+            "serial_number events usually send data as string.",
+            "When payload is scalar, use {data} instead of {data[key]}."
+        ]
+    },
+    "dispatch_type": "post",
+    "url": "http://localhost:5001/device/serial-number",
+    "on_event": "serial_number",
+    "filters": [
+        {
+            "_description": "Only dispatch for XPAD.",
+            "key": "{name}",
+            "value": "XPAD",
+            "operator": "eq"
+        }
+    ],
+    "headers": {
+        "Content-Type": "application/json"
+    },
+    "body": {
+        "device": "{name}",
+        "event_type": "{event_type}",
+        "serial_number": "{data}"
+    }
+}

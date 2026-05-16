@@ -1,0 +1,31 @@
+{
+    "_usage": {
+        "description": "SQL dispatch example for connection events (bool payload).",
+        "notes": [
+            "connection events send data as boolean (true/false).",
+            "Use bound params in SQL and pass scalar payload as {data}."
+        ],
+        "async_connection_string_examples": {
+            "postgresql": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+            "mysql": "mysql+aiomysql://user:password@localhost:3306/mydatabase",
+            "sqlite": "sqlite+aiosqlite:///./mydatabase.db"
+        }
+    },
+    "dispatch_type": "sql",
+    "connection_string": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+    "on_event": "connection",
+    "filters": [
+        {
+            "_description": "Only dispatch for XPAD.",
+            "key": "{name}",
+            "value": "XPAD",
+            "operator": "eq"
+        }
+    ],
+    "query": "INSERT INTO device_connection_events (device, connected, event_type) VALUES (:device, :connected, :event_type)",
+    "params": {
+        "device": "{name}",
+        "connected": "{data}",
+        "event_type": "{event_type}"
+    }
+}

@@ -1,0 +1,67 @@
+{
+    "_usage": {
+        "description": "SQL INSERT dispatch template. String values wrapped in {} are placeholders replaced at dispatch time.",
+        "available_placeholders": {
+            "{name}": "Device name passed to the dispatch function.",
+            "{event_type}": "Event type string passed to the dispatch function.",
+            "{data}": "Raw event_data value passed to the dispatch function. This can be any type, including bool, string, number, list, or dict.",
+            "{data[key]}": "Access a field only when event_data is dict-like (e.g. {data[epc]}, {data[rssi]})."
+        },
+        "notes": [
+            "Use {data[key]} only when event_data is a mapping/dict.",
+            "If event_data is a scalar value such as bool, string, int, or list, use {data} instead of nested field access.",
+            "The query must be executed with bound parameters; do not interpolate values directly into SQL strings."
+        ],
+        "async_connection_string_examples": {
+            "postgresql": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+            "mysql": "mysql+aiomysql://user:password@localhost:3306/mydatabase",
+            "sqlite": "sqlite+aiosqlite:///./mydatabase.db"
+        },
+        "filter_operators": [
+            "eq",
+            "ne",
+            "in",
+            "not_in",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "contains"
+        ]
+    },
+    "dispatch_type": "sql",
+    "connection_string": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+    "on_event": "tag",
+    "filters": [
+        {
+            "_description": "Only dispatch for a specific device.",
+            "key": "{name}",
+            "value": "XPAD",
+            "operator": "eq"
+        },
+        {
+            "_description": "Only dispatch for reads on antennas 1 or 2.",
+            "key": "{data[ant]}",
+            "value": [
+                1,
+                2
+            ],
+            "operator": "in"
+        },
+        {
+            "_description": "Only dispatch if RSSI is above threshold.",
+            "key": "{data[rssi]}",
+            "value": -65,
+            "operator": "gte"
+        }
+    ],
+    "query": "INSERT INTO events (device, epc, tid, ant, rssi, timestamp) VALUES (:device, :epc, :tid, :ant, :rssi, :timestamp)",
+    "params": {
+        "device": "{name}",
+        "epc": "{data[epc]}",
+        "tid": "{data[tid]}",
+        "ant": "{data[ant]}",
+        "rssi": "{data[rssi]}",
+        "timestamp": "{data[timestamp]}"
+    }
+}
