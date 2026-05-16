@@ -19,8 +19,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-LOGGER = logging.getLogger(__name__)
-
 _PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]+)\}")
 _DATA_KEY_PATTERN = re.compile(r"^data\[([^\]]+)\]$")
 _STOP = object()
@@ -119,7 +117,7 @@ class EventDispatcher:
         http_timeout_seconds: float = 5.0,
         default_retry_attempts: int = 1,
         default_retry_backoff_seconds: float = 0.25,
-        enable_enqueue_logs: bool = False,
+        enable_enqueue_logs: bool = True,
         enable_dispatch_success_logs: bool = True,
         success_log_first_n: int = 50,
         success_log_every_n: int = 100,
@@ -139,7 +137,7 @@ class EventDispatcher:
         post_max_http_connections: int | None = 500,
         post_max_keepalive_connections: int | None = 500,
         post_max_inflight_requests: int | None = 500,
-        enable_post_success_logs: bool = False,
+        enable_post_success_logs: bool = True,
         suppress_httpx_request_logs: bool = True,
         http2_enabled: bool = True,
     ):
@@ -252,7 +250,7 @@ class EventDispatcher:
 
             def _signal_handler(signum: int, frame: Any) -> None:
                 signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
-                LOGGER.warning("Received %s, triggering dispatcher shutdown drain", signal_name)
+                logging.warning("Received %s, triggering dispatcher shutdown drain", signal_name)
                 self._shutdown_sync(f"signal:{signal_name}")
 
                 previous = self._previous_sigint_handler if signum == signal.SIGINT else self._previous_sigterm_handler
@@ -262,7 +260,7 @@ class EventDispatcher:
             signal.signal(signal.SIGINT, _signal_handler)
             signal.signal(signal.SIGTERM, _signal_handler)
         except Exception:
-            LOGGER.debug("Could not register signal handlers for EventDispatcher", exc_info=True)
+            logging.debug("Could not register signal handlers for EventDispatcher", exc_info=True)
 
     def _shutdown_sync(self, reason: str = "unknown") -> None:
         if self._shutdown_started:
@@ -270,7 +268,7 @@ class EventDispatcher:
         self._shutdown_started = True
 
         try:
-            LOGGER.info("EventDispatcher shutdown hook running (reason=%s)", reason)
+            logging.info("EventDispatcher shutdown hook running (reason=%s)", reason)
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -282,7 +280,7 @@ class EventDispatcher:
 
             asyncio.run(self._shutdown_async())
         except Exception:
-            LOGGER.exception("Failed during EventDispatcher shutdown hook")
+            logging.exception("Failed during EventDispatcher shutdown hook")
 
     async def _shutdown_async(self) -> None:
         if self._started:
@@ -293,7 +291,7 @@ class EventDispatcher:
                     await self.stop(drain=True)
                     return
                 except Exception:
-                    LOGGER.exception("Graceful stop failed during shutdown, using fallback drain")
+                    logging.exception("Graceful stop failed during shutdown, using fallback drain")
 
             self._workers = []
             self._started = False
@@ -312,7 +310,7 @@ class EventDispatcher:
             try:
                 await self._http_client.aclose()
             except Exception:
-                LOGGER.debug("Error closing previous HTTP client during shutdown reinit", exc_info=True)
+                logging.debug("Error closing previous HTTP client during shutdown reinit", exc_info=True)
             self._http_client = None
 
         if self._engines:
@@ -320,7 +318,7 @@ class EventDispatcher:
                 try:
                     await engine.dispose()
                 except Exception:
-                    LOGGER.debug("Error disposing previous SQL engine during shutdown reinit", exc_info=True)
+                    logging.debug("Error disposing previous SQL engine during shutdown reinit", exc_info=True)
             self._engines.clear()
 
         self.reload_dispatches()
@@ -395,10 +393,10 @@ class EventDispatcher:
                     self._mark_processed(event.event_id)
                     drained += 1
             except Exception:
-                LOGGER.exception("Failed while fallback-processing event")
+                logging.exception("Failed while fallback-processing event")
 
         if drained:
-            LOGGER.info("Fallback drain completed; processed queued events=%s", drained)
+            logging.info("Fallback drain completed; processed queued events=%s", drained)
 
         await self._post_queue.join()
         await self._flush_all_post_batches()
@@ -442,7 +440,7 @@ class EventDispatcher:
             self._ensure_post_batch_task_started()
             self._ensure_sql_batch_task_started()
             self._started = True
-            LOGGER.info(
+            logging.info(
                 "EventDispatcher started with event_workers=%s post_batch_enabled=%s post_batch_size=%s post_sender_workers=%s post_max_http_connections=%s post_max_inflight_requests=%s queue_size=%s sql_batch_enabled=%s sql_batch_size=%s dispatches=%s",
                 self.max_workers,
                 self.post_batch_enabled,
@@ -491,7 +489,7 @@ class EventDispatcher:
 
         self._started = False
         self._start_task = None
-        LOGGER.info("EventDispatcher stopped")
+        logging.info("EventDispatcher stopped")
 
     async def flush(self, timeout: float | None = None) -> None:
         if timeout is None:
@@ -656,7 +654,7 @@ class EventDispatcher:
             self._stats["sql_rows_batched"] += row_count
             self._stats["sql_batches_executed"] += 1
             if self._should_log_sql_success():
-                LOGGER.info(
+                logging.info(
                     "SQL batch dispatch result: %r",
                     {
                         "type": "sql-batch",
@@ -669,7 +667,7 @@ class EventDispatcher:
                 )
         except Exception:
             self._stats["dispatches_failed"] += row_count
-            LOGGER.exception(
+            logging.exception(
                 "SQL batch dispatch failed: %r",
                 {
                     "connection_string": key.connection_string,
@@ -697,7 +695,7 @@ class EventDispatcher:
                     content = json.load(file)
 
                 if not isinstance(content, dict):
-                    LOGGER.warning("Skipping dispatch %s because root JSON is not an object", file_path.name)
+                    logging.warning("Skipping dispatch %s because root JSON is not an object", file_path.name)
                     continue
 
                 dispatches.append(content)
@@ -723,7 +721,7 @@ class EventDispatcher:
                 else:
                     bucket.post.append(plan)
             except Exception:
-                LOGGER.exception("Failed to parse dispatch JSON file: %s", file_path.name)
+                logging.exception("Failed to parse dispatch JSON file: %s", file_path.name)
 
         old_keys = set(self._engines.keys())
         for key in old_keys - sql_connection_strings:
@@ -736,7 +734,7 @@ class EventDispatcher:
                     except Exception:
                         pass
             except Exception:
-                LOGGER.exception("Error disposing SQL engine for: %s", key)
+                logging.exception("Error disposing SQL engine for: %s", key)
 
         for key in sql_connection_strings - old_keys:
             try:
@@ -749,7 +747,7 @@ class EventDispatcher:
                     future=True,
                 )
             except Exception:
-                LOGGER.exception("Error creating SQL engine for: %s", key)
+                logging.exception("Error creating SQL engine for: %s", key)
 
         self._dispatches = dispatches
         self._compiled_dispatches = compiled_dispatches
@@ -763,7 +761,7 @@ class EventDispatcher:
         sql_count = sum(len(bucket.sql) for bucket in dispatch_routes_by_event.values()) + len(
             dispatch_routes_any_event.sql
         )
-        LOGGER.info(
+        logging.info(
             "Loaded %s dispatch file(s), routes post=%s sql=%s, SQL pools=%s",
             len(self._dispatches),
             post_count,
@@ -775,7 +773,7 @@ class EventDispatcher:
         try:
             self._validate_dispatch_content(content)
         except Exception:
-            LOGGER.exception("Invalid dispatch content in %s", source_name)
+            logging.exception("Invalid dispatch content in %s", source_name)
             return None
 
         dispatch_type = str(content.get("dispatch_type", "")).lower()
@@ -835,7 +833,7 @@ class EventDispatcher:
                     backoff_seconds=backoff_seconds,
                 )
         else:
-            LOGGER.warning("Skipping unsupported dispatch_type=%s in %s", dispatch_type, source_name)
+            logging.warning("Skipping unsupported dispatch_type=%s in %s", dispatch_type, source_name)
             return None
 
         return _CompiledDispatch(
@@ -961,19 +959,19 @@ class EventDispatcher:
 
             self._stats["events_queued"] += 1
             if self.enable_enqueue_logs:
-                LOGGER.info("Event added to queue: name=%s event_type=%s data=%s", name, event_type, data)
+                logging.info("Event added to queue: name=%s event_type=%s data=%s", name, event_type, data)
             return True
         except asyncio.QueueFull:
             self._stats["events_dropped"] += 1
-            LOGGER.warning("Dispatcher queue full; dropping event %s/%s", name, event_type)
+            logging.warning("Dispatcher queue full; dropping event %s/%s", name, event_type)
             return False
         except TimeoutError:
             self._stats["events_dropped"] += 1
-            LOGGER.warning("Timed out while queueing event %s/%s", name, event_type)
+            logging.warning("Timed out while queueing event %s/%s", name, event_type)
             return False
         except Exception:
             self._stats["events_dropped"] += 1
-            LOGGER.exception("Unexpected error while queueing event %s/%s", name, event_type)
+            logging.exception("Unexpected error while queueing event %s/%s", name, event_type)
             return False
 
     def add(self, name: str, event_type: str, data: Any = None) -> bool:
@@ -982,7 +980,7 @@ class EventDispatcher:
             asyncio.get_running_loop()
         except RuntimeError:
             self._stats["events_dropped"] += 1
-            LOGGER.error(
+            logging.error(
                 "EventDispatcher.add called without a running asyncio loop. "
                 "Use add_async in synchronous contexts. Event dropped: %s/%s",
                 name,
@@ -1006,11 +1004,11 @@ class EventDispatcher:
             return True
         except asyncio.QueueFull:
             self._stats["events_dropped"] += 1
-            LOGGER.warning("Dispatcher queue full; dropping event %s/%s", name, event_type)
+            logging.warning("Dispatcher queue full; dropping event %s/%s", name, event_type)
             return False
         except Exception:
             self._stats["events_dropped"] += 1
-            LOGGER.exception("Unexpected error while queueing event %s/%s", name, event_type)
+            logging.exception("Unexpected error while queueing event %s/%s", name, event_type)
             return False
 
     def get_stats(self) -> dict[str, int]:
@@ -1045,7 +1043,7 @@ class EventDispatcher:
                 ]
             )
         except Exception:
-            LOGGER.exception("Failed to list dispatch files")
+            logging.exception("Failed to list dispatch files")
             return []
 
     def get_dispatch_content(self, name: str) -> dict | None:
@@ -1055,10 +1053,10 @@ class EventDispatcher:
                 content = json.load(file)
             return content if isinstance(content, dict) else None
         except FileNotFoundError:
-            LOGGER.warning("Dispatch file not found: %s", name)
+            logging.warning("Dispatch file not found: %s", name)
             return None
         except Exception:
-            LOGGER.exception("Failed to read dispatch file: %s", name)
+            logging.exception("Failed to read dispatch file: %s", name)
             return None
 
     def create_dispatch(
@@ -1075,15 +1073,15 @@ class EventDispatcher:
 
             file_path = self._dispatch_file_path(name)
             if file_path.exists() and not overwrite:
-                LOGGER.warning("Dispatch already exists and overwrite=False: %s", file_path.name)
+                logging.warning("Dispatch already exists and overwrite=False: %s", file_path.name)
                 return False
 
             self._write_json_file(file_path, content)
             self.reload_dispatches()
-            LOGGER.info("Dispatch created: %s", file_path.name)
+            logging.info("Dispatch created: %s", file_path.name)
             return True
         except Exception:
-            LOGGER.exception("Failed to create dispatch: %s", name)
+            logging.exception("Failed to create dispatch: %s", name)
             return False
 
     def edit_dispatch(
@@ -1097,14 +1095,14 @@ class EventDispatcher:
         try:
             file_path = self._dispatch_file_path(name)
             if not file_path.exists():
-                LOGGER.warning("Dispatch not found for edit: %s", file_path.name)
+                logging.warning("Dispatch not found for edit: %s", file_path.name)
                 return False
 
             with open(file_path, "r", encoding="utf-8") as file:
                 current_content = json.load(file)
 
             if not isinstance(current_content, dict):
-                LOGGER.error("Dispatch root JSON must be object for edit: %s", file_path.name)
+                logging.error("Dispatch root JSON must be object for edit: %s", file_path.name)
                 return False
 
             updated_content = self._deep_merge_dict(current_content, content) if merge else copy.deepcopy(content)
@@ -1114,10 +1112,10 @@ class EventDispatcher:
 
             self._write_json_file(file_path, updated_content)
             self.reload_dispatches()
-            LOGGER.info("Dispatch edited: %s", file_path.name)
+            logging.info("Dispatch edited: %s", file_path.name)
             return True
         except Exception:
-            LOGGER.exception("Failed to edit dispatch: %s", name)
+            logging.exception("Failed to edit dispatch: %s", name)
             return False
 
     def delete_dispatch(self, name: str, *, missing_ok: bool = True) -> bool:
@@ -1125,17 +1123,17 @@ class EventDispatcher:
             file_path = self._dispatch_file_path(name)
             if not file_path.exists():
                 if missing_ok:
-                    LOGGER.info("Dispatch already absent: %s", file_path.name)
+                    logging.info("Dispatch already absent: %s", file_path.name)
                     return True
-                LOGGER.warning("Dispatch not found for delete: %s", file_path.name)
+                logging.warning("Dispatch not found for delete: %s", file_path.name)
                 return False
 
             file_path.unlink()
             self.reload_dispatches()
-            LOGGER.info("Dispatch deleted: %s", file_path.name)
+            logging.info("Dispatch deleted: %s", file_path.name)
             return True
         except Exception:
-            LOGGER.exception("Failed to delete dispatch: %s", name)
+            logging.exception("Failed to delete dispatch: %s", name)
             return False
 
     def _normalize_dispatch_filename(self, name: str) -> str:
@@ -1241,7 +1239,7 @@ class EventDispatcher:
             return None
 
     async def _worker_loop(self, worker_id: int) -> None:
-        LOGGER.debug("Dispatcher worker %s started", worker_id)
+        logging.debug("Dispatcher worker %s started", worker_id)
         self._worker_events_processed.setdefault(worker_id, 0)
         while True:
             item = await self._event_queue.get()
@@ -1262,7 +1260,7 @@ class EventDispatcher:
                     self._mark_processed(item.event_id)
                 self._worker_events_processed[worker_id] += 1
             except Exception:
-                LOGGER.exception("Worker %s failed while processing event", worker_id)
+                logging.exception("Worker %s failed while processing event", worker_id)
             finally:
                 if worker_busy and self._busy_workers > 0:
                     self._busy_workers -= 1
@@ -1314,7 +1312,7 @@ class EventDispatcher:
                 self._stats["dispatches_succeeded"] += 1
         except Exception:
             self._stats["dispatches_failed"] += 1
-            LOGGER.exception("Dispatch failed (source=%s type=%s)", plan.source_name, plan.dispatch_type)
+            logging.exception("Dispatch failed (source=%s type=%s)", plan.source_name, plan.dispatch_type)
 
     async def _enqueue_post_dispatch(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
         if plan.url_renderer is None:
@@ -1357,7 +1355,7 @@ class EventDispatcher:
         )
 
     async def _post_worker_loop(self, worker_id: int) -> None:
-        LOGGER.debug("Dispatcher post worker %s started", worker_id)
+        logging.debug("Dispatcher post worker %s started", worker_id)
         while True:
             envelope = await self._post_send_queue.get()
             try:
@@ -1378,7 +1376,7 @@ class EventDispatcher:
                     len(envelope.items) if isinstance(envelope, _PostBatchEnvelope) else 1
                 )
                 if isinstance(envelope, _PostBatchEnvelope):
-                    LOGGER.warning(
+                    logging.warning(
                         "POST dispatch timeout (source=%s url=%s batch_size=%s)",
                         envelope.key.source_name,
                         envelope.key.url,
@@ -1388,7 +1386,7 @@ class EventDispatcher:
                 self._stats["dispatches_failed"] += (
                     len(envelope.items) if isinstance(envelope, _PostBatchEnvelope) else 1
                 )
-                LOGGER.exception("POST dispatch failed")
+                logging.exception("POST dispatch failed")
             finally:
                 self._post_send_queue.task_done()
 
@@ -1450,7 +1448,7 @@ class EventDispatcher:
 
             return True
         except Exception:
-            LOGGER.exception("Error evaluating compiled dispatch filters (source=%s)", plan.source_name)
+            logging.exception("Error evaluating compiled dispatch filters (source=%s)", plan.source_name)
             return False
 
     def _allocate_event_id(self) -> int:
@@ -1474,8 +1472,6 @@ class EventDispatcher:
     def _should_log_sql_success(self) -> bool:
         if not self.enable_dispatch_success_logs:
             return False
-        if not LOGGER.isEnabledFor(logging.INFO):
-            return False
 
         self._sql_success_log_counter += 1
         if self._sql_success_log_counter <= self.success_log_first_n:
@@ -1484,8 +1480,6 @@ class EventDispatcher:
 
     def _should_log_post_success(self) -> bool:
         if not self.enable_post_success_logs:
-            return False
-        if not LOGGER.isEnabledFor(logging.INFO):
             return False
 
         self._post_success_log_counter += 1
@@ -1524,7 +1518,7 @@ class EventDispatcher:
                 return value in key
             return False
 
-        LOGGER.warning("Unsupported filter operator: %s", operator)
+        logging.warning("Unsupported filter operator: %s", operator)
         return False
 
     def _safe_compare(self, left: Any, right: Any, op: str) -> bool:
@@ -1604,11 +1598,11 @@ class EventDispatcher:
                         "response_preview": response_preview.decode("utf-8", errors="ignore"),
                     }
                 )
-                LOGGER.info("POST dispatch result: %r", log_dict)
+                logging.info("POST dispatch result: %r", log_dict)
         except httpx.TimeoutException as exc:
             latency = time.monotonic() - start
             log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
-            LOGGER.error("POST dispatch result: %r", log_dict)
+            logging.error("POST dispatch result: %r", log_dict)
             raise
         except httpx.HTTPStatusError as exc:
             latency = time.monotonic() - start
@@ -1620,12 +1614,12 @@ class EventDispatcher:
                     "response": getattr(exc.response, "text", None),
                 }
             )
-            LOGGER.error("POST dispatch result: %r", log_dict)
+            logging.error("POST dispatch result: %r", log_dict)
             raise
         except Exception as exc:
             latency = time.monotonic() - start
             log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-            LOGGER.error("POST dispatch result: %r", log_dict)
+            logging.error("POST dispatch result: %r", log_dict)
             raise
 
     async def _dispatch_sql_plan(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
@@ -1673,11 +1667,11 @@ class EventDispatcher:
                         "result": str(result),
                     }
                 )
-                LOGGER.info("SQL dispatch result: %r", log_dict)
+                logging.info("SQL dispatch result: %r", log_dict)
         except SQLAlchemyError as exc:
             latency = time.monotonic() - start
             log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-            LOGGER.error("SQL dispatch result: %r", log_dict)
+            logging.error("SQL dispatch result: %r", log_dict)
             raise
 
     async def _dispatch_sql_many(
