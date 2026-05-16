@@ -936,6 +936,7 @@ class EventDispatcher:
         return _render_template, False, None
 
     async def add_async(self, name: str, event_type: str, data: Any = None) -> bool:
+        self._ensure_start_task()
         self._stats["events_received"] += 1
 
         try:

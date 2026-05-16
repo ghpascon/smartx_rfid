@@ -12,8 +12,6 @@ dispatcher = EventDispatcher(
 
 
 async def main():
-    await dispatcher.start()
-
     await dispatcher.add_async(
         "XPAD",
         "tag",

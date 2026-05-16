@@ -85,8 +85,6 @@ async def main() -> None:
         http2_enabled=http2_enabled,
     )
 
-    await dispatcher.start()
-
     started_at = time.monotonic()
     chunk_size = max(1, (n_events + producer_workers - 1) // producer_workers)
     tasks: list[asyncio.Task[tuple[int, int]]] = []
