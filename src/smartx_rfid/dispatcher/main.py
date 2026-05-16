@@ -1038,7 +1038,7 @@ class EventDispatcher:
         try:
             return sorted(
                 [
-                    file.name
+                    file.name.replace(".json", "")
                     for file in Path(self.dispatches_path).iterdir()
                     if file.is_file() and file.suffix == ".json"
                 ]
@@ -1049,6 +1049,7 @@ class EventDispatcher:
 
     def get_dispatch_content(self, name: str) -> dict | None:
         try:
+            name = name + ".json" if not name.endswith(".json") else name
             file_path = self._dispatch_file_path(name)
             with open(file_path, "r", encoding="utf-8") as file:
                 content = json.load(file)
@@ -1225,7 +1226,11 @@ class EventDispatcher:
         if not self.example_path:
             return []
         try:
-            return [f.name for f in Path(self.example_path).iterdir() if f.is_file() and f.suffix == ".json"]
+            return [
+                f.name.replace(".json", "")
+                for f in Path(self.example_path).iterdir()
+                if f.is_file() and f.suffix == ".json"
+            ]
         except Exception:
             return []
 
@@ -1233,7 +1238,7 @@ class EventDispatcher:
         if not self.example_path:
             return None
         try:
-            file_path = Path(self.example_path) / name
+            file_path = Path(self.example_path) / f"{name}.json"
             with open(file_path, "r", encoding="utf-8") as file:
                 return json.load(file)
         except Exception:
