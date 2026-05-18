@@ -26,6 +26,7 @@
     "dispatch_type": "post",
     "url": "http://localhost:5001",
     "on_event": "tag",
+    "allow_batches": true,
     "filters": [
         {
             "_description": "Only dispatch for a specific device.",

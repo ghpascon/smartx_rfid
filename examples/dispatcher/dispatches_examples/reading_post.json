@@ -9,6 +9,7 @@
     "dispatch_type": "post",
     "url": "http://localhost:5001/device/reading",
     "on_event": "reading",
+    "allow_batches": false,
     "filters": [
         {
             "_description": "Only dispatch for XPAD.",

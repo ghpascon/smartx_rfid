@@ -9,6 +9,7 @@
     "dispatch_type": "post",
     "url": "http://localhost:5001/device/serial-number",
     "on_event": "serial_number",
+    "allow_batches": false,
     "filters": [
         {
             "_description": "Only dispatch for XPAD.",

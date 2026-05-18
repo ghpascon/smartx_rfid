@@ -57,6 +57,7 @@ class _PostDispatchItem:
     headers: dict[str, Any] | None
     body: Any
     queued_at: float
+    allow_batches: bool = True  # Novo campo para permitir ou não batches
 
 
 @dataclass(slots=True, frozen=True)
@@ -98,6 +99,7 @@ class _CompiledDispatch:
     query_renderer: Callable[[dict[str, Any]], Any] | None
     params_renderer: Callable[[dict[str, Any]], Any] | None
     sql_key_static: _SqlBatchKey | None
+    allow_batches: bool = True
 
 
 @dataclass(slots=True)
@@ -601,8 +603,12 @@ class EventDispatcher:
         )
 
         await self._post_send_queue.put(envelope)
-        for _ in batch:
-            self._post_queue.task_done()
+
+        # Garantindo que task_done seja chamado apenas para tarefas realmente processadas
+        for _ in range(len(batch)):
+            if not self._post_queue.empty():
+                self._post_queue.task_done()
+
         self._post_batches.pop(key, None)
 
     async def _sql_batch_loop(self) -> None:
@@ -836,7 +842,7 @@ class EventDispatcher:
             logging.warning("Skipping unsupported dispatch_type=%s in %s", dispatch_type, source_name)
             return None
 
-        return _CompiledDispatch(
+        compiled = _CompiledDispatch(
             source_name=source_name,
             dispatch_type=dispatch_type,
             on_event_renderer=on_event_renderer,
@@ -851,7 +857,9 @@ class EventDispatcher:
             query_renderer=query_renderer,
             params_renderer=params_renderer,
             sql_key_static=sql_key_static,
+            allow_batches=content.get("allow_batches", True) if dispatch_type == "post" else True,
         )
+        return compiled
 
     def _build_value_renderer(self, value: Any) -> tuple[Callable[[dict[str, Any]], Any], bool, Any]:
         if isinstance(value, dict):
@@ -1277,17 +1285,32 @@ class EventDispatcher:
     async def _process_event(self, event: _DispatchEvent) -> None:
         self._stats["events_processed"] += 1
 
-        context = {
+        # O contexto base do evento
+        context_base = {
             "name": event.name,
             "event_type": event.event_type,
             "data": event.data,
         }
 
+        # Executa todos planos do tipo post/sql para o evento
         event_bucket = self._dispatch_routes_by_event.get(event.event_type)
         if event_bucket is not None:
-            await self._process_route_bucket(event_bucket, context)
+            for plan in event_bucket.post:
+                context = dict(context_base)
+                if hasattr(plan, "allow_batches"):
+                    context["allow_batches"] = getattr(plan, "allow_batches")
+                await self._process_single_dispatch(plan, context)
+            for plan in event_bucket.sql:
+                await self._process_single_dispatch(plan, dict(context_base))
 
-        await self._process_route_bucket(self._dispatch_routes_any_event, context)
+        # Executa planos globais
+        for plan in self._dispatch_routes_any_event.post:
+            context = dict(context_base)
+            if hasattr(plan, "allow_batches"):
+                context["allow_batches"] = getattr(plan, "allow_batches")
+            await self._process_single_dispatch(plan, context)
+        for plan in self._dispatch_routes_any_event.sql:
+            await self._process_single_dispatch(plan, dict(context_base))
 
     async def _process_route_bucket(self, bucket: _DispatchRouteBucket, context: dict[str, Any]) -> None:
         for plan in bucket.post:
@@ -1321,34 +1344,42 @@ class EventDispatcher:
             logging.exception("Dispatch failed (source=%s type=%s)", plan.source_name, plan.dispatch_type)
 
     async def _enqueue_post_dispatch(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
-        if plan.url_renderer is None:
-            raise ValueError("POST dispatch url renderer is required")
-
-        url = plan.url_renderer(context)
-        headers = plan.headers_renderer(context) if plan.headers_renderer is not None else {}
-        body = plan.body_renderer(context) if plan.body_renderer is not None else {}
-
-        if not isinstance(url, str) or not url.strip():
-            raise ValueError("POST dispatch requires a valid url")
-        if headers is not None and not isinstance(headers, dict):
-            raise ValueError("POST dispatch headers must be an object")
+        # allow_batches pode vir do plano (config), do contexto, ou default True
+        allow_batches = None
+        if hasattr(plan, "allow_batches"):
+            allow_batches = getattr(plan, "allow_batches")
+        # Contexto tem prioridade (ex: sobrescrito em tempo de execução)
+        allow_batches = context.get("allow_batches", allow_batches)
+        if allow_batches is None:
+            allow_batches = True
 
         item = _PostDispatchItem(
             source_name=plan.source_name,
             retry_attempts=plan.retry_attempts,
             backoff_seconds=plan.backoff_seconds,
-            url=url,
-            headers=headers,
-            body=body,
-            queued_at=time.monotonic(),
+            url=plan.url_renderer(context) if plan.url_renderer else None,
+            headers=plan.headers_renderer(context) if plan.headers_renderer else None,
+            body=plan.body_renderer(context) if plan.body_renderer else None,
+            queued_at=time.time(),
+            allow_batches=allow_batches,
         )
 
-        try:
-            self._post_queue.put_nowait(item)
-        except asyncio.QueueFull:
-            if self.add_timeout_seconds <= 0:
-                raise
-            await asyncio.wait_for(self._post_queue.put(item), timeout=self.add_timeout_seconds)
+        if not item.allow_batches:
+            # Envia cada item individualmente, nunca em lista
+            envelope = _PostBatchEnvelope(
+                key=self._make_post_batch_key(item),
+                items=[item],
+                queued_at=item.queued_at,
+            )
+            await self._dispatch_post_envelope(envelope)
+        else:
+            # Comportamento padrão: batch
+            key = self._make_post_batch_key(item)
+            if key not in self._post_batches:
+                self._post_batches[key] = []
+            self._post_batches[key].append(item)
+            if len(self._post_batches[key]) >= self.post_batch_size:
+                await self._flush_post_batch(key)
 
     def _make_post_batch_key(self, item: _PostDispatchItem) -> _PostBatchKey:
         headers_json = orjson.dumps(item.headers or {}, option=orjson.OPT_SORT_KEYS).decode("utf-8")
@@ -1401,9 +1432,6 @@ class EventDispatcher:
             raise ValueError("SQL dispatch params renderer is required")
 
         params = plan.params_renderer(context)
-        if not isinstance(params, dict):
-            raise ValueError("SQL dispatch params must be an object")
-
         if plan.sql_key_static is not None:
             sql_key = plan.sql_key_static
         else:
@@ -1567,66 +1595,123 @@ class EventDispatcher:
         start = time.monotonic()
         queued_for = max(0.0, time.monotonic() - envelope.queued_at)
 
-        if self.post_batch_enabled:
-            payload: Any = [item.body for item in envelope.items]
+        # Respeita allow_batches de cada item
+        allow_batches = all(getattr(item, "allow_batches", True) for item in envelope.items)
+        if not allow_batches or batch_size == 1:
+            # Envia cada item individualmente (mesmo se vier "batched" mas não pode)
+            for item in envelope.items:
+                payload = item.body
+                headers: dict[str, str] = {}
+                for key, value in (item.headers or {}).items():
+                    headers[str(key)] = str(value)
+                headers.setdefault("Content-Type", "application/json")
+                body_bytes = orjson.dumps(payload)
+
+                log_dict = {
+                    "type": "post",
+                    "source": envelope.key.source_name,
+                    "url": envelope.key.url,
+                    "batch_size": 1,
+                    "queued_for": queued_for,
+                }
+                try:
+                    if self._post_inflight_semaphore is not None:
+                        async with self._post_inflight_semaphore:
+                            response = await self._http_client.post(
+                                envelope.key.url, headers=headers, content=body_bytes
+                            )
+                    else:
+                        response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
+                    latency = time.monotonic() - start
+                    response.raise_for_status()
+                    if self._should_log_post_success():
+                        response_preview = bytes(response.content[:200]) if response.content else b""
+                        log_dict.update(
+                            {
+                                "status": response.status_code,
+                                "latency": latency,
+                                "response_preview": response_preview.decode("utf-8", errors="ignore"),
+                            }
+                        )
+                        logging.info("POST dispatch result: %r", log_dict)
+                except httpx.TimeoutException as exc:
+                    latency = time.monotonic() - start
+                    log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
+                    logging.error("POST dispatch result: %r", log_dict)
+                    raise
+                except httpx.HTTPStatusError as exc:
+                    latency = time.monotonic() - start
+                    log_dict.update(
+                        {
+                            "error": f"HTTP ERROR: {exc}",
+                            "status": getattr(exc.response, "status_code", None),
+                            "latency": latency,
+                            "response": getattr(exc.response, "text", None),
+                        }
+                    )
+                    logging.error("POST dispatch result: %r", log_dict)
+                    raise
+                except Exception as exc:
+                    latency = time.monotonic() - start
+                    log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
+                    logging.error("POST dispatch result: %r", log_dict)
+                    raise
         else:
-            payload = envelope.items[0].body
+            # Batch permitido
+            payload: Any = [item.body for item in envelope.items]
+            headers: dict[str, str] = {}
+            for key, value in (envelope.items[0].headers or {}).items():
+                headers[str(key)] = str(value)
+            headers.setdefault("Content-Type", "application/json")
+            body_bytes = orjson.dumps(payload)
 
-        headers: dict[str, str] = {}
-        for key, value in (envelope.items[0].headers or {}).items():
-            headers[str(key)] = str(value)
-        headers.setdefault("Content-Type", "application/json")
-
-        body_bytes = orjson.dumps(payload)
-
-        log_dict = {
-            "type": "post",
-            "source": envelope.key.source_name,
-            "url": envelope.key.url,
-            "batch_size": batch_size,
-            "queued_for": queued_for,
-        }
-
-        try:
-            if self._post_inflight_semaphore is not None:
-                async with self._post_inflight_semaphore:
+            log_dict = {
+                "type": "post",
+                "source": envelope.key.source_name,
+                "url": envelope.key.url,
+                "batch_size": batch_size,
+                "queued_for": queued_for,
+            }
+            try:
+                if self._post_inflight_semaphore is not None:
+                    async with self._post_inflight_semaphore:
+                        response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
+                else:
                     response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-            else:
-                response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-            latency = time.monotonic() - start
-            response.raise_for_status()
-            if self._should_log_post_success():
-                response_preview = bytes(response.content[:200]) if response.content else b""
+                latency = time.monotonic() - start
+                response.raise_for_status()
+                if self._should_log_post_success():
+                    response_preview = bytes(response.content[:200]) if response.content else b""
+                    log_dict.update(
+                        {
+                            "status": response.status_code,
+                            "latency": latency,
+                            "response_preview": response_preview.decode("utf-8", errors="ignore"),
+                        }
+                    )
+                    logging.info("POST dispatch result: %r", log_dict)
+            except httpx.TimeoutException as exc:
+                latency = time.monotonic() - start
+                log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
+                logging.error("POST dispatch result: %r", log_dict)
+                raise
+            except httpx.HTTPStatusError as exc:
+                latency = time.monotonic() - start
                 log_dict.update(
                     {
-                        "status": response.status_code,
+                        "error": f"HTTP ERROR: {exc}",
+                        "status": getattr(exc.response, "status_code", None),
                         "latency": latency,
-                        "response_preview": response_preview.decode("utf-8", errors="ignore"),
+                        "response": getattr(exc.response, "text", None),
                     }
                 )
-                logging.info("POST dispatch result: %r", log_dict)
-        except httpx.TimeoutException as exc:
-            latency = time.monotonic() - start
-            log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
-            logging.error("POST dispatch result: %r", log_dict)
-            raise
-        except httpx.HTTPStatusError as exc:
-            latency = time.monotonic() - start
-            log_dict.update(
-                {
-                    "error": f"HTTP ERROR: {exc}",
-                    "status": getattr(exc.response, "status_code", None),
-                    "latency": latency,
-                    "response": getattr(exc.response, "text", None),
-                }
-            )
-            logging.error("POST dispatch result: %r", log_dict)
-            raise
-        except Exception as exc:
-            latency = time.monotonic() - start
-            log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-            logging.error("POST dispatch result: %r", log_dict)
-            raise
+                logging.error("POST dispatch result: %r", log_dict)
+                raise
+            except Exception as exc:
+                latency = time.monotonic() - start
+                log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
+                logging.error("POST dispatch result: %r", log_dict)
+                raise
 
     async def _dispatch_sql_plan(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
         if plan.params_renderer is None:

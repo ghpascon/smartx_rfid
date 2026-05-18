@@ -20,9 +20,8 @@
     "dispatch_type": "post",
     "url": "http://localhost:5001",
     "on_event": "tag",
-    "filters": [
-
-    ],
+    "allow_batches": false,
+    "filters": [],
     "headers": {
         "Content-Type": "application/json"
     },

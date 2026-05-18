@@ -20,6 +20,7 @@
     "dispatch_type": "post",
     "url": "http://localhost:5001/tag/by-ant",
     "on_event": "tag",
+    "allow_batches": true,
     "filters": [
         {
             "_description": "Only dispatch tags read on antenna 1 or 2.",
