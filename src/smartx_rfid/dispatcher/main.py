@@ -598,7 +598,8 @@ class HttpDispatcher:
         queued_for = max(0.0, time.monotonic() - envelope.queued_at)
 
         if allow_batch:
-            payload: Any = [item.body for item in envelope.items] if len(envelope.items) > 1 else envelope.items[0].body
+            # Sempre envia como lista se allow_batches for True, mesmo que só tenha um item
+            payload: Any = [item.body for item in envelope.items]
             await self._post_once(
                 url=envelope.key.url,
                 headers=envelope.items[0].headers or {},

@@ -23,27 +23,27 @@ async def main():
         },
     )
 
-    await dispatcher.add_async(
-        "XPAD",
-        "tag",
-        {
-            "epc": "000000000000000000000002",
-            "tid": "e28000000000000000000002",
-            "ant": 3,
-            "rssi": -50,
-        },
-    )
+    # await dispatcher.add_async(
+    #     "XPAD",
+    #     "tag",
+    #     {
+    #         "epc": "000000000000000000000002",
+    #         "tid": "e28000000000000000000002",
+    #         "ant": 3,
+    #         "rssi": -50,
+    #     },
+    # )
 
-    await dispatcher.add_async(
-        "R700",
-        "tag",
-        {
-            "epc": "000000000000000000000003",
-            "tid": "e28000000000000000000003",
-            "ant": 2,
-            "rssi": -50,
-        },
-    )
+    # await dispatcher.add_async(
+    #     "R700",
+    #     "tag",
+    #     {
+    #         "epc": "000000000000000000000003",
+    #         "tid": "e28000000000000000000003",
+    #         "ant": 2,
+    #         "rssi": -50,
+    #     },
+    # )
 
     await dispatcher.stop()
 
