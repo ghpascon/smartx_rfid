@@ -21,17 +21,17 @@
     "url": "http://localhost:5001",
     "on_event": "tag",
     "allow_batches": true,
-    "filters": [],
+    "filters": [
+      
+    ],
     "headers": {
         "Content-Type": "application/json"
     },
     "body": {
         "device": "{name}",
-        "event_type": "{event_type}",
         "epc": "{data[epc]}",
         "tid": "{data[tid]}",
         "ant": "{data[ant]}",
-        "rssi": "{data[rssi]}",
         "timestamp": "{data[timestamp]}"
     }
 }

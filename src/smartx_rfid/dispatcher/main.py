@@ -1,5 +1,49 @@
-import atexit
+"""
+event_dispatcher.py
+-------------------
+Async event dispatcher that routes named events to HTTP POST or SQL destinations
+based on JSON configuration files stored on disk.
+
+Usage
+-----
+    dispatcher = EventDispatcher(dispatches_path="dispatches/")
+    await dispatcher.start()
+    await dispatcher.add_async("my_service", "user.created", {"id": 1})
+    await dispatcher.stop()
+
+Dispatch JSON schema
+--------------------
+POST:
+    {
+        "dispatch_type": "post",
+        "on_event": "user.created",
+        "url": "https://example.com/hook",
+        "headers": {"X-Token": "abc"},
+        "body": {"id": "{data[id]}"},
+        "allow_batches": true,
+        "retry_attempts": 3,
+        "retry_backoff_seconds": 0.25,
+        "filters": [{"key": "{data[status]}", "value": "active", "operator": "eq"}]
+    }
+
+SQL:
+    {
+        "dispatch_type": "sql",
+        "on_event": "user.created",
+        "connection_string": "postgresql://user:pass@host/db",
+        "query": "INSERT INTO events (name, type) VALUES (:name, :event_type)",
+        "params": {"name": "{name}", "event_type": "{event_type}"},
+        "retry_attempts": 3,
+        "retry_backoff_seconds": 0.25
+    }
+
+Template placeholders: {name}, {event_type}, {data}, {data[key]}
+"""
+
+# noqa: E741
+
 import asyncio
+import atexit
 import copy
 import json
 import logging
@@ -8,7 +52,7 @@ import signal
 import time
 import weakref
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
@@ -16,16 +60,26 @@ from typing import Any, Callable
 import httpx
 import orjson
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Sentinels and patterns
+# ---------------------------------------------------------------------------
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]+)\}")
 _DATA_KEY_PATTERN = re.compile(r"^data\[([^\]]+)\]$")
 _STOP = object()
 
 
+# ---------------------------------------------------------------------------
+# Internal data structures
+# ---------------------------------------------------------------------------
+
+
 @dataclass(slots=True)
-class _DispatchEvent:
+class _Event:
     event_id: int
     name: str
     event_type: str
@@ -42,27 +96,27 @@ class _SqlBatchKey:
 
 
 @dataclass(slots=True)
-class _SqlDispatchItem:
+class _SqlItem:
     key: _SqlBatchKey
     params: dict[str, Any]
     queued_at: float
 
 
 @dataclass(slots=True)
-class _PostDispatchItem:
-    source_name: str
+class _PostItem:
+    source: str
     retry_attempts: int
     backoff_seconds: float
     url: str
     headers: dict[str, Any] | None
     body: Any
     queued_at: float
-    allow_batches: bool = True  # Novo campo para permitir ou não batches
+    allow_batches: bool = True
 
 
 @dataclass(slots=True, frozen=True)
 class _PostBatchKey:
-    source_name: str
+    source: str
     url: str
     headers_json: str
     retry_attempts: int
@@ -70,1506 +124,239 @@ class _PostBatchKey:
 
 
 @dataclass(slots=True)
-class _PostBatchEnvelope:
+class _PostEnvelope:
     key: _PostBatchKey
-    items: list[_PostDispatchItem]
+    items: list[_PostItem]
     queued_at: float
 
 
 @dataclass(slots=True, frozen=True)
 class _CompiledFilter:
-    key_renderer: Callable[[dict[str, Any]], Any]
-    value_renderer: Callable[[dict[str, Any]], Any]
+    key_fn: Callable[[dict[str, Any]], Any]
+    value_fn: Callable[[dict[str, Any]], Any]
     operator: str
 
 
 @dataclass(slots=True)
 class _CompiledDispatch:
-    source_name: str
+    source: str
     dispatch_type: str
-    on_event_renderer: Callable[[dict[str, Any]], Any]
-    on_event_static: str | None
+    event_type_fn: Callable[[dict[str, Any]], Any]
+    event_type_static: str | None
     filters: tuple[_CompiledFilter, ...]
     retry_attempts: int
     backoff_seconds: float
-    url_renderer: Callable[[dict[str, Any]], Any] | None
-    headers_renderer: Callable[[dict[str, Any]], Any] | None
-    body_renderer: Callable[[dict[str, Any]], Any] | None
-    connection_renderer: Callable[[dict[str, Any]], Any] | None
-    query_renderer: Callable[[dict[str, Any]], Any] | None
-    params_renderer: Callable[[dict[str, Any]], Any] | None
+    url_fn: Callable[[dict[str, Any]], Any] | None
+    headers_fn: Callable[[dict[str, Any]], Any] | None
+    body_fn: Callable[[dict[str, Any]], Any] | None
+    connection_fn: Callable[[dict[str, Any]], Any] | None
+    query_fn: Callable[[dict[str, Any]], Any] | None
+    params_fn: Callable[[dict[str, Any]], Any] | None
     sql_key_static: _SqlBatchKey | None
     allow_batches: bool = True
 
 
-@dataclass(slots=True)
-class _DispatchRouteBucket:
-    post: list[_CompiledDispatch]
-    sql: list[_CompiledDispatch]
+@dataclass
+class _RouteBucket:
+    post: list[_CompiledDispatch] = field(default_factory=list)
+    sql: list[_CompiledDispatch] = field(default_factory=list)
 
 
-class EventDispatcher:
+# ---------------------------------------------------------------------------
+# SqlDispatcher — always batched
+# ---------------------------------------------------------------------------
+
+
+class SqlDispatcher:
+    """
+    Manages all SQL dispatch operations using mandatory batching.
+
+    Parameters
+    ----------
+    batch_size : int
+        Maximum number of rows flushed per execution (default 1000).
+    flush_interval_seconds : float
+        How often to flush pending batches when not full (default 0.1).
+    queue_max_size : int
+        Max items in the internal queue before back-pressure (default 10_000).
+    """
+
     def __init__(
         self,
-        dispatches_path: str,
-        example_path: str | None = None,
-        max_workers: int = 10,
-        max_queue_size: int = 10_000,
-        add_timeout_seconds: float = 0.2,
-        http_timeout_seconds: float = 5.0,
-        default_retry_attempts: int = 1,
-        default_retry_backoff_seconds: float = 0.25,
-        enable_enqueue_logs: bool = True,
-        enable_dispatch_success_logs: bool = True,
-        success_log_first_n: int = 50,
-        success_log_every_n: int = 100,
-        sql_batch_enabled: bool = True,
-        sql_batch_size: int = 100,
-        sql_batch_flush_interval_seconds: float = 0.05,
-        sql_batch_max_queue_size: int = 10_000,
-        post_batch_enabled: bool = True,
-        post_batch_size: int = 50,
-        post_batch_flush_interval_seconds: float = 0.02,
-        post_workers: int | None = None,
-        post_worker_concurrency: int = 2,
-        post_max_sender_workers: int = 128,
-        post_queue_max_size: int = 10_000,
-        post_connect_timeout_seconds: float = 2.0,
-        post_pool_timeout_seconds: float = 2.0,
-        post_max_http_connections: int | None = 500,
-        post_max_keepalive_connections: int | None = 500,
-        post_max_inflight_requests: int | None = 500,
-        enable_post_success_logs: bool = True,
-        suppress_httpx_request_logs: bool = True,
-        http2_enabled: bool = True,
-    ):
-        self.dispatches_path = dispatches_path
-        self.example_path = example_path
-        self.max_workers = max(1, max_workers)
-        self.max_queue_size = max(1, max_queue_size)
-        self.add_timeout_seconds = max(0.0, add_timeout_seconds)
-        self.http_timeout_seconds = max(0.1, http_timeout_seconds)
-        self.default_retry_attempts = max(1, default_retry_attempts)
-        self.default_retry_backoff_seconds = max(0.0, default_retry_backoff_seconds)
-        self.enable_enqueue_logs = enable_enqueue_logs
-        self.enable_dispatch_success_logs = enable_dispatch_success_logs
-        self.enable_post_success_logs = enable_post_success_logs
-        self.success_log_first_n = max(0, success_log_first_n)
-        self.success_log_every_n = max(1, success_log_every_n)
-        self.sql_batch_enabled = sql_batch_enabled
-        self.sql_batch_size = max(1, sql_batch_size)
-        self.sql_batch_flush_interval_seconds = max(0.001, sql_batch_flush_interval_seconds)
-        self.sql_batch_max_queue_size = max(1, sql_batch_max_queue_size)
-        self.post_batch_enabled = post_batch_enabled
-        self.post_batch_size = max(1, post_batch_size)
-        self.post_batch_flush_interval_seconds = max(0.001, post_batch_flush_interval_seconds)
-        self.post_workers = max(1, post_workers if post_workers is not None else self.max_workers * 4)
-        self.post_worker_concurrency = max(1, post_worker_concurrency)
-        self.post_max_sender_workers = max(1, post_max_sender_workers)
-        computed_post_workers = min(self.post_workers * self.post_worker_concurrency, self.post_max_sender_workers)
-        self.post_sender_workers = max(32, min(128, computed_post_workers))
-        self.post_queue_max_size = max(1, post_queue_max_size)
-        self.post_connect_timeout_seconds = max(0.1, post_connect_timeout_seconds)
-        self.post_pool_timeout_seconds = max(0.1, post_pool_timeout_seconds)
-        self.post_max_http_connections = (
-            max(1, int(post_max_http_connections)) if post_max_http_connections is not None else 500
-        )
-        self.post_max_keepalive_connections = (
-            max(1, int(post_max_keepalive_connections))
-            if post_max_keepalive_connections is not None
-            else self.post_max_http_connections
-        )
-        self.post_max_inflight_requests = (
-            max(1, int(post_max_inflight_requests)) if post_max_inflight_requests is not None else 500
-        )
-        self.suppress_httpx_request_logs = suppress_httpx_request_logs
-        self.http2_enabled = http2_enabled
+        batch_size: int = 1000,
+        flush_interval_seconds: float = 0.1,
+        queue_max_size: int = 10_000,
+    ) -> None:
+        self.batch_size = max(1, batch_size)
+        self.flush_interval_seconds = max(0.001, flush_interval_seconds)
+        self.queue_max_size = max(1, queue_max_size)
 
-        self._event_queue: asyncio.Queue[_DispatchEvent | object] = asyncio.Queue(maxsize=self.max_queue_size)
-        self._sql_queue: asyncio.Queue[_SqlDispatchItem | object] = asyncio.Queue(maxsize=self.sql_batch_max_queue_size)
-        self._post_queue: asyncio.Queue[_PostDispatchItem | object] = asyncio.Queue(maxsize=self.post_queue_max_size)
-        self._post_send_queue: asyncio.Queue[_PostBatchEnvelope | object] = asyncio.Queue(
-            maxsize=self.post_queue_max_size
-        )
-        self._post_batches: dict[_PostBatchKey, list[_PostDispatchItem]] = {}
-        self._sql_batches: dict[_SqlBatchKey, list[_SqlDispatchItem]] = {}
-        self._sql_batch_task: asyncio.Task | None = None
-        self._post_batch_task: asyncio.Task | None = None
-        self._post_workers_tasks: list[asyncio.Task] = []
-        self._inflight_events: dict[int, _DispatchEvent] = {}
-        self._next_event_id = 1
-        self._recent_processed_ids: set[int] = set()
-        self._recent_processed_order: deque[int] = deque()
-        self._recent_processed_limit = 100_000
-        self._sql_success_log_counter = 0
-        self._post_success_log_counter = 0
-        self._workers: list[asyncio.Task] = []
-        self._worker_events_processed: dict[int, int] = {}
-        self._busy_workers = 0
-        self._max_busy_workers = 0
-        self._dispatches: list[dict[str, Any]] = []
-        self._compiled_dispatches: list[_CompiledDispatch] = []
-        self._dispatch_routes_by_event: dict[str, _DispatchRouteBucket] = {}
-        self._dispatch_routes_any_event = _DispatchRouteBucket(post=[], sql=[])
+        self._queue: asyncio.Queue[_SqlItem | object] = asyncio.Queue(maxsize=self.queue_max_size)
+        self._batches: dict[_SqlBatchKey, list[_SqlItem]] = {}
         self._engines: dict[str, AsyncEngine] = {}
-        self._sql_stmt_cache: dict[str, Any] = {}
-        self._http_client: httpx.AsyncClient | None = None
-        self._post_inflight_semaphore: asyncio.Semaphore | None = None
-        if self.post_max_inflight_requests and self.post_max_inflight_requests > 0:
-            self._post_inflight_semaphore = asyncio.Semaphore(self.post_max_inflight_requests)
+        self._stmt_cache: dict[str, Any] = {}
+        self._task: asyncio.Task | None = None
 
-        self._started = False
-        self._shutdown_started = False
-        self._start_lock = asyncio.Lock()
-        self._start_task: asyncio.Task | None = None
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        self._stats: dict[str, int] = {
-            "events_received": 0,
-            "events_queued": 0,
-            "events_dropped": 0,
-            "events_processed": 0,
-            "dispatches_attempted": 0,
-            "dispatches_succeeded": 0,
-            "dispatches_failed": 0,
-            "post_batches_executed": 0,
-            "post_rows_batched": 0,
-            "sql_batches_executed": 0,
-            "sql_rows_batched": 0,
-        }
-
-        Path(self.dispatches_path).mkdir(parents=True, exist_ok=True)
-        if self.example_path:
-            Path(self.example_path).mkdir(parents=True, exist_ok=True)
-
-        self._finalizer = weakref.finalize(self, self._shutdown_sync, "finalizer")
-        atexit.register(self._shutdown_sync, "atexit")
-        self._register_signal_handlers()
-
-    def _register_signal_handlers(self) -> None:
-        try:
-            self._previous_sigint_handler = signal.getsignal(signal.SIGINT)
-            self._previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
-
-            def _signal_handler(signum: int, frame: Any) -> None:
-                signal_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
-                logging.warning("Received %s, triggering dispatcher shutdown drain", signal_name)
-                self._shutdown_sync(f"signal:{signal_name}")
-
-                previous = self._previous_sigint_handler if signum == signal.SIGINT else self._previous_sigterm_handler
-                if callable(previous):
-                    previous(signum, frame)
-
-            signal.signal(signal.SIGINT, _signal_handler)
-            signal.signal(signal.SIGTERM, _signal_handler)
-        except Exception:
-            logging.debug("Could not register signal handlers for EventDispatcher", exc_info=True)
-
-    def _shutdown_sync(self, reason: str = "unknown") -> None:
-        if self._shutdown_started:
-            return
-        self._shutdown_started = True
-
-        try:
-            logging.info("EventDispatcher shutdown hook running (reason=%s)", reason)
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                loop.create_task(self.stop(drain=True))
-                return
-
-            asyncio.run(self._shutdown_async())
-        except Exception:
-            logging.exception("Failed during EventDispatcher shutdown hook")
-
-    async def _shutdown_async(self) -> None:
-        if self._started:
-            workers_on_closed_loop = any(self._worker_loop_is_closed(worker) for worker in self._workers)
-
-            if not workers_on_closed_loop:
-                try:
-                    await self.stop(drain=True)
-                    return
-                except Exception:
-                    logging.exception("Graceful stop failed during shutdown, using fallback drain")
-
-            self._workers = []
-            self._started = False
-
-        await self._drain_pending_events_fallback()
-        await self._close_resources()
-
-    def _worker_loop_is_closed(self, worker: asyncio.Task) -> bool:
-        try:
-            return worker.get_loop().is_closed()
-        except Exception:
-            return False
-
-    async def _reinitialize_io_for_shutdown_loop(self) -> None:
-        if self._http_client is not None:
-            try:
-                await self._http_client.aclose()
-            except Exception:
-                logging.debug("Error closing previous HTTP client during shutdown reinit", exc_info=True)
-            self._http_client = None
-
-        if self._engines:
-            for engine in self._engines.values():
-                try:
-                    await engine.dispose()
-                except Exception:
-                    logging.debug("Error disposing previous SQL engine during shutdown reinit", exc_info=True)
-            self._engines.clear()
-
-        self.reload_dispatches()
-        self._http_client = self._create_http_client()
-        self._ensure_post_batch_task_started()
-        if not self._post_workers_tasks:
-            fallback_workers = max(1, min(8, self.post_sender_workers))
-            self._post_workers_tasks = [
-                asyncio.create_task(
-                    self._post_worker_loop(i + 1), name=f"event-dispatcher-fallback-post-worker-{i + 1}"
-                )
-                for i in range(fallback_workers)
-            ]
-        self._ensure_sql_batch_task_started()
-
-    def _create_http_client(self) -> httpx.AsyncClient:
-        if self.suppress_httpx_request_logs:
-            logging.getLogger("httpx").setLevel(logging.WARNING)
-            logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-        return httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=self.post_connect_timeout_seconds,
-                read=self.http_timeout_seconds,
-                write=self.http_timeout_seconds,
-                pool=self.post_pool_timeout_seconds,
-            ),
-            limits=httpx.Limits(
-                max_keepalive_connections=self.post_max_keepalive_connections,
-                max_connections=self.post_max_http_connections,
-                keepalive_expiry=60.0,
-            ),
-            http2=self.http2_enabled,
-        )
-
-    async def _drain_pending_events_fallback(self) -> None:
-        await self._reinitialize_io_for_shutdown_loop()
-
-        pending_events: list[_DispatchEvent] = []
-        pending_seen_ids: set[int] = set()
-        while True:
-            try:
-                item = self._event_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-
-            try:
-                if item is _STOP:
-                    continue
-                if isinstance(item, _DispatchEvent):
-                    if item.event_id not in pending_seen_ids:
-                        pending_seen_ids.add(item.event_id)
-                        pending_events.append(item)
-            finally:
-                try:
-                    self._event_queue.task_done()
-                except Exception:
-                    pass
-
-        if self._inflight_events:
-            for event in self._inflight_events.values():
-                if event.event_id not in pending_seen_ids:
-                    pending_seen_ids.add(event.event_id)
-                    pending_events.append(event)
-            self._inflight_events.clear()
-
-        drained = 0
-        for event in pending_events:
-            try:
-                if not self._was_already_processed(event.event_id):
-                    await self._process_event(event)
-                    self._mark_processed(event.event_id)
-                    drained += 1
-            except Exception:
-                logging.exception("Failed while fallback-processing event")
-
-        if drained:
-            logging.info("Fallback drain completed; processed queued events=%s", drained)
-
-        await self._post_queue.join()
-        await self._flush_all_post_batches()
-        await self._post_send_queue.join()
-        await self._sql_queue.join()
-        await self._flush_all_sql_batches()
-
-    async def _close_resources(self) -> None:
-        await self._stop_post_batch_task(drain=False)
-        await self._stop_post_workers(drain=False)
-        await self._stop_sql_batch_task(drain=False)
-
-        if self._http_client is not None:
-            await self._http_client.aclose()
-            self._http_client = None
-
-        for engine in self._engines.values():
-            await engine.dispose()
-        self._engines.clear()
-
-        self._workers = []
-        self._started = False
-        self._start_task = None
-
-    async def start(self) -> None:
-        async with self._start_lock:
-            if self._started:
-                return
-
-            self.reload_dispatches()
-            self._http_client = self._create_http_client()
-
-            self._workers = [
-                asyncio.create_task(self._worker_loop(i + 1), name=f"event-dispatcher-worker-{i + 1}")
-                for i in range(self.max_workers)
-            ]
-            self._post_workers_tasks = [
-                asyncio.create_task(self._post_worker_loop(i + 1), name=f"event-dispatcher-post-worker-{i + 1}")
-                for i in range(self.post_sender_workers)
-            ]
-            self._ensure_post_batch_task_started()
-            self._ensure_sql_batch_task_started()
-            self._started = True
-            logging.info(
-                "EventDispatcher started with event_workers=%s post_batch_enabled=%s post_batch_size=%s post_sender_workers=%s post_max_http_connections=%s post_max_inflight_requests=%s queue_size=%s sql_batch_enabled=%s sql_batch_size=%s dispatches=%s",
-                self.max_workers,
-                self.post_batch_enabled,
-                self.post_batch_size,
-                self.post_sender_workers,
-                self.post_max_http_connections,
-                self.post_max_inflight_requests,
-                self.max_queue_size,
-                self.sql_batch_enabled,
-                self.sql_batch_size,
-                len(self._dispatches),
+    def start(self) -> None:
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._loop(), name="sql-dispatcher-batcher")
+            logger.debug(
+                "SqlDispatcher started | batch_size=%d flush_interval=%.3fs",
+                self.batch_size,
+                self.flush_interval_seconds,
             )
 
-    def _ensure_start_task(self) -> None:
-        if self._started:
-            return
-        if self._start_task is None or self._start_task.done():
-            self._start_task = asyncio.create_task(self.start())
-
     async def stop(self, drain: bool = True) -> None:
-        if not self._started:
+        if self._task is None:
             return
-
         if drain:
-            await self.flush()
+            await self._queue.join()
+            await self._flush_all()
+        await self._queue.put(_STOP)
+        await asyncio.gather(self._task, return_exceptions=True)
+        self._task = None
+        logger.debug("SqlDispatcher stopped")
 
-        await self._stop_post_batch_task(drain=drain)
-        await self._stop_post_workers(drain=drain)
-        await self._stop_sql_batch_task(drain=drain)
+    async def flush(self) -> None:
+        await self._queue.join()
+        await self._flush_all()
 
-        for _ in self._workers:
-            await self._event_queue.put(_STOP)
+    # ------------------------------------------------------------------
+    # Engine management (called by EventDispatcher.reload_dispatches)
+    # ------------------------------------------------------------------
 
-        if self._workers:
-            await asyncio.gather(*self._workers, return_exceptions=True)
-        self._workers = []
-        self._post_workers_tasks = []
+    def ensure_engine(self, connection_string: str) -> None:
+        if connection_string not in self._engines:
+            self._engines[connection_string] = create_async_engine(
+                connection_string,
+                pool_pre_ping=True,
+                pool_size=20,
+                max_overflow=30,
+                pool_recycle=1800,
+                future=True,
+            )
+            logger.debug("SQL engine created: %s", connection_string)
 
-        if self._http_client is not None:
-            await self._http_client.aclose()
-            self._http_client = None
+    def remove_stale_engines(self, active_connections: set[str]) -> None:
+        for key in set(self._engines) - active_connections:
+            try:
+                engine = self._engines.pop(key)
+                asyncio.create_task(engine.dispose())
+                logger.debug("SQL engine disposed: %s", key)
+            except Exception:
+                logger.debug("Error disposing SQL engine: %s", key, exc_info=True)
 
+    async def dispose_all(self) -> None:
         for engine in self._engines.values():
-            await engine.dispose()
+            try:
+                await engine.dispose()
+            except Exception:
+                logger.debug("Error disposing SQL engine during shutdown", exc_info=True)
         self._engines.clear()
 
-        self._started = False
-        self._start_task = None
-        logging.info("EventDispatcher stopped")
+    def clear_stmt_cache(self) -> None:
+        self._stmt_cache.clear()
 
-    async def flush(self, timeout: float | None = None) -> None:
-        if timeout is None:
-            await self._event_queue.join()
-            await self._post_queue.join()
-            await self._flush_all_post_batches()
-            await self._post_send_queue.join()
-            await self._sql_queue.join()
-            await self._flush_all_sql_batches()
-            return
-        await asyncio.wait_for(self._event_queue.join(), timeout=timeout)
-        await asyncio.wait_for(self._post_queue.join(), timeout=timeout)
-        await asyncio.wait_for(self._flush_all_post_batches(), timeout=timeout)
-        await asyncio.wait_for(self._post_send_queue.join(), timeout=timeout)
-        await asyncio.wait_for(self._sql_queue.join(), timeout=timeout)
-        await asyncio.wait_for(self._flush_all_sql_batches(), timeout=timeout)
+    # ------------------------------------------------------------------
+    # Enqueue
+    # ------------------------------------------------------------------
 
-    def _ensure_post_batch_task_started(self) -> None:
-        if self._post_batch_task is None or self._post_batch_task.done():
-            self._post_batch_task = asyncio.create_task(self._post_batch_loop(), name="event-dispatcher-post-batcher")
+    async def enqueue(self, item: _SqlItem, add_timeout: float = 0.2) -> None:
+        try:
+            self._queue.put_nowait(item)
+        except asyncio.QueueFull:
+            if add_timeout <= 0:
+                raise
+            await asyncio.wait_for(self._queue.put(item), timeout=add_timeout)
 
-    async def _stop_post_batch_task(self, drain: bool) -> None:
-        if self._post_batch_task is None:
-            if drain:
-                await self._flush_all_post_batches()
-            return
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
 
-        if drain:
-            await self._post_queue.join()
-            await self._flush_all_post_batches()
-
-        await self._post_queue.put(_STOP)
-        await asyncio.gather(self._post_batch_task, return_exceptions=True)
-        self._post_batch_task = None
-
-    async def _stop_post_workers(self, drain: bool) -> None:
-        if not self._post_workers_tasks:
-            return
-
-        if drain:
-            await self._post_send_queue.join()
-
-        for _ in self._post_workers_tasks:
-            await self._post_send_queue.put(_STOP)
-
-        await asyncio.gather(*self._post_workers_tasks, return_exceptions=True)
-        self._post_workers_tasks = []
-
-    def _ensure_sql_batch_task_started(self) -> None:
-        if not self.sql_batch_enabled:
-            return
-        if self._sql_batch_task is None or self._sql_batch_task.done():
-            self._sql_batch_task = asyncio.create_task(self._sql_batch_loop(), name="event-dispatcher-sql-batcher")
-
-    async def _stop_sql_batch_task(self, drain: bool) -> None:
-        if not self.sql_batch_enabled:
-            return
-
-        if self._sql_batch_task is None:
-            if drain:
-                await self._flush_all_sql_batches()
-            return
-
-        if drain:
-            await self._sql_queue.join()
-            await self._flush_all_sql_batches()
-
-        await self._sql_queue.put(_STOP)
-        await asyncio.gather(self._sql_batch_task, return_exceptions=True)
-        self._sql_batch_task = None
-
-    async def _post_batch_loop(self) -> None:
+    async def _loop(self) -> None:
         while True:
             try:
-                item = await asyncio.wait_for(self._post_queue.get(), timeout=self.post_batch_flush_interval_seconds)
+                item = await asyncio.wait_for(self._queue.get(), timeout=self.flush_interval_seconds)
             except TimeoutError:
-                await self._flush_all_post_batches()
+                await self._flush_all()
                 continue
 
             if item is _STOP:
-                self._post_queue.task_done()
-                await self._flush_all_post_batches()
+                self._queue.task_done()
+                await self._flush_all()
                 return
 
-            assert isinstance(item, _PostDispatchItem)
-            key = self._make_post_batch_key(item)
-            batch = self._post_batches.setdefault(key, [])
+            assert isinstance(item, _SqlItem)
+            batch = self._batches.setdefault(item.key, [])
             batch.append(item)
-            if not self.post_batch_enabled or len(batch) >= self.post_batch_size:
-                await self._flush_post_batch(key)
+            if len(batch) >= self.batch_size:
+                await self._flush(item.key)
 
-    async def _flush_all_post_batches(self) -> None:
-        if not self._post_batches:
-            return
+    async def _flush_all(self) -> None:
+        for key in list(self._batches):
+            await self._flush(key)
 
-        keys = list(self._post_batches.keys())
-        for key in keys:
-            await self._flush_post_batch(key)
-
-    async def _flush_post_batch(self, key: _PostBatchKey) -> None:
-        batch = self._post_batches.get(key)
-        if not batch:
-            return
-
-        envelope = _PostBatchEnvelope(
-            key=key,
-            items=batch,
-            queued_at=batch[0].queued_at,
-        )
-
-        await self._post_send_queue.put(envelope)
-
-        # Garantindo que task_done seja chamado apenas para tarefas realmente processadas
-        for _ in range(len(batch)):
-            if not self._post_queue.empty():
-                self._post_queue.task_done()
-
-        self._post_batches.pop(key, None)
-
-    async def _sql_batch_loop(self) -> None:
-        while True:
-            try:
-                item = await asyncio.wait_for(
-                    self._sql_queue.get(),
-                    timeout=self.sql_batch_flush_interval_seconds,
-                )
-            except TimeoutError:
-                await self._flush_all_sql_batches()
-                continue
-
-            if item is _STOP:
-                self._sql_queue.task_done()
-                await self._flush_all_sql_batches()
-                return
-
-            assert isinstance(item, _SqlDispatchItem)
-            batch = self._sql_batches.setdefault(item.key, [])
-            batch.append(item)
-            if len(batch) >= self.sql_batch_size:
-                await self._flush_sql_batch(item.key)
-
-    async def _flush_all_sql_batches(self) -> None:
-        if not self._sql_batches:
-            return
-
-        keys = list(self._sql_batches.keys())
-        for key in keys:
-            await self._flush_sql_batch(key)
-
-    async def _flush_sql_batch(self, key: _SqlBatchKey) -> None:
-        batch = self._sql_batches.get(key)
+    async def _flush(self, key: _SqlBatchKey) -> None:
+        batch = self._batches.pop(key, None)
         if not batch:
             return
 
         params_list = [item.params for item in batch]
-        row_count = len(params_list)
         start = time.monotonic()
 
         try:
             await self._run_with_retry(
-                lambda: self._dispatch_sql_many(key.connection_string, key.query, params_list),
+                lambda: self._execute_many(key.connection_string, key.query, params_list),
                 retry_attempts=key.retry_attempts,
                 backoff_seconds=key.backoff_seconds,
             )
-            self._stats["dispatches_succeeded"] += row_count
-            self._stats["sql_rows_batched"] += row_count
-            self._stats["sql_batches_executed"] += 1
-            if self._should_log_sql_success():
-                logging.info(
-                    "SQL batch dispatch result: %r",
-                    {
-                        "type": "sql-batch",
-                        "connection_string": key.connection_string,
-                        "query": key.query,
-                        "rows": row_count,
-                        "sample_params": params_list[0] if params_list else None,
-                        "latency": time.monotonic() - start,
-                    },
-                )
+            logger.info(
+                "SQL batch dispatched | query=%r rows=%d sample_params=%s latency=%.4fs",
+                key.query,
+                len(params_list),
+                params_list[0] if params_list else {},
+                time.monotonic() - start,
+            )
         except Exception:
-            self._stats["dispatches_failed"] += row_count
-            logging.exception(
-                "SQL batch dispatch failed: %r",
-                {
-                    "connection_string": key.connection_string,
-                    "query": key.query,
-                    "rows": row_count,
-                    "sample_params": params_list[0] if params_list else None,
-                    "latency": time.monotonic() - start,
-                },
+            logger.exception(
+                "SQL batch failed | query=%r rows=%d sample_params=%s latency=%.4fs",
+                key.query,
+                len(params_list),
+                params_list[0] if params_list else {},
+                time.monotonic() - start,
             )
         finally:
             for _ in batch:
-                self._sql_queue.task_done()
-            self._sql_batches.pop(key, None)
+                self._queue.task_done()
 
-    def reload_dispatches(self) -> None:
-        dispatches: list[dict[str, Any]] = []
-        compiled_dispatches: list[_CompiledDispatch] = []
-        dispatch_routes_by_event: dict[str, _DispatchRouteBucket] = {}
-        dispatch_routes_any_event = _DispatchRouteBucket(post=[], sql=[])
-        sql_connection_strings: set[str] = set()
+    async def _execute_many(self, connection_string: str, query: str, params_list: list[dict[str, Any]]) -> None:
+        engine = self._engines.get(connection_string) or self._create_engine(connection_string)
+        stmt = self._stmt_cache.get(query)
+        if stmt is None:
+            stmt = text(query)
+            self._stmt_cache[query] = stmt
+        async with engine.connect() as conn:
+            await conn.execute(stmt, params_list)
+            await conn.commit()
 
-        for file_path in Path(self.dispatches_path).glob("*.json"):
-            try:
-                with open(file_path, "r", encoding="utf-8") as file:
-                    content = json.load(file)
-
-                if not isinstance(content, dict):
-                    logging.warning("Skipping dispatch %s because root JSON is not an object", file_path.name)
-                    continue
-
-                dispatches.append(content)
-
-                plan = self._compile_dispatch(content, source_name=file_path.name)
-                if plan is None:
-                    continue
-
-                compiled_dispatches.append(plan)
-
-                if plan.dispatch_type == "sql" and plan.sql_key_static is not None:
-                    sql_connection_strings.add(plan.sql_key_static.connection_string)
-
-                if plan.on_event_static:
-                    bucket = dispatch_routes_by_event.setdefault(
-                        plan.on_event_static, _DispatchRouteBucket(post=[], sql=[])
-                    )
-                else:
-                    bucket = dispatch_routes_any_event
-
-                if plan.dispatch_type == "sql":
-                    bucket.sql.append(plan)
-                else:
-                    bucket.post.append(plan)
-            except Exception:
-                logging.exception("Failed to parse dispatch JSON file: %s", file_path.name)
-
-        old_keys = set(self._engines.keys())
-        for key in old_keys - sql_connection_strings:
-            try:
-                engine = self._engines.pop(key)
-                dispose_coro = engine.dispose()
-                if asyncio.iscoroutine(dispose_coro):
-                    try:
-                        asyncio.create_task(dispose_coro)
-                    except Exception:
-                        pass
-            except Exception:
-                logging.exception("Error disposing SQL engine for: %s", key)
-
-        for key in sql_connection_strings - old_keys:
-            try:
-                self._engines[key] = create_async_engine(
-                    key,
-                    pool_pre_ping=True,
-                    pool_size=20,
-                    max_overflow=30,
-                    pool_recycle=1800,
-                    future=True,
-                )
-            except Exception:
-                logging.exception("Error creating SQL engine for: %s", key)
-
-        self._dispatches = dispatches
-        self._compiled_dispatches = compiled_dispatches
-        self._dispatch_routes_by_event = dispatch_routes_by_event
-        self._dispatch_routes_any_event = dispatch_routes_any_event
-        self._sql_stmt_cache.clear()
-
-        post_count = sum(len(bucket.post) for bucket in dispatch_routes_by_event.values()) + len(
-            dispatch_routes_any_event.post
+    def _create_engine(self, connection_string: str) -> AsyncEngine:
+        engine = create_async_engine(
+            connection_string,
+            pool_pre_ping=True,
+            pool_size=20,
+            max_overflow=30,
+            pool_recycle=1800,
+            future=True,
         )
-        sql_count = sum(len(bucket.sql) for bucket in dispatch_routes_by_event.values()) + len(
-            dispatch_routes_any_event.sql
-        )
-        logging.info(
-            "Loaded %s dispatch file(s), routes post=%s sql=%s, SQL pools=%s",
-            len(self._dispatches),
-            post_count,
-            sql_count,
-            len(self._engines),
-        )
-
-    def _compile_dispatch(self, content: dict[str, Any], source_name: str) -> _CompiledDispatch | None:
-        try:
-            self._validate_dispatch_content(content)
-        except Exception:
-            logging.exception("Invalid dispatch content in %s", source_name)
-            return None
-
-        dispatch_type = str(content.get("dispatch_type", "")).lower()
-        retry_attempts = max(1, int(content.get("retry_attempts", self.default_retry_attempts)))
-        backoff_seconds = float(content.get("retry_backoff_seconds", self.default_retry_backoff_seconds))
-
-        on_event_renderer, on_event_is_static, on_event_static_value = self._build_value_renderer(
-            content.get("on_event")
-        )
-        on_event_static: str | None = None
-        if on_event_is_static and isinstance(on_event_static_value, str) and on_event_static_value:
-            on_event_static = on_event_static_value
-
-        compiled_filters: list[_CompiledFilter] = []
-        for filter_item in content.get("filters", []):
-            if not isinstance(filter_item, dict):
-                continue
-            key_renderer, _, _ = self._build_value_renderer(filter_item.get("key"))
-            value_renderer, _, _ = self._build_value_renderer(filter_item.get("value"))
-            compiled_filters.append(
-                _CompiledFilter(
-                    key_renderer=key_renderer,
-                    value_renderer=value_renderer,
-                    operator=str(filter_item.get("operator", "eq")).lower(),
-                )
-            )
-
-        url_renderer: Callable[[dict[str, Any]], Any] | None = None
-        headers_renderer: Callable[[dict[str, Any]], Any] | None = None
-        body_renderer: Callable[[dict[str, Any]], Any] | None = None
-        connection_renderer: Callable[[dict[str, Any]], Any] | None = None
-        query_renderer: Callable[[dict[str, Any]], Any] | None = None
-        params_renderer: Callable[[dict[str, Any]], Any] | None = None
-        sql_key_static: _SqlBatchKey | None = None
-
-        if dispatch_type == "post":
-            url_renderer, _, _ = self._build_value_renderer(content.get("url"))
-            headers_renderer, _, _ = self._build_value_renderer(content.get("headers", {}))
-            body_renderer, _, _ = self._build_value_renderer(content.get("body", {}))
-        elif dispatch_type == "sql":
-            connection_renderer, connection_is_static, connection_static = self._build_value_renderer(
-                content.get("connection_string")
-            )
-            query_renderer, query_is_static, query_static = self._build_value_renderer(content.get("query"))
-            params_renderer, _, _ = self._build_value_renderer(content.get("params", {}))
-
-            if (
-                connection_is_static
-                and query_is_static
-                and isinstance(connection_static, str)
-                and isinstance(query_static, str)
-            ):
-                sql_key_static = _SqlBatchKey(
-                    connection_string=self._normalize_async_connection_string(connection_static),
-                    query=query_static,
-                    retry_attempts=retry_attempts,
-                    backoff_seconds=backoff_seconds,
-                )
-        else:
-            logging.warning("Skipping unsupported dispatch_type=%s in %s", dispatch_type, source_name)
-            return None
-
-        compiled = _CompiledDispatch(
-            source_name=source_name,
-            dispatch_type=dispatch_type,
-            on_event_renderer=on_event_renderer,
-            on_event_static=on_event_static,
-            filters=tuple(compiled_filters),
-            retry_attempts=retry_attempts,
-            backoff_seconds=backoff_seconds,
-            url_renderer=url_renderer,
-            headers_renderer=headers_renderer,
-            body_renderer=body_renderer,
-            connection_renderer=connection_renderer,
-            query_renderer=query_renderer,
-            params_renderer=params_renderer,
-            sql_key_static=sql_key_static,
-            allow_batches=content.get("allow_batches", True) if dispatch_type == "post" else True,
-        )
-        return compiled
-
-    def _build_value_renderer(self, value: Any) -> tuple[Callable[[dict[str, Any]], Any], bool, Any]:
-        if isinstance(value, dict):
-            compiled_items = []
-            all_static = True
-            static_dict: dict[str, Any] = {}
-            for key, item in value.items():
-                key_renderer, key_static, key_static_value = self._build_value_renderer(key)
-                val_renderer, val_static, val_static_value = self._build_value_renderer(item)
-                compiled_items.append((key_renderer, val_renderer))
-                all_static = all_static and key_static and val_static
-                if all_static:
-                    static_dict[str(key_static_value)] = val_static_value
-
-            if all_static:
-                frozen = copy.deepcopy(static_dict)
-                return (lambda _context, frozen=frozen: frozen), True, frozen
-
-            frozen_items = tuple(compiled_items)
-
-            def _render_dict(context: dict[str, Any], items: tuple[Any, ...] = frozen_items) -> dict[str, Any]:
-                rendered: dict[str, Any] = {}
-                for key_renderer, val_renderer in items:
-                    rendered_key = key_renderer(context)
-                    rendered[str(rendered_key)] = val_renderer(context)
-                return rendered
-
-            return _render_dict, False, None
-
-        if isinstance(value, list):
-            compiled_items = [self._build_value_renderer(item) for item in value]
-            if all(item[1] for item in compiled_items):
-                frozen = [item[2] for item in compiled_items]
-                return (lambda _context, frozen=frozen: frozen), True, frozen
-
-            frozen_items = tuple(item[0] for item in compiled_items)
-
-            def _render_list(context: dict[str, Any], items: tuple[Any, ...] = frozen_items) -> list[Any]:
-                return [item(context) for item in items]
-
-            return _render_list, False, None
-
-        if isinstance(value, tuple):
-            compiled_items = [self._build_value_renderer(item) for item in value]
-            if all(item[1] for item in compiled_items):
-                frozen = tuple(item[2] for item in compiled_items)
-                return (lambda _context, frozen=frozen: frozen), True, frozen
-
-            frozen_items = tuple(item[0] for item in compiled_items)
-
-            def _render_tuple(context: dict[str, Any], items: tuple[Any, ...] = frozen_items) -> tuple[Any, ...]:
-                return tuple(item(context) for item in items)
-
-            return _render_tuple, False, None
-
-        if not isinstance(value, str):
-            return (lambda _context, value=value: value), True, value
-
-        is_single_token, parts = self._compile_template(value)
-        if is_single_token:
-            _, token = parts[0]
-
-            def _render_single(context: dict[str, Any], token: str = token) -> Any:
-                return self._resolve_placeholder(token, context)
-
-            return _render_single, False, None
-
-        if len(parts) == 1 and parts[0][0] == "lit":
-            literal = parts[0][1]
-            return (lambda _context, literal=literal: literal), True, literal
-
-        def _render_template(context: dict[str, Any], parts: tuple[tuple[str, str], ...] = parts) -> str:
-            out_parts: list[str] = []
-            for kind, token_or_text in parts:
-                if kind == "lit":
-                    out_parts.append(token_or_text)
-                    continue
-                resolved = self._resolve_placeholder(token_or_text, context)
-                out_parts.append("" if resolved is None else str(resolved))
-            return "".join(out_parts)
-
-        return _render_template, False, None
-
-    async def add_async(self, name: str, event_type: str, data: Any = None) -> bool:
-        self._ensure_start_task()
-        self._stats["events_received"] += 1
-
-        try:
-            if not self._started:
-                await self.start()
-
-            event = _DispatchEvent(
-                event_id=self._allocate_event_id(),
-                name=name,
-                event_type=event_type,
-                data=data,
-                queued_at=time.monotonic(),
-            )
-
-            try:
-                self._event_queue.put_nowait(event)
-            except asyncio.QueueFull:
-                if self.add_timeout_seconds <= 0:
-                    raise
-                await asyncio.wait_for(self._event_queue.put(event), timeout=self.add_timeout_seconds)
-
-            self._stats["events_queued"] += 1
-            if self.enable_enqueue_logs:
-                logging.info("Event added to queue: name=%s event_type=%s data=%s", name, event_type, data)
-            return True
-        except asyncio.QueueFull:
-            self._stats["events_dropped"] += 1
-            logging.warning("Dispatcher queue full; dropping event %s/%s", name, event_type)
-            return False
-        except TimeoutError:
-            self._stats["events_dropped"] += 1
-            logging.warning("Timed out while queueing event %s/%s", name, event_type)
-            return False
-        except Exception:
-            self._stats["events_dropped"] += 1
-            logging.exception("Unexpected error while queueing event %s/%s", name, event_type)
-            return False
-
-    def add(self, name: str, event_type: str, data: Any = None) -> bool:
-        self._stats["events_received"] += 1
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            self._stats["events_dropped"] += 1
-            logging.error(
-                "EventDispatcher.add called without a running asyncio loop. "
-                "Use add_async in synchronous contexts. Event dropped: %s/%s",
-                name,
-                event_type,
-            )
-            return False
-
-        try:
-            if not self._started:
-                self._ensure_start_task()
-
-            event = _DispatchEvent(
-                event_id=self._allocate_event_id(),
-                name=name,
-                event_type=event_type,
-                data=data,
-                queued_at=time.monotonic(),
-            )
-            self._event_queue.put_nowait(event)
-            self._stats["events_queued"] += 1
-            return True
-        except asyncio.QueueFull:
-            self._stats["events_dropped"] += 1
-            logging.warning("Dispatcher queue full; dropping event %s/%s", name, event_type)
-            return False
-        except Exception:
-            self._stats["events_dropped"] += 1
-            logging.exception("Unexpected error while queueing event %s/%s", name, event_type)
-            return False
-
-    def get_stats(self) -> dict[str, int]:
-        stats = dict(self._stats)
-        stats["queue_size"] = self._event_queue.qsize()
-        stats["post_queue_size"] = self._post_queue.qsize()
-        stats["post_send_queue_size"] = self._post_send_queue.qsize()
-        stats["sql_queue_size"] = self._sql_queue.qsize()
-        stats["dispatches_loaded"] = len(self._dispatches)
-        stats["workers_configured"] = self.max_workers
-        stats["workers_running"] = len(self._workers)
-        stats["post_batch_enabled"] = int(self.post_batch_enabled)
-        stats["post_batch_size"] = self.post_batch_size
-        stats["post_workers_configured"] = self.post_workers
-        stats["post_sender_workers_configured"] = self.post_sender_workers
-        stats["post_workers_running"] = len(self._post_workers_tasks)
-        stats["post_worker_concurrency"] = self.post_worker_concurrency
-        stats["post_max_http_connections"] = self.post_max_http_connections
-        stats["post_max_inflight_requests"] = self.post_max_inflight_requests
-        stats["workers_busy_current"] = self._busy_workers
-        stats["workers_busy_peak"] = self._max_busy_workers
-        stats["workers_with_activity"] = sum(1 for total in self._worker_events_processed.values() if total > 0)
-        return stats
-
-    def get_dispatch_names(self) -> list[str]:
-        try:
-            return sorted(
-                [
-                    file.name.replace(".json", "")
-                    for file in Path(self.dispatches_path).iterdir()
-                    if file.is_file() and file.suffix == ".json"
-                ]
-            )
-        except Exception:
-            logging.exception("Failed to list dispatch files")
-            return []
-
-    def get_dispatch_content(self, name: str) -> dict | None:
-        try:
-            name = name + ".json" if not name.endswith(".json") else name
-            file_path = self._dispatch_file_path(name)
-            with open(file_path, "r", encoding="utf-8") as file:
-                content = json.load(file)
-            return content if isinstance(content, dict) else None
-        except FileNotFoundError:
-            logging.warning("Dispatch file not found: %s", name)
-            return None
-        except Exception:
-            logging.exception("Failed to read dispatch file: %s", name)
-            return None
-
-    def create_dispatch(
-        self,
-        name: str,
-        content: dict[str, Any],
-        *,
-        overwrite: bool = False,
-        validate: bool = True,
-    ) -> bool:
-        try:
-            if validate:
-                self._validate_dispatch_content(content)
-
-            file_path = self._dispatch_file_path(name)
-            if file_path.exists() and not overwrite:
-                logging.warning("Dispatch already exists and overwrite=False: %s", file_path.name)
-                return False
-
-            self._write_json_file(file_path, content)
-            self.reload_dispatches()
-            logging.info("Dispatch created: %s", file_path.name)
-            return True
-        except Exception:
-            logging.exception("Failed to create dispatch: %s", name)
-            return False
-
-    def edit_dispatch(
-        self,
-        name: str,
-        content: dict[str, Any],
-        *,
-        merge: bool = True,
-        validate: bool = True,
-    ) -> bool:
-        try:
-            file_path = self._dispatch_file_path(name)
-            if not file_path.exists():
-                logging.warning("Dispatch not found for edit: %s", file_path.name)
-                return False
-
-            with open(file_path, "r", encoding="utf-8") as file:
-                current_content = json.load(file)
-
-            if not isinstance(current_content, dict):
-                logging.error("Dispatch root JSON must be object for edit: %s", file_path.name)
-                return False
-
-            updated_content = self._deep_merge_dict(current_content, content) if merge else copy.deepcopy(content)
-
-            if validate:
-                self._validate_dispatch_content(updated_content)
-
-            self._write_json_file(file_path, updated_content)
-            self.reload_dispatches()
-            logging.info("Dispatch edited: %s", file_path.name)
-            return True
-        except Exception:
-            logging.exception("Failed to edit dispatch: %s", name)
-            return False
-
-    def delete_dispatch(self, name: str, *, missing_ok: bool = True) -> bool:
-        try:
-            file_path = self._dispatch_file_path(name)
-            if not file_path.exists():
-                if missing_ok:
-                    logging.info("Dispatch already absent: %s", file_path.name)
-                    return True
-                logging.warning("Dispatch not found for delete: %s", file_path.name)
-                return False
-
-            file_path.unlink()
-            self.reload_dispatches()
-            logging.info("Dispatch deleted: %s", file_path.name)
-            return True
-        except Exception:
-            logging.exception("Failed to delete dispatch: %s", name)
-            return False
-
-    def _normalize_dispatch_filename(self, name: str) -> str:
-        normalized = name.strip()
-        if not normalized:
-            raise ValueError("Dispatch name cannot be empty")
-
-        if any(sep in normalized for sep in ("/", "\\")):
-            raise ValueError("Dispatch name must not contain path separators")
-
-        if normalized in {".", ".."}:
-            raise ValueError("Invalid dispatch filename")
-
-        if not normalized.endswith(".json"):
-            normalized = f"{normalized}.json"
-
-        return normalized
-
-    def _dispatch_file_path(self, name: str) -> Path:
-        filename = self._normalize_dispatch_filename(name)
-        base_dir = Path(self.dispatches_path).resolve()
-        file_path = (base_dir / filename).resolve()
-
-        try:
-            file_path.relative_to(base_dir)
-        except ValueError as exc:
-            raise ValueError("Dispatch path escapes dispatches directory") from exc
-
-        return file_path
-
-    def _write_json_file(self, file_path: Path, content: dict[str, Any]) -> None:
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = file_path.with_suffix(f"{file_path.suffix}.tmp")
-        with open(tmp_path, "w", encoding="utf-8") as file:
-            json.dump(content, file, ensure_ascii=False, indent=4)
-        tmp_path.replace(file_path)
-
-    def _deep_merge_dict(self, current: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
-        merged = copy.deepcopy(current)
-        for key, value in updates.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = self._deep_merge_dict(merged[key], value)
-            else:
-                merged[key] = copy.deepcopy(value)
-        return merged
-
-    def _validate_dispatch_content(self, content: dict[str, Any]) -> None:
-        if not isinstance(content, dict):
-            raise ValueError("Dispatch JSON root must be an object")
-
-        dispatch_type = content.get("dispatch_type")
-        if dispatch_type not in {"post", "sql"}:
-            raise ValueError("dispatch_type must be 'post' or 'sql'")
-
-        on_event = content.get("on_event")
-        if not isinstance(on_event, str) or not on_event.strip():
-            raise ValueError("on_event must be a non-empty string")
-
-        filters = content.get("filters", [])
-        if not isinstance(filters, list):
-            raise ValueError("filters must be a list")
-        for item in filters:
-            if not isinstance(item, dict):
-                raise ValueError("each filters item must be an object")
-            if "operator" in item and not isinstance(item["operator"], str):
-                raise ValueError("filter operator must be a string")
-
-        if dispatch_type == "post":
-            url = content.get("url")
-            if not isinstance(url, str) or not url.strip():
-                raise ValueError("post dispatch requires a non-empty url")
-            headers = content.get("headers", {})
-            if headers is not None and not isinstance(headers, dict):
-                raise ValueError("headers must be an object when provided")
-
-        if dispatch_type == "sql":
-            connection_string = content.get("connection_string")
-            query = content.get("query")
-            params = content.get("params", {})
-            if not isinstance(connection_string, str) or not connection_string.strip():
-                raise ValueError("sql dispatch requires connection_string")
-            if not isinstance(query, str) or not query.strip():
-                raise ValueError("sql dispatch requires query")
-            if not isinstance(params, dict):
-                raise ValueError("sql dispatch params must be an object")
-
-    def get_example_names(self) -> list[str]:
-        if not self.example_path:
-            return []
-        try:
-            return [
-                f.name.replace(".json", "")
-                for f in Path(self.example_path).iterdir()
-                if f.is_file() and f.suffix == ".json"
-            ]
-        except Exception:
-            return []
-
-    def get_example_content(self, name: str) -> dict | None:
-        if not self.example_path:
-            return None
-        try:
-            file_path = Path(self.example_path) / f"{name}.json"
-            with open(file_path, "r", encoding="utf-8") as file:
-                return json.load(file)
-        except Exception:
-            return None
-
-    async def _worker_loop(self, worker_id: int) -> None:
-        logging.debug("Dispatcher worker %s started", worker_id)
-        self._worker_events_processed.setdefault(worker_id, 0)
-        while True:
-            item = await self._event_queue.get()
-            current_event: _DispatchEvent | None = None
-            worker_busy = False
-            try:
-                if item is _STOP:
-                    return
-                assert isinstance(item, _DispatchEvent)
-                current_event = item
-                self._inflight_events[id(item)] = item
-                self._busy_workers += 1
-                worker_busy = True
-                if self._busy_workers > self._max_busy_workers:
-                    self._max_busy_workers = self._busy_workers
-                if not self._was_already_processed(item.event_id):
-                    await self._process_event(item)
-                    self._mark_processed(item.event_id)
-                self._worker_events_processed[worker_id] += 1
-            except Exception:
-                logging.exception("Worker %s failed while processing event", worker_id)
-            finally:
-                if worker_busy and self._busy_workers > 0:
-                    self._busy_workers -= 1
-                if current_event is not None:
-                    self._inflight_events.pop(id(current_event), None)
-                self._event_queue.task_done()
-
-    async def _process_event(self, event: _DispatchEvent) -> None:
-        self._stats["events_processed"] += 1
-
-        # O contexto base do evento
-        context_base = {
-            "name": event.name,
-            "event_type": event.event_type,
-            "data": event.data,
-        }
-
-        # Executa todos planos do tipo post/sql para o evento
-        event_bucket = self._dispatch_routes_by_event.get(event.event_type)
-        if event_bucket is not None:
-            for plan in event_bucket.post:
-                context = dict(context_base)
-                if hasattr(plan, "allow_batches"):
-                    context["allow_batches"] = getattr(plan, "allow_batches")
-                await self._process_single_dispatch(plan, context)
-            for plan in event_bucket.sql:
-                await self._process_single_dispatch(plan, dict(context_base))
-
-        # Executa planos globais
-        for plan in self._dispatch_routes_any_event.post:
-            context = dict(context_base)
-            if hasattr(plan, "allow_batches"):
-                context["allow_batches"] = getattr(plan, "allow_batches")
-            await self._process_single_dispatch(plan, context)
-        for plan in self._dispatch_routes_any_event.sql:
-            await self._process_single_dispatch(plan, dict(context_base))
-
-    async def _process_route_bucket(self, bucket: _DispatchRouteBucket, context: dict[str, Any]) -> None:
-        for plan in bucket.post:
-            await self._process_single_dispatch(plan, context)
-
-        for plan in bucket.sql:
-            await self._process_single_dispatch(plan, context)
-
-    async def _process_single_dispatch(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
-        try:
-            if not self._event_matches_plan(plan, context):
-                return
-
-            self._stats["dispatches_attempted"] += 1
-
-            if plan.dispatch_type == "post":
-                await self._enqueue_post_dispatch(plan, context)
-                return
-
-            if self.sql_batch_enabled:
-                await self._enqueue_sql_dispatch(plan, context)
-            else:
-                await self._run_with_retry(
-                    lambda: self._dispatch_sql_plan(plan, context),
-                    retry_attempts=plan.retry_attempts,
-                    backoff_seconds=plan.backoff_seconds,
-                )
-                self._stats["dispatches_succeeded"] += 1
-        except Exception:
-            self._stats["dispatches_failed"] += 1
-            logging.exception("Dispatch failed (source=%s type=%s)", plan.source_name, plan.dispatch_type)
-
-    async def _enqueue_post_dispatch(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
-        # allow_batches pode vir do plano (config), do contexto, ou default True
-        allow_batches = None
-        if hasattr(plan, "allow_batches"):
-            allow_batches = getattr(plan, "allow_batches")
-        # Contexto tem prioridade (ex: sobrescrito em tempo de execução)
-        allow_batches = context.get("allow_batches", allow_batches)
-        if allow_batches is None:
-            allow_batches = True
-
-        item = _PostDispatchItem(
-            source_name=plan.source_name,
-            retry_attempts=plan.retry_attempts,
-            backoff_seconds=plan.backoff_seconds,
-            url=plan.url_renderer(context) if plan.url_renderer else None,
-            headers=plan.headers_renderer(context) if plan.headers_renderer else None,
-            body=plan.body_renderer(context) if plan.body_renderer else None,
-            queued_at=time.time(),
-            allow_batches=allow_batches,
-        )
-
-        if not item.allow_batches:
-            # Envia cada item individualmente, nunca em lista
-            envelope = _PostBatchEnvelope(
-                key=self._make_post_batch_key(item),
-                items=[item],
-                queued_at=item.queued_at,
-            )
-            await self._dispatch_post_envelope(envelope)
-        else:
-            # Comportamento padrão: batch
-            key = self._make_post_batch_key(item)
-            if key not in self._post_batches:
-                self._post_batches[key] = []
-            self._post_batches[key].append(item)
-            if len(self._post_batches[key]) >= self.post_batch_size:
-                await self._flush_post_batch(key)
-
-    def _make_post_batch_key(self, item: _PostDispatchItem) -> _PostBatchKey:
-        headers_json = orjson.dumps(item.headers or {}, option=orjson.OPT_SORT_KEYS).decode("utf-8")
-        return _PostBatchKey(
-            source_name=item.source_name,
-            url=item.url,
-            headers_json=headers_json,
-            retry_attempts=item.retry_attempts,
-            backoff_seconds=item.backoff_seconds,
-        )
-
-    async def _post_worker_loop(self, worker_id: int) -> None:
-        logging.debug("Dispatcher post worker %s started", worker_id)
-        while True:
-            envelope = await self._post_send_queue.get()
-            try:
-                if envelope is _STOP:
-                    return
-
-                assert isinstance(envelope, _PostBatchEnvelope)
-                await self._run_with_retry(
-                    lambda: self._dispatch_post_envelope(envelope),
-                    retry_attempts=envelope.key.retry_attempts,
-                    backoff_seconds=envelope.key.backoff_seconds,
-                )
-                self._stats["dispatches_succeeded"] += len(envelope.items)
-                self._stats["post_rows_batched"] += len(envelope.items)
-                self._stats["post_batches_executed"] += 1
-            except (httpx.ConnectTimeout, httpx.PoolTimeout):
-                self._stats["dispatches_failed"] += (
-                    len(envelope.items) if isinstance(envelope, _PostBatchEnvelope) else 1
-                )
-                if isinstance(envelope, _PostBatchEnvelope):
-                    logging.warning(
-                        "POST dispatch timeout (source=%s url=%s batch_size=%s)",
-                        envelope.key.source_name,
-                        envelope.key.url,
-                        len(envelope.items),
-                    )
-            except Exception:
-                self._stats["dispatches_failed"] += (
-                    len(envelope.items) if isinstance(envelope, _PostBatchEnvelope) else 1
-                )
-                logging.exception("POST dispatch failed")
-            finally:
-                self._post_send_queue.task_done()
-
-    async def _enqueue_sql_dispatch(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
-        if plan.params_renderer is None:
-            raise ValueError("SQL dispatch params renderer is required")
-
-        params = plan.params_renderer(context)
-        if plan.sql_key_static is not None:
-            sql_key = plan.sql_key_static
-        else:
-            if plan.connection_renderer is None or plan.query_renderer is None:
-                raise ValueError("SQL dispatch connection/query renderer is required")
-            connection_string = plan.connection_renderer(context)
-            query = plan.query_renderer(context)
-            if not isinstance(connection_string, str) or not connection_string.strip():
-                raise ValueError("SQL dispatch requires connection_string")
-            if not isinstance(query, str) or not query.strip():
-                raise ValueError("SQL dispatch requires query")
-            sql_key = _SqlBatchKey(
-                connection_string=self._normalize_async_connection_string(connection_string),
-                query=query,
-                retry_attempts=plan.retry_attempts,
-                backoff_seconds=plan.backoff_seconds,
-            )
-
-        self._ensure_sql_batch_task_started()
-        item = _SqlDispatchItem(
-            key=sql_key,
-            params=params,
-            queued_at=time.monotonic(),
-        )
-
-        try:
-            self._sql_queue.put_nowait(item)
-        except asyncio.QueueFull:
-            if self.add_timeout_seconds <= 0:
-                raise
-            await asyncio.wait_for(self._sql_queue.put(item), timeout=self.add_timeout_seconds)
-
-    def _event_matches_plan(self, plan: _CompiledDispatch, context: dict[str, Any]) -> bool:
-        try:
-            if plan.on_event_static is not None:
-                if plan.on_event_static != context["event_type"]:
-                    return False
-            else:
-                dispatch_event = plan.on_event_renderer(context)
-                if isinstance(dispatch_event, str) and dispatch_event and dispatch_event != context["event_type"]:
-                    return False
-
-            for filter_item in plan.filters:
-                key = filter_item.key_renderer(context)
-                value = filter_item.value_renderer(context)
-                if not self._evaluate_filter_values(key, value, filter_item.operator):
-                    return False
-
-            return True
-        except Exception:
-            logging.exception("Error evaluating compiled dispatch filters (source=%s)", plan.source_name)
-            return False
-
-    def _allocate_event_id(self) -> int:
-        event_id = self._next_event_id
-        self._next_event_id += 1
-        return event_id
-
-    def _was_already_processed(self, event_id: int) -> bool:
-        return event_id in self._recent_processed_ids
-
-    def _mark_processed(self, event_id: int) -> None:
-        if event_id in self._recent_processed_ids:
-            return
-        self._recent_processed_ids.add(event_id)
-        self._recent_processed_order.append(event_id)
-
-        if len(self._recent_processed_order) > self._recent_processed_limit:
-            oldest = self._recent_processed_order.popleft()
-            self._recent_processed_ids.discard(oldest)
-
-    def _should_log_sql_success(self) -> bool:
-        if not self.enable_dispatch_success_logs:
-            return False
-
-        self._sql_success_log_counter += 1
-        if self._sql_success_log_counter <= self.success_log_first_n:
-            return True
-        return self._sql_success_log_counter % self.success_log_every_n == 0
-
-    def _should_log_post_success(self) -> bool:
-        if not self.enable_post_success_logs:
-            return False
-
-        self._post_success_log_counter += 1
-        if self._post_success_log_counter <= self.success_log_first_n:
-            return True
-        return self._post_success_log_counter % self.success_log_every_n == 0
-
-    def _truncate_text(self, value: str | None, max_len: int = 500) -> str | None:
-        if value is None:
-            return None
-        if len(value) <= max_len:
-            return value
-        return f"{value[:max_len]}...<truncated:{len(value) - max_len}>"
-
-    def _evaluate_filter_values(self, key: Any, value: Any, operator: str) -> bool:
-        if operator == "eq":
-            return key == value
-        if operator == "ne":
-            return key != value
-        if operator == "in":
-            return key in value if isinstance(value, (list, tuple, set)) else False
-        if operator == "not_in":
-            return key not in value if isinstance(value, (list, tuple, set)) else False
-        if operator == "gt":
-            return self._safe_compare(key, value, "gt")
-        if operator == "lt":
-            return self._safe_compare(key, value, "lt")
-        if operator == "gte":
-            return self._safe_compare(key, value, "gte")
-        if operator == "lte":
-            return self._safe_compare(key, value, "lte")
-        if operator == "contains":
-            if isinstance(key, str):
-                return str(value) in key
-            if isinstance(key, (list, tuple, set, dict)):
-                return value in key
-            return False
-
-        logging.warning("Unsupported filter operator: %s", operator)
-        return False
-
-    def _safe_compare(self, left: Any, right: Any, op: str) -> bool:
-        try:
-            if op == "gt":
-                return left > right
-            if op == "lt":
-                return left < right
-            if op == "gte":
-                return left >= right
-            if op == "lte":
-                return left <= right
-            return False
-        except Exception:
-            return False
-
-    async def _run_with_retry(self, operation: Any, retry_attempts: int, backoff_seconds: float) -> None:
+        self._engines[connection_string] = engine
+        return engine
+
+    @staticmethod
+    async def _run_with_retry(operation: Any, retry_attempts: int, backoff_seconds: float) -> None:
         last_exc: Exception | None = None
         for attempt in range(1, retry_attempts + 1):
             try:
@@ -1580,310 +367,1200 @@ class EventDispatcher:
                 if attempt >= retry_attempts:
                     break
                 await asyncio.sleep(max(0.0, backoff_seconds) * attempt)
-
         if last_exc is not None:
             raise last_exc
 
-    async def _dispatch_post_envelope(self, envelope: _PostBatchEnvelope) -> None:
-        if self._http_client is None:
-            raise RuntimeError("HTTP client not initialized")
 
-        batch_size = len(envelope.items)
-        if batch_size == 0:
+# ---------------------------------------------------------------------------
+# HttpDispatcher — optional batching per dispatch config
+# ---------------------------------------------------------------------------
+
+
+class HttpDispatcher:
+    """
+    Manages all HTTP POST dispatch operations.
+    Batching is opt-in per dispatch (``allow_batches`` field in JSON config).
+
+    Parameters
+    ----------
+    batch_size : int
+        Max items per batched request (default 1000).
+    flush_interval_seconds : float
+        How often to flush pending batches (default 0.1).
+    sender_workers : int
+        Concurrent HTTP sender coroutines (default 64).
+    queue_max_size : int
+        Max items in internal queues (default 10_000).
+    connect_timeout_seconds : float
+        TCP connection timeout (default 2.0).
+    read_timeout_seconds : float
+        HTTP read/write timeout (default 5.0).
+    pool_timeout_seconds : float
+        Connection pool acquisition timeout (default 2.0).
+    max_connections : int
+        Max total HTTP connections in the pool (default 500).
+    max_keepalive_connections : int
+        Max keepalive connections (default 500).
+    http2_enabled : bool
+        Enable HTTP/2 (default True).
+    """
+
+    def __init__(
+        self,
+        batch_size: int = 1000,
+        flush_interval_seconds: float = 0.1,
+        sender_workers: int = 64,
+        queue_max_size: int = 10_000,
+        connect_timeout_seconds: float = 2.0,
+        read_timeout_seconds: float = 5.0,
+        pool_timeout_seconds: float = 2.0,
+        max_connections: int = 500,
+        max_keepalive_connections: int = 500,
+        http2_enabled: bool = True,
+    ) -> None:
+        self.batch_size = max(1, batch_size)
+        self.flush_interval_seconds = max(0.001, flush_interval_seconds)
+        self.sender_workers = max(1, sender_workers)
+        self.queue_max_size = max(1, queue_max_size)
+        self.connect_timeout_seconds = max(0.1, connect_timeout_seconds)
+        self.read_timeout_seconds = max(0.1, read_timeout_seconds)
+        self.pool_timeout_seconds = max(0.1, pool_timeout_seconds)
+        self.max_connections = max(1, max_connections)
+        self.max_keepalive_connections = max(1, max_keepalive_connections)
+        self.http2_enabled = http2_enabled
+
+        self._batch_queue: asyncio.Queue[_PostItem | object] = asyncio.Queue(maxsize=self.queue_max_size)
+        self._send_queue: asyncio.Queue[_PostEnvelope | object] = asyncio.Queue(maxsize=self.queue_max_size)
+        self._batches: dict[_PostBatchKey, list[_PostItem]] = {}
+        self._batch_task: asyncio.Task | None = None
+        self._worker_tasks: list[asyncio.Task] = []
+        self._client: httpx.AsyncClient | None = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        if self._client is None:
+            self._client = self._make_client()
+        if self._batch_task is None or self._batch_task.done():
+            self._batch_task = asyncio.create_task(self._batch_loop(), name="http-dispatcher-batcher")
+        if not self._worker_tasks:
+            self._worker_tasks = [
+                asyncio.create_task(self._sender_loop(i + 1), name=f"http-dispatcher-sender-{i + 1}")
+                for i in range(self.sender_workers)
+            ]
+        logger.debug(
+            "HttpDispatcher started | batch_size=%d flush_interval=%.3fs sender_workers=%d",
+            self.batch_size,
+            self.flush_interval_seconds,
+            self.sender_workers,
+        )
+
+    async def stop(self, drain: bool = True) -> None:
+        if drain:
+            await self._batch_queue.join()
+            await self._flush_all()
+            await self._send_queue.join()
+
+        if self._batch_task:
+            await self._batch_queue.put(_STOP)
+            await asyncio.gather(self._batch_task, return_exceptions=True)
+            self._batch_task = None
+
+        for _ in self._worker_tasks:
+            await self._send_queue.put(_STOP)
+        await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+        self._worker_tasks = []
+
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+        logger.debug("HttpDispatcher stopped")
+
+    async def flush(self) -> None:
+        await self._batch_queue.join()
+        await self._flush_all()
+        await self._send_queue.join()
+
+    # ------------------------------------------------------------------
+    # Enqueue
+    # ------------------------------------------------------------------
+
+    async def enqueue(self, item: _PostItem) -> None:
+        try:
+            self._batch_queue.put_nowait(item)
+        except asyncio.QueueFull:
+            await asyncio.wait_for(self._batch_queue.put(item), timeout=0.2)
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _make_client(self) -> httpx.AsyncClient:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        return httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=self.connect_timeout_seconds,
+                read=self.read_timeout_seconds,
+                write=self.read_timeout_seconds,
+                pool=self.pool_timeout_seconds,
+            ),
+            limits=httpx.Limits(
+                max_keepalive_connections=self.max_keepalive_connections,
+                max_connections=self.max_connections,
+                keepalive_expiry=60.0,
+            ),
+            http2=self.http2_enabled,
+        )
+
+    def _make_key(self, item: _PostItem) -> _PostBatchKey:
+        return _PostBatchKey(
+            source=item.source,
+            url=item.url,
+            headers_json=orjson.dumps(item.headers or {}, option=orjson.OPT_SORT_KEYS).decode(),
+            retry_attempts=item.retry_attempts,
+            backoff_seconds=item.backoff_seconds,
+        )
+
+    async def _batch_loop(self) -> None:
+        while True:
+            try:
+                item = await asyncio.wait_for(self._batch_queue.get(), timeout=self.flush_interval_seconds)
+            except TimeoutError:
+                await self._flush_all()
+                continue
+
+            if item is _STOP:
+                self._batch_queue.task_done()
+                await self._flush_all()
+                return
+
+            assert isinstance(item, _PostItem)
+            key = self._make_key(item)
+            batch = self._batches.setdefault(key, [])
+            batch.append(item)
+            self._batch_queue.task_done()
+
+            # flush immediately if batching disabled for this item or batch is full
+            if not item.allow_batches or len(batch) >= self.batch_size:
+                await self._flush_batch(key)
+
+    async def _flush_all(self) -> None:
+        for key in list(self._batches):
+            await self._flush_batch(key)
+
+    async def _flush_batch(self, key: _PostBatchKey) -> None:
+        batch = self._batches.pop(key, None)
+        if not batch:
+            return
+        envelope = _PostEnvelope(key=key, items=batch, queued_at=batch[0].queued_at)
+        await self._send_queue.put(envelope)
+
+    async def _sender_loop(self, worker_id: int) -> None:
+        logger.debug("HTTP sender worker %d started", worker_id)
+        while True:
+            envelope = await self._send_queue.get()
+            try:
+                if envelope is _STOP:
+                    return
+                assert isinstance(envelope, _PostEnvelope)
+                await self._run_with_retry(
+                    lambda env=envelope: self._send_envelope(env),
+                    retry_attempts=envelope.key.retry_attempts,
+                    backoff_seconds=envelope.key.backoff_seconds,
+                )
+            except (httpx.ConnectTimeout, httpx.PoolTimeout):
+                logger.warning(
+                    "POST timeout | source=%s url=%s batch_size=%d",
+                    envelope.key.source,
+                    envelope.key.url,
+                    len(envelope.items) if isinstance(envelope, _PostEnvelope) else 0,
+                )
+            except Exception:
+                logger.exception(
+                    "POST failed | source=%s url=%s",
+                    envelope.key.source if isinstance(envelope, _PostEnvelope) else "?",
+                    envelope.key.url if isinstance(envelope, _PostEnvelope) else "?",
+                )
+            finally:
+                self._send_queue.task_done()
+
+    async def _send_envelope(self, envelope: _PostEnvelope) -> None:
+        if self._client is None:
+            raise RuntimeError("HttpDispatcher not started — call start() first")
+        if not envelope.items:
             return
 
-        start = time.monotonic()
+        allow_batch = all(item.allow_batches for item in envelope.items)
         queued_for = max(0.0, time.monotonic() - envelope.queued_at)
 
-        allow_batches = all(getattr(item, "allow_batches", True) for item in envelope.items)
-
-        if allow_batches:
-            # Sempre envia como lista, mesmo se batch_size == 1
-            payload: Any = [item.body for item in envelope.items]
-            headers: dict[str, str] = {}
-            for key, value in (envelope.items[0].headers or {}).items():
-                headers[str(key)] = str(value)
-            headers.setdefault("Content-Type", "application/json")
-            body_bytes = orjson.dumps(payload)
-
-            log_dict = {
-                "type": "post",
-                "source": envelope.key.source_name,
-                "url": envelope.key.url,
-                "batch_size": batch_size,
-                "queued_for": queued_for,
-            }
-            try:
-                if self._post_inflight_semaphore is not None:
-                    async with self._post_inflight_semaphore:
-                        response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-                else:
-                    response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-                latency = time.monotonic() - start
-                response.raise_for_status()
-                if self._should_log_post_success():
-                    response_preview = bytes(response.content[:200]) if response.content else b""
-                    log_dict.update(
-                        {
-                            "status": response.status_code,
-                            "latency": latency,
-                            "response_preview": response_preview.decode("utf-8", errors="ignore"),
-                        }
-                    )
-                    logging.info("POST dispatch result: %r", log_dict)
-            except httpx.TimeoutException as exc:
-                latency = time.monotonic() - start
-                log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
-                logging.error("POST dispatch result: %r", log_dict)
-                raise
-            except httpx.HTTPStatusError as exc:
-                latency = time.monotonic() - start
-                log_dict.update(
-                    {
-                        "error": f"HTTP ERROR: {exc}",
-                        "status": getattr(exc.response, "status_code", None),
-                        "latency": latency,
-                        "response": getattr(exc.response, "text", None),
-                    }
-                )
-                logging.error("POST dispatch result: %r", log_dict)
-                raise
-            except Exception as exc:
-                latency = time.monotonic() - start
-                log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-                logging.error("POST dispatch result: %r", log_dict)
-                raise
-        else:
-            # Envia cada item individualmente (nunca em lista)
-            for item in envelope.items:
-                payload = item.body
-                headers: dict[str, str] = {}
-                for key, value in (item.headers or {}).items():
-                    headers[str(key)] = str(value)
-                headers.setdefault("Content-Type", "application/json")
-                body_bytes = orjson.dumps(payload)
-
-                log_dict = {
-                    "type": "post",
-                    "source": envelope.key.source_name,
+        if allow_batch:
+            payload: Any = [item.body for item in envelope.items] if len(envelope.items) > 1 else envelope.items[0].body
+            await self._post_once(
+                url=envelope.key.url,
+                headers=envelope.items[0].headers or {},
+                payload=payload,
+                log_ctx={
+                    "source": envelope.key.source,
                     "url": envelope.key.url,
-                    "batch_size": 1,
-                    "queued_for": queued_for,
-                }
-                try:
-                    if self._post_inflight_semaphore is not None:
-                        async with self._post_inflight_semaphore:
-                            response = await self._http_client.post(
-                                envelope.key.url, headers=headers, content=body_bytes
-                            )
-                    else:
-                        response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-                    latency = time.monotonic() - start
-                    response.raise_for_status()
-                    if self._should_log_post_success():
-                        response_preview = bytes(response.content[:200]) if response.content else b""
-                        log_dict.update(
-                            {
-                                "status": response.status_code,
-                                "latency": latency,
-                                "response_preview": response_preview.decode("utf-8", errors="ignore"),
-                            }
-                        )
-                        logging.info("POST dispatch result: %r", log_dict)
-                except httpx.TimeoutException as exc:
-                    latency = time.monotonic() - start
-                    log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
-                    logging.error("POST dispatch result: %r", log_dict)
-                    raise
-                except httpx.HTTPStatusError as exc:
-                    latency = time.monotonic() - start
-                    log_dict.update(
-                        {
-                            "error": f"HTTP ERROR: {exc}",
-                            "status": getattr(exc.response, "status_code", None),
-                            "latency": latency,
-                            "response": getattr(exc.response, "text", None),
-                        }
-                    )
-                    logging.error("POST dispatch result: %r", log_dict)
-                    raise
-                except Exception as exc:
-                    latency = time.monotonic() - start
-                    log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-                    logging.error("POST dispatch result: %r", log_dict)
-                    raise
-
-    async def _dispatch_sql_plan(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
-        if plan.params_renderer is None:
-            raise ValueError("SQL dispatch params renderer is required")
-
-        params = plan.params_renderer(context)
-        if plan.sql_key_static is not None:
-            connection_string = plan.sql_key_static.connection_string
-            query = plan.sql_key_static.query
+                    "batch_size": len(envelope.items),
+                    "queued_for_seconds": round(queued_for, 4),
+                },
+            )
         else:
-            if plan.connection_renderer is None or plan.query_renderer is None:
-                raise ValueError("SQL dispatch connection/query renderer is required")
-            connection_string = plan.connection_renderer(context)
-            query = plan.query_renderer(context)
+            # send each body individually — never wrapped in a list
+            for item in envelope.items:
+                await self._post_once(
+                    url=envelope.key.url,
+                    headers=item.headers or {},
+                    payload=item.body,
+                    log_ctx={
+                        "source": envelope.key.source,
+                        "url": envelope.key.url,
+                        "batch_size": 1,
+                        "queued_for_seconds": round(queued_for, 4),
+                    },
+                )
 
-        if not isinstance(connection_string, str) or not connection_string.strip():
-            raise ValueError("SQL dispatch requires connection_string")
-        if not isinstance(query, str) or not query.strip():
-            raise ValueError("SQL dispatch requires query")
-        if not isinstance(params, dict):
-            raise ValueError("SQL dispatch params must be an object")
-
-        engine = self._get_or_create_engine(connection_string)
-        log_dict = {
-            "type": "sql",
-            "source": plan.source_name,
-            "connection_string": connection_string,
-            "query": query,
-            "params": params,
-        }
+    async def _post_once(
+        self,
+        url: str,
+        headers: dict[str, Any],
+        payload: Any,
+        log_ctx: dict[str, Any],
+    ) -> None:
+        norm_headers: dict[str, str] = {str(k): str(v) for k, v in headers.items()}
+        norm_headers.setdefault("Content-Type", "application/json")
+        body_bytes = orjson.dumps(payload)
         start = time.monotonic()
-        stmt = self._get_sql_statement(query)
 
         try:
-            async with engine.connect() as conn:
-                result = await conn.execute(stmt, params)
-                await conn.commit()
-            if self._should_log_sql_success():
-                latency = time.monotonic() - start
-                log_dict.update(
+            response = await self._client.post(url, headers=norm_headers, content=body_bytes)  # type: ignore[union-attr]
+            response.raise_for_status()
+            logger.info(
+                "POST dispatched | %s",
+                json.dumps(
                     {
-                        "latency": latency,
-                        "rowcount": getattr(result, "rowcount", None),
-                        "result": str(result),
+                        **log_ctx,
+                        "status": response.status_code,
+                        "latency_seconds": round(time.monotonic() - start, 4),
+                        "response_preview": response.text[:300],
                     }
-                )
-                logging.info("SQL dispatch result: %r", log_dict)
-        except SQLAlchemyError as exc:
-            latency = time.monotonic() - start
-            log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-            logging.error("SQL dispatch result: %r", log_dict)
+                ),
+            )
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "POST HTTP error | %s",
+                json.dumps(
+                    {
+                        **log_ctx,
+                        "status": exc.response.status_code,
+                        "latency_seconds": round(time.monotonic() - start, 4),
+                        "response": exc.response.text[:300],
+                    }
+                ),
+            )
+            raise
+        except httpx.TimeoutException:
+            logger.error(
+                "POST timeout | %s",
+                json.dumps({**log_ctx, "latency_seconds": round(time.monotonic() - start, 4)}),
+            )
+            raise
+        except Exception as exc:
+            logger.error(
+                "POST failed | %s",
+                json.dumps(
+                    {
+                        **log_ctx,
+                        "error": str(exc),
+                        "latency_seconds": round(time.monotonic() - start, 4),
+                    }
+                ),
+            )
             raise
 
-    async def _dispatch_sql_many(
+    @staticmethod
+    async def _run_with_retry(operation: Any, retry_attempts: int, backoff_seconds: float) -> None:
+        last_exc: Exception | None = None
+        for attempt in range(1, retry_attempts + 1):
+            try:
+                await operation()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= retry_attempts:
+                    break
+                await asyncio.sleep(max(0.0, backoff_seconds) * attempt)
+        if last_exc is not None:
+            raise last_exc
+
+
+# ---------------------------------------------------------------------------
+# EventDispatcher — main coordinator
+# ---------------------------------------------------------------------------
+
+
+class EventDispatcher:
+    """
+    Async event dispatcher. Routes events to HTTP POST or SQL targets based on
+    JSON dispatch config files loaded from ``dispatches_path``.
+
+    Auto-starts on the first call to ``add`` or ``add_async`` if not started
+    manually. Gracefully drains all queues on ``stop(drain=True)`` and on
+    process exit (atexit / SIGINT / SIGTERM).
+
+    Parameters
+    ----------
+    dispatches_path : str
+        Directory containing ``*.json`` dispatch config files.
+    example_path : str | None
+        Optional directory for example event ``*.json`` files.
+    max_workers : int
+        Concurrent event-processing workers (default 10).
+    max_queue_size : int
+        Max events in the internal queue before back-pressure (default 10_000).
+    sql : SqlDispatcher | None
+        Optional pre-configured SqlDispatcher. Creates a default one if omitted.
+    http : HttpDispatcher | None
+        Optional pre-configured HttpDispatcher. Creates a default one if omitted.
+
+    Custom tuning example
+    ---------------------
+        dispatcher = EventDispatcher(
+            dispatches_path="dispatches/",
+            sql=SqlDispatcher(batch_size=200, flush_interval_seconds=0.1),
+            http=HttpDispatcher(batch_size=100, sender_workers=32),
+        )
+    """
+
+    def __init__(
         self,
-        connection_string: str,
-        query: str,
-        params_list: list[dict[str, Any]],
+        dispatches_path: str,
+        example_path: str | None = None,
+        max_workers: int = 10,
+        max_queue_size: int = 10_000,
+        sql: "SqlDispatcher | None" = None,
+        http: "HttpDispatcher | None" = None,
     ) -> None:
-        if not params_list:
-            return
+        self.dispatches_path = dispatches_path
+        self.example_path = example_path
+        self.max_workers = max(1, max_workers)
+        self.max_queue_size = max(1, max_queue_size)
 
-        engine = self._get_or_create_engine(connection_string)
-        stmt = self._get_sql_statement(query)
-        async with engine.connect() as conn:
-            await conn.execute(stmt, params_list)
-            await conn.commit()
+        Path(dispatches_path).mkdir(parents=True, exist_ok=True)
+        if example_path:
+            Path(example_path).mkdir(parents=True, exist_ok=True)
 
-    def _get_or_create_engine(self, connection_string: str) -> AsyncEngine:
-        normalized = self._normalize_async_connection_string(connection_string)
-        engine = self._engines.get(normalized)
-        if engine is None:
-            engine = create_async_engine(
-                normalized,
-                pool_pre_ping=True,
-                pool_size=20,
-                max_overflow=30,
-                pool_recycle=1800,
-                future=True,
+        self._sql = sql or SqlDispatcher()
+        self._http = http or HttpDispatcher()
+
+        self._event_queue: asyncio.Queue[_Event | object] = asyncio.Queue(maxsize=self.max_queue_size)
+        self._workers: list[asyncio.Task] = []
+        self._inflight: dict[int, _Event] = {}
+
+        self._started = False
+        self._shutdown_started = False
+        self._start_lock = asyncio.Lock()
+        self._start_task: asyncio.Task | None = None
+
+        # Routing tables
+        self._dispatches: list[dict[str, Any]] = []
+        self._compiled: list[_CompiledDispatch] = []
+        self._routes_by_event: dict[str, _RouteBucket] = {}
+        self._routes_any = _RouteBucket()
+
+        # Dedup ring-buffer (prevents duplicate processing on restart/fallback)
+        self._next_event_id = 1
+        self._processed_ids: set[int] = set()
+        self._processed_order: deque[int] = deque()
+        self._processed_limit = 100_000
+
+        # Stats
+        self._stats: dict[str, int] = {
+            "events_received": 0,
+            "events_queued": 0,
+            "events_dropped": 0,
+            "events_processed": 0,
+            "dispatches_attempted": 0,
+            "dispatches_succeeded": 0,
+            "dispatches_failed": 0,
+        }
+
+        weakref.finalize(self, self._sync_shutdown, "finalizer")
+        atexit.register(self._sync_shutdown, "atexit")
+        self._register_signals()
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        async with self._start_lock:
+            if self._started:
+                return
+            self.reload_dispatches()
+            self._http.start()
+            self._sql.start()
+            self._workers = [
+                asyncio.create_task(self._worker_loop(i + 1), name=f"event-dispatcher-worker-{i + 1}")
+                for i in range(self.max_workers)
+            ]
+            self._started = True
+            logger.info(
+                "EventDispatcher started | workers=%d queue_size=%d dispatches=%d",
+                self.max_workers,
+                self.max_queue_size,
+                len(self._compiled),
             )
-            self._engines[normalized] = engine
-        return engine
 
-    def _get_sql_statement(self, query: str) -> Any:
-        stmt = self._sql_stmt_cache.get(query)
-        if stmt is None:
-            stmt = text(query)
-            self._sql_stmt_cache[query] = stmt
-        return stmt
+    async def stop(self, drain: bool = True) -> None:
+        if not self._started:
+            return
+        if drain:
+            await self.flush()
 
-    def _normalize_async_connection_string(self, connection_string: str) -> str:
-        value = connection_string.strip()
-        if "+" in value.split("://", maxsplit=1)[0]:
-            return value
+        # Signal workers to stop
+        for _ in self._workers:
+            await self._event_queue.put(_STOP)
+        await asyncio.gather(*self._workers, return_exceptions=True)
+        self._workers = []
 
-        if value.startswith("postgresql://"):
-            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
-        if value.startswith("mysql://"):
-            return value.replace("mysql://", "mysql+aiomysql://", 1)
-        if value.startswith("sqlite://"):
-            return value.replace("sqlite://", "sqlite+aiosqlite://", 1)
+        # Stop sub-dispatchers (they drain internally if drain=True)
+        await self._http.stop(drain=drain)
+        await self._sql.stop(drain=drain)
+        await self._sql.dispose_all()
 
-        return value
+        self._started = False
+        self._start_task = None
+        logger.info("EventDispatcher stopped")
 
-    def _render_value(self, value: Any, context: dict[str, Any]) -> Any:
+    async def flush(self, timeout: float | None = None) -> None:
+        """Wait for all queued events and pending dispatches to complete."""
+
+        async def _flush_all() -> None:
+            await self._event_queue.join()
+            await self._http.flush()
+            await self._sql.flush()
+
+        if timeout is None:
+            await _flush_all()
+        else:
+            await asyncio.wait_for(_flush_all(), timeout=timeout)
+
+    # ------------------------------------------------------------------
+    # Public API — add events
+    # ------------------------------------------------------------------
+
+    async def add_async(self, name: str, event_type: str, data: Any = None) -> bool:
+        """
+        Enqueue an event. Starts the dispatcher automatically if not running.
+        Returns True if accepted, False if dropped.
+        """
+        self._stats["events_received"] += 1
+        if not self._started:
+            self._ensure_start_task()
+            await self.start()
+
+        event = _Event(
+            event_id=self._next_event_id,
+            name=name,
+            event_type=event_type,
+            data=data,
+            queued_at=time.monotonic(),
+        )
+        self._next_event_id += 1
+
+        try:
+            try:
+                self._event_queue.put_nowait(event)
+            except asyncio.QueueFull:
+                await asyncio.wait_for(self._event_queue.put(event), timeout=0.2)
+            self._stats["events_queued"] += 1
+            logger.info("Event enqueued | name=%s event_type=%s data=%s", name, event_type, data)
+            return True
+        except (asyncio.QueueFull, TimeoutError):
+            self._stats["events_dropped"] += 1
+            logger.warning("Event dropped (queue full) | name=%s event_type=%s", name, event_type)
+            return False
+        except Exception:
+            self._stats["events_dropped"] += 1
+            logger.exception("Event dropped (error) | name=%s event_type=%s", name, event_type)
+            return False
+
+    def add(self, name: str, event_type: str, data: Any = None) -> bool:
+        """
+        Fire-and-forget enqueue from within a running event loop.
+        Use ``add_async`` when you need confirmation the event was accepted.
+        Returns True if accepted, False if dropped.
+        """
+        self._stats["events_received"] += 1
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._stats["events_dropped"] += 1
+            logger.error(
+                "add() requires a running event loop — use add_async() instead. Dropped: %s/%s",
+                name,
+                event_type,
+            )
+            return False
+
+        if not self._started:
+            self._ensure_start_task()
+
+        event = _Event(
+            event_id=self._next_event_id,
+            name=name,
+            event_type=event_type,
+            data=data,
+            queued_at=time.monotonic(),
+        )
+        self._next_event_id += 1
+
+        try:
+            self._event_queue.put_nowait(event)
+            self._stats["events_queued"] += 1
+            return True
+        except asyncio.QueueFull:
+            self._stats["events_dropped"] += 1
+            logger.warning("Event dropped (queue full) | name=%s event_type=%s", name, event_type)
+            return False
+        except Exception:
+            self._stats["events_dropped"] += 1
+            logger.exception("Event dropped (error) | name=%s event_type=%s", name, event_type)
+            return False
+
+    # ------------------------------------------------------------------
+    # Public API — stats and introspection
+    # ------------------------------------------------------------------
+
+    def get_stats(self) -> dict[str, Any]:
+        stats: dict[str, Any] = dict(self._stats)
+        stats["queue_size"] = self._event_queue.qsize()
+        stats["workers_configured"] = self.max_workers
+        stats["workers_running"] = len(self._workers)
+        stats["dispatches_loaded"] = len(self._compiled)
+        stats["sql_batch_size"] = self._sql.batch_size
+        stats["http_batch_size"] = self._http.batch_size
+        stats["http_sender_workers"] = self._http.sender_workers
+        return stats
+
+    # ------------------------------------------------------------------
+    # Public API — dispatch file management
+    # ------------------------------------------------------------------
+
+    def get_dispatch_names(self) -> list[str]:
+        """Return sorted list of loaded dispatch names (without .json extension)."""
+        try:
+            return sorted(p.stem for p in Path(self.dispatches_path).glob("*.json"))
+        except Exception:
+            logger.exception("Failed to list dispatch files")
+            return []
+
+    def get_dispatch_content(self, name: str) -> dict | None:
+        """Return the raw JSON content of a dispatch file, or None if not found."""
+        try:
+            path = self._dispatch_path(name)
+            with open(path, encoding="utf-8") as f:
+                content = json.load(f)
+            return content if isinstance(content, dict) else None
+        except FileNotFoundError:
+            logger.warning("Dispatch not found: %s", name)
+            return None
+        except Exception:
+            logger.exception("Failed to read dispatch: %s", name)
+            return None
+
+    def create_dispatch(
+        self,
+        name: str,
+        content: dict[str, Any],
+        *,
+        overwrite: bool = False,
+        validate: bool = True,
+    ) -> bool:
+        """
+        Create a new dispatch JSON file and reload routing.
+        Returns True on success, False if the file already exists and overwrite=False.
+        """
+        try:
+            if validate:
+                self._validate(content)
+            path = self._dispatch_path(name)
+            if path.exists() and not overwrite:
+                logger.warning("Dispatch already exists (overwrite=False): %s", name)
+                return False
+            self._write(path, content)
+            self.reload_dispatches()
+            logger.info("Dispatch created: %s", name)
+            return True
+        except Exception:
+            logger.exception("Failed to create dispatch: %s", name)
+            return False
+
+    def edit_dispatch(
+        self,
+        name: str,
+        content: dict[str, Any],
+        *,
+        merge: bool = True,
+        validate: bool = True,
+    ) -> bool:
+        """
+        Edit an existing dispatch JSON file and reload routing.
+        When merge=True, deeply merges content into the existing file.
+        """
+        try:
+            path = self._dispatch_path(name)
+            if not path.exists():
+                logger.warning("Dispatch not found for edit: %s", name)
+                return False
+            with open(path, encoding="utf-8") as f:
+                current = json.load(f)
+            if not isinstance(current, dict):
+                logger.error("Dispatch root must be a JSON object: %s", name)
+                return False
+            updated = self._deep_merge(current, content) if merge else copy.deepcopy(content)
+            if validate:
+                self._validate(updated)
+            self._write(path, updated)
+            self.reload_dispatches()
+            logger.info("Dispatch edited: %s", name)
+            return True
+        except Exception:
+            logger.exception("Failed to edit dispatch: %s", name)
+            return False
+
+    def delete_dispatch(self, name: str, *, missing_ok: bool = True) -> bool:
+        """Delete a dispatch JSON file and reload routing."""
+        try:
+            path = self._dispatch_path(name)
+            if not path.exists():
+                if missing_ok:
+                    logger.info("Dispatch already absent: %s", name)
+                    return True
+                logger.warning("Dispatch not found for delete: %s", name)
+                return False
+            path.unlink()
+            self.reload_dispatches()
+            logger.info("Dispatch deleted: %s", name)
+            return True
+        except Exception:
+            logger.exception("Failed to delete dispatch: %s", name)
+            return False
+
+    # ------------------------------------------------------------------
+    # Public API — example file helpers
+    # ------------------------------------------------------------------
+
+    def get_example_names(self) -> list[str]:
+        """Return sorted list of example file names (without .json extension)."""
+        if not self.example_path:
+            return []
+        try:
+            return sorted(p.stem for p in Path(self.example_path).glob("*.json"))
+        except Exception:
+            logger.exception("Failed to list example files")
+            return []
+
+    def get_example_content(self, name: str) -> dict | None:
+        """Return the raw JSON content of an example file, or None if not found."""
+        if not self.example_path:
+            return None
+        try:
+            path = Path(self.example_path) / f"{name}.json"
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            logger.warning("Example not found: %s", name)
+            return None
+        except Exception:
+            logger.exception("Failed to read example: %s", name)
+            return None
+
+    # ------------------------------------------------------------------
+    # Dispatch reload
+    # ------------------------------------------------------------------
+
+    def reload_dispatches(self) -> None:
+        """Rescan dispatches_path, recompile all dispatch plans, and rebuild routing."""
+        dispatches: list[dict[str, Any]] = []
+        compiled: list[_CompiledDispatch] = []
+        routes_by_event: dict[str, _RouteBucket] = {}
+        routes_any = _RouteBucket()
+        sql_connections: set[str] = set()
+
+        for path in Path(self.dispatches_path).glob("*.json"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    content = json.load(f)
+                if not isinstance(content, dict):
+                    logger.warning("Skipping %s — root is not a JSON object", path.name)
+                    continue
+                dispatches.append(content)
+                plan = self._compile(content, source=path.name)
+                if plan is None:
+                    continue
+                compiled.append(plan)
+                if plan.dispatch_type == "sql" and plan.sql_key_static:
+                    sql_connections.add(plan.sql_key_static.connection_string)
+                bucket = (
+                    routes_by_event.setdefault(plan.event_type_static, _RouteBucket())
+                    if plan.event_type_static
+                    else routes_any
+                )
+                (bucket.sql if plan.dispatch_type == "sql" else bucket.post).append(plan)
+            except Exception:
+                logger.exception("Failed to parse dispatch file: %s", path.name)
+
+        self._sql.remove_stale_engines(sql_connections)
+        for cs in sql_connections:
+            self._sql.ensure_engine(cs)
+        self._sql.clear_stmt_cache()
+
+        self._dispatches = dispatches
+        self._compiled = compiled
+        self._routes_by_event = routes_by_event
+        self._routes_any = routes_any
+
+        post_count = sum(len(b.post) for b in routes_by_event.values()) + len(routes_any.post)
+        sql_count = sum(len(b.sql) for b in routes_by_event.values()) + len(routes_any.sql)
+        logger.info(
+            "Dispatches reloaded | files=%d post_routes=%d sql_routes=%d sql_pools=%d",
+            len(compiled),
+            post_count,
+            sql_count,
+            len(sql_connections),
+        )
+
+    # ------------------------------------------------------------------
+    # Worker loop
+    # ------------------------------------------------------------------
+
+    async def _worker_loop(self, worker_id: int) -> None:
+        logger.debug("Worker %d started", worker_id)
+        while True:
+            item = await self._event_queue.get()
+            try:
+                if item is _STOP:
+                    return
+                assert isinstance(item, _Event)
+                self._inflight[item.event_id] = item
+                if not self._was_processed(item.event_id):
+                    await self._process(item)
+                    self._mark_processed(item.event_id)
+            except Exception:
+                logger.exception("Worker %d: unhandled error", worker_id)
+            finally:
+                self._inflight.pop(item.event_id if isinstance(item, _Event) else -1, None)
+                self._event_queue.task_done()
+
+    async def _process(self, event: _Event) -> None:
+        self._stats["events_processed"] += 1
+        ctx: dict[str, Any] = {"name": event.name, "event_type": event.event_type, "data": event.data}
+
+        bucket = self._routes_by_event.get(event.event_type)
+        for plan in bucket.post if bucket else []:
+            await self._dispatch_one(plan, ctx)
+        for plan in bucket.sql if bucket else []:
+            await self._dispatch_one(plan, ctx)
+        for plan in self._routes_any.post:
+            await self._dispatch_one(plan, ctx)
+        for plan in self._routes_any.sql:
+            await self._dispatch_one(plan, ctx)
+
+    async def _dispatch_one(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
+        try:
+            if not self._matches(plan, ctx):
+                return
+            self._stats["dispatches_attempted"] += 1
+            if plan.dispatch_type == "post":
+                await self._enqueue_post(plan, ctx)
+            else:
+                await self._enqueue_sql(plan, ctx)
+            self._stats["dispatches_succeeded"] += 1
+        except Exception:
+            self._stats["dispatches_failed"] += 1
+            logger.exception("Dispatch failed | source=%s type=%s", plan.source, plan.dispatch_type)
+
+    async def _enqueue_post(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
+        item = _PostItem(
+            source=plan.source,
+            retry_attempts=plan.retry_attempts,
+            backoff_seconds=plan.backoff_seconds,
+            url=plan.url_fn(ctx) if plan.url_fn else "",
+            headers=plan.headers_fn(ctx) if plan.headers_fn else {},
+            body=plan.body_fn(ctx) if plan.body_fn else {},
+            queued_at=time.monotonic(),
+            allow_batches=plan.allow_batches,
+        )
+        await self._http.enqueue(item)
+
+    async def _enqueue_sql(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
+        params = plan.params_fn(ctx) if plan.params_fn else {}
+        if plan.sql_key_static:
+            key = plan.sql_key_static
+        else:
+            cs = plan.connection_fn(ctx) if plan.connection_fn else ""
+            q = plan.query_fn(ctx) if plan.query_fn else ""
+            if not isinstance(cs, str) or not cs.strip():
+                raise ValueError("SQL dispatch requires connection_string")
+            if not isinstance(q, str) or not q.strip():
+                raise ValueError("SQL dispatch requires query")
+            key = _SqlBatchKey(
+                connection_string=self._normalize_connection(cs),
+                query=q,
+                retry_attempts=plan.retry_attempts,
+                backoff_seconds=plan.backoff_seconds,
+            )
+        await self._sql.enqueue(_SqlItem(key=key, params=params, queued_at=time.monotonic()))
+
+    # ------------------------------------------------------------------
+    # Dispatch compilation
+    # ------------------------------------------------------------------
+
+    def _compile(self, content: dict[str, Any], source: str) -> _CompiledDispatch | None:
+        try:
+            self._validate(content)
+        except ValueError as exc:
+            logger.warning("Invalid dispatch %s: %s", source, exc)
+            return None
+
+        dtype = str(content.get("dispatch_type", "")).lower()
+        retry = max(1, int(content.get("retry_attempts", 3)))
+        backoff = float(content.get("retry_backoff_seconds", 0.25))
+
+        event_fn, is_static, static_val = self._build_renderer(content.get("on_event"))
+        event_static = static_val if (is_static and isinstance(static_val, str) and static_val) else None
+
+        filters = tuple(
+            _CompiledFilter(
+                key_fn=self._build_renderer(f.get("key"))[0],
+                value_fn=self._build_renderer(f.get("value"))[0],
+                operator=str(f.get("operator", "eq")).lower(),
+            )
+            for f in content.get("filters", [])
+            if isinstance(f, dict)
+        )
+
+        plan = _CompiledDispatch(
+            source=source,
+            dispatch_type=dtype,
+            event_type_fn=event_fn,
+            event_type_static=event_static,
+            filters=filters,
+            retry_attempts=retry,
+            backoff_seconds=backoff,
+            url_fn=None,
+            headers_fn=None,
+            body_fn=None,
+            connection_fn=None,
+            query_fn=None,
+            params_fn=None,
+            sql_key_static=None,
+        )
+
+        if dtype == "post":
+            plan.url_fn = self._build_renderer(content.get("url"))[0]
+            plan.headers_fn = self._build_renderer(content.get("headers", {}))[0]
+            plan.body_fn = self._build_renderer(content.get("body", {}))[0]
+            plan.allow_batches = bool(content.get("allow_batches", True))
+        elif dtype == "sql":
+            conn_fn, conn_static, conn_val = self._build_renderer(content.get("connection_string"))
+            query_fn, query_static, query_val = self._build_renderer(content.get("query"))
+            plan.connection_fn = conn_fn
+            plan.query_fn = query_fn
+            plan.params_fn = self._build_renderer(content.get("params", {}))[0]
+            if conn_static and query_static and isinstance(conn_val, str) and isinstance(query_val, str):
+                plan.sql_key_static = _SqlBatchKey(
+                    connection_string=self._normalize_connection(conn_val),
+                    query=query_val,
+                    retry_attempts=retry,
+                    backoff_seconds=backoff,
+                )
+        else:
+            logger.warning("Unsupported dispatch_type=%r in %s", dtype, source)
+            return None
+
+        return plan
+
+    # ------------------------------------------------------------------
+    # Template renderer
+    # ------------------------------------------------------------------
+
+    def _build_renderer(self, value: Any) -> tuple[Callable[[dict[str, Any]], Any], bool, Any]:
         if isinstance(value, dict):
-            rendered: dict[str, Any] = {}
-            for key, item in value.items():
-                rendered_key = self._render_value(key, context)
-                rendered[str(rendered_key)] = self._render_value(item, context)
-            return rendered
+            items = [(self._build_renderer(k), self._build_renderer(v)) for k, v in value.items()]
+            all_static = all(ki[1] and vi[1] for ki, vi in items)
+            if all_static:
+                frozen = {str(ki[2]): vi[2] for ki, vi in items}
+                return (lambda _c, f=frozen: copy.copy(f)), True, frozen
+
+            def _render_dict(ctx: dict, _items: list = items) -> dict:
+                return {str(kfn(ctx)): vfn(ctx) for (kfn, _, _), (vfn, _, _) in _items}
+
+            return _render_dict, False, None
 
         if isinstance(value, list):
-            return [self._render_value(item, context) for item in value]
+            items_r = [self._build_renderer(i) for i in value]
+            if all(i[1] for i in items_r):
+                frozen = [i[2] for i in items_r]
+                return (lambda _c, f=frozen: f), True, frozen
+
+            def _render_list(ctx: dict, _fns: tuple = tuple(i[0] for i in items_r)) -> list:
+                return [fn(ctx) for fn in _fns]
+
+            return _render_list, False, None
 
         if isinstance(value, tuple):
-            return tuple(self._render_value(item, context) for item in value)
+            items_t = [self._build_renderer(i) for i in value]
+            if all(i[1] for i in items_t):
+                frozen = tuple(i[2] for i in items_t)
+                return (lambda _c, f=frozen: f), True, frozen
+
+            def _render_tuple(ctx: dict, _fns: tuple = tuple(i[0] for i in items_t)) -> tuple:
+                return tuple(fn(ctx) for fn in _fns)
+
+            return _render_tuple, False, None
 
         if not isinstance(value, str):
-            return value
+            return (lambda _c, v=value: v), True, value
 
-        is_single_token, parts = self._compile_template(value)
-        if is_single_token:
-            _, token = parts[0]
-            return self._resolve_placeholder(token, context)
+        is_single, parts = self._compile_template(value)
+        if is_single:
+            token = parts[0][1]
+            return (lambda ctx, t=token: self._resolve(t, ctx)), False, None
 
-        out_parts: list[str] = []
-        for kind, token_or_text in parts:
-            if kind == "lit":
-                out_parts.append(token_or_text)
-                continue
-            resolved = self._resolve_placeholder(token_or_text, context)
-            out_parts.append("" if resolved is None else str(resolved))
-        return "".join(out_parts)
+        if len(parts) == 1 and parts[0][0] == "lit":
+            literal = parts[0][1]
+            return (lambda _c, literal=literal: literal), True, literal
+
+        def _render_template(ctx: dict, _parts: tuple = parts) -> str:
+            return "".join(text if kind == "lit" else (str(self._resolve(text, ctx) or "")) for kind, text in _parts)
+
+        return _render_template, False, None
 
     @staticmethod
     @lru_cache(maxsize=8192)
     def _compile_template(value: str) -> tuple[bool, tuple[tuple[str, str], ...]]:
-        full_match = _PLACEHOLDER_PATTERN.fullmatch(value)
-        if value.startswith("{") and value.endswith("}") and full_match:
-            return True, (("token", full_match.group(1).strip()),)
-
+        full = _PLACEHOLDER_PATTERN.fullmatch(value)
+        if full:
+            return True, (("token", full.group(1).strip()),)
         parts: list[tuple[str, str]] = []
-        last_index = 0
-        for match in _PLACEHOLDER_PATTERN.finditer(value):
-            if match.start() > last_index:
-                parts.append(("lit", value[last_index : match.start()]))
-            parts.append(("token", match.group(1).strip()))
-            last_index = match.end()
-
-        if last_index < len(value):
-            parts.append(("lit", value[last_index:]))
-
+        last = 0
+        for m in _PLACEHOLDER_PATTERN.finditer(value):
+            if m.start() > last:
+                parts.append(("lit", value[last : m.start()]))
+            parts.append(("token", m.group(1).strip()))
+            last = m.end()
+        if last < len(value):
+            parts.append(("lit", value[last:]))
         if not parts:
             parts.append(("lit", value))
-
         return False, tuple(parts)
 
-    def _resolve_placeholder(self, token: str, context: dict[str, Any]) -> Any:
-        if token == "name":
-            return context.get("name")
-        if token == "event_type":
-            return context.get("event_type")
-        if token == "data":
-            return context.get("data")
-
-        data_key_match = _DATA_KEY_PATTERN.match(token)
-        if data_key_match:
-            data = context.get("data")
-            key = data_key_match.group(1)
-            if isinstance(data, dict):
-                return data.get(key)
-            return None
-
+    @staticmethod
+    def _resolve(token: str, ctx: dict[str, Any]) -> Any:
+        if token in ("name", "event_type", "data"):
+            return ctx.get(token)
+        m = _DATA_KEY_PATTERN.match(token)
+        if m:
+            data = ctx.get("data")
+            return data.get(m.group(1)) if isinstance(data, dict) else None
         return None
+
+    # ------------------------------------------------------------------
+    # Filter evaluation
+    # ------------------------------------------------------------------
+
+    def _matches(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> bool:
+        try:
+            if plan.event_type_static is not None:
+                if plan.event_type_static != ctx["event_type"]:
+                    return False
+            else:
+                ev = plan.event_type_fn(ctx)
+                if isinstance(ev, str) and ev and ev != ctx["event_type"]:
+                    return False
+            for f in plan.filters:
+                if not self._eval_filter(f.key_fn(ctx), f.value_fn(ctx), f.operator):
+                    return False
+            return True
+        except Exception:
+            logger.exception("Filter evaluation error | source=%s", plan.source)
+            return False
+
+    @staticmethod
+    def _eval_filter(key: Any, value: Any, op: str) -> bool:
+        try:
+            if op == "eq":
+                return key == value
+            if op == "ne":
+                return key != value
+            if op == "in":
+                return key in value if isinstance(value, (list, tuple, set)) else False
+            if op == "not_in":
+                return key not in value if isinstance(value, (list, tuple, set)) else False
+            if op == "gt":
+                return key > value
+            if op == "lt":
+                return key < value
+            if op == "gte":
+                return key >= value
+            if op == "lte":
+                return key <= value
+            if op == "contains":
+                if isinstance(key, str):
+                    return str(value) in key
+                return value in key if isinstance(key, (list, tuple, set, dict)) else False
+        except Exception:
+            pass
+        logger.warning("Unsupported or failed filter operator: %s", op)
+        return False
+
+    # ------------------------------------------------------------------
+    # File helpers
+    # ------------------------------------------------------------------
+
+    def _dispatch_path(self, name: str) -> Path:
+        name = name.strip()
+        if not name:
+            raise ValueError("Dispatch name cannot be empty")
+        if any(c in name for c in ("/", "\\")):
+            raise ValueError("Dispatch name must not contain path separators")
+        if name in {".", ".."}:
+            raise ValueError("Invalid dispatch name")
+        if not name.endswith(".json"):
+            name = f"{name}.json"
+        base = Path(self.dispatches_path).resolve()
+        path = (base / name).resolve()
+        path.relative_to(base)  # raises ValueError if path escapes base
+        return path
+
+    @staticmethod
+    def _write(path: Path, content: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(content, f, ensure_ascii=False, indent=2)
+        tmp.replace(path)
+
+    @staticmethod
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        merged = copy.deepcopy(base)
+        for k, v in override.items():
+            if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k] = EventDispatcher._deep_merge(merged[k], v)
+            else:
+                merged[k] = copy.deepcopy(v)
+        return merged
+
+    @staticmethod
+    def _validate(content: dict[str, Any]) -> None:
+        if not isinstance(content, dict):
+            raise ValueError("Dispatch root must be a JSON object")
+        dtype = content.get("dispatch_type")
+        if dtype not in ("post", "sql"):
+            raise ValueError("dispatch_type must be 'post' or 'sql'")
+        on_event = content.get("on_event")
+        if not isinstance(on_event, str) or not on_event.strip():
+            raise ValueError("on_event must be a non-empty string")
+        filters = content.get("filters", [])
+        if not isinstance(filters, list):
+            raise ValueError("filters must be a list")
+        for item in filters:
+            if not isinstance(item, dict):
+                raise ValueError("Each filters entry must be a JSON object")
+            if "operator" in item and not isinstance(item["operator"], str):
+                raise ValueError("filter operator must be a string")
+        if dtype == "post":
+            url = content.get("url")
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("post dispatch requires a non-empty url")
+            headers = content.get("headers", {})
+            if headers is not None and not isinstance(headers, dict):
+                raise ValueError("headers must be a JSON object when provided")
+        if dtype == "sql":
+            for fname in ("connection_string", "query"):
+                val = content.get(fname)
+                if not isinstance(val, str) or not val.strip():
+                    raise ValueError(f"sql dispatch requires non-empty {fname}")
+            params = content.get("params", {})
+            if not isinstance(params, dict):
+                raise ValueError("sql dispatch params must be a JSON object")
+
+    @staticmethod
+    def _normalize_connection(cs: str) -> str:
+        cs = cs.strip()
+        if "+" in cs.split("://", 1)[0]:
+            return cs
+        for prefix, async_prefix in (
+            ("postgresql://", "postgresql+asyncpg://"),
+            ("mysql://", "mysql+aiomysql://"),
+            ("sqlite://", "sqlite+aiosqlite://"),
+        ):
+            if cs.startswith(prefix):
+                return cs.replace(prefix, async_prefix, 1)
+        return cs
+
+    # ------------------------------------------------------------------
+    # Dedup ring-buffer
+    # ------------------------------------------------------------------
+
+    def _was_processed(self, event_id: int) -> bool:
+        return event_id in self._processed_ids
+
+    def _mark_processed(self, event_id: int) -> None:
+        if event_id in self._processed_ids:
+            return
+        self._processed_ids.add(event_id)
+        self._processed_order.append(event_id)
+        if len(self._processed_order) > self._processed_limit:
+            self._processed_ids.discard(self._processed_order.popleft())
+
+    # ------------------------------------------------------------------
+    # Shutdown / signal helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_start_task(self) -> None:
+        if not self._started and (self._start_task is None or self._start_task.done()):
+            self._start_task = asyncio.create_task(self.start())
+
+    def _sync_shutdown(self, reason: str = "unknown") -> None:
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        logger.info("EventDispatcher shutdown triggered | reason=%s", reason)
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                loop.create_task(self.stop(drain=True))
+                return
+        except RuntimeError:
+            pass
+        try:
+            asyncio.run(self.stop(drain=True))
+        except Exception:
+            logger.exception("Error during EventDispatcher shutdown")
+
+    def _register_signals(self) -> None:
+        try:
+            prev_int = signal.getsignal(signal.SIGINT)
+            prev_term = signal.getsignal(signal.SIGTERM)
+
+            def _handler(signum: int, frame: Any) -> None:
+                sig_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
+                logger.warning("Received %s — shutting down EventDispatcher", sig_name)
+                self._sync_shutdown(f"signal:{sig_name}")
+                prev = prev_int if signum == signal.SIGINT else prev_term
+                if callable(prev):
+                    prev(signum, frame)
+
+            signal.signal(signal.SIGINT, _handler)
+            signal.signal(signal.SIGTERM, _handler)
+        except Exception:
+            logger.debug("Could not register signal handlers", exc_info=True)

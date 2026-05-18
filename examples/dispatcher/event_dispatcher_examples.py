@@ -35,6 +35,21 @@ def main():
     else:
         print(f"\nFailed to load content of {example_name}.")
 
+    # current dispatches
+    print("\nCurrent dispatches:")
+    for name in dispatcher.get_dispatch_names():
+        print(f"  - {name}")
+
+    # dispatch content
+    dispatch_name = input("\nEnter a dispatch name to view its content (or press Enter to skip): ")
+    if dispatch_name:
+        content = dispatcher.get_dispatch_content(dispatch_name)
+        if content:
+            print(f"\nContent of {dispatch_name}:")
+            print(content)
+        else:
+            print(f"\nNo dispatch found with name '{dispatch_name}'.")
+
 
 if __name__ == "__main__":
     print("Tip: run examples/dispatcher/dispatch_crud_example.py for full CRUD + queue usage.")
