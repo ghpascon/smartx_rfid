@@ -1595,10 +1595,66 @@ class EventDispatcher:
         start = time.monotonic()
         queued_for = max(0.0, time.monotonic() - envelope.queued_at)
 
-        # Respeita allow_batches de cada item
         allow_batches = all(getattr(item, "allow_batches", True) for item in envelope.items)
-        if not allow_batches or batch_size == 1:
-            # Envia cada item individualmente (mesmo se vier "batched" mas não pode)
+
+        if allow_batches:
+            # Sempre envia como lista, mesmo se batch_size == 1
+            payload: Any = [item.body for item in envelope.items]
+            headers: dict[str, str] = {}
+            for key, value in (envelope.items[0].headers or {}).items():
+                headers[str(key)] = str(value)
+            headers.setdefault("Content-Type", "application/json")
+            body_bytes = orjson.dumps(payload)
+
+            log_dict = {
+                "type": "post",
+                "source": envelope.key.source_name,
+                "url": envelope.key.url,
+                "batch_size": batch_size,
+                "queued_for": queued_for,
+            }
+            try:
+                if self._post_inflight_semaphore is not None:
+                    async with self._post_inflight_semaphore:
+                        response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
+                else:
+                    response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
+                latency = time.monotonic() - start
+                response.raise_for_status()
+                if self._should_log_post_success():
+                    response_preview = bytes(response.content[:200]) if response.content else b""
+                    log_dict.update(
+                        {
+                            "status": response.status_code,
+                            "latency": latency,
+                            "response_preview": response_preview.decode("utf-8", errors="ignore"),
+                        }
+                    )
+                    logging.info("POST dispatch result: %r", log_dict)
+            except httpx.TimeoutException as exc:
+                latency = time.monotonic() - start
+                log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
+                logging.error("POST dispatch result: %r", log_dict)
+                raise
+            except httpx.HTTPStatusError as exc:
+                latency = time.monotonic() - start
+                log_dict.update(
+                    {
+                        "error": f"HTTP ERROR: {exc}",
+                        "status": getattr(exc.response, "status_code", None),
+                        "latency": latency,
+                        "response": getattr(exc.response, "text", None),
+                    }
+                )
+                logging.error("POST dispatch result: %r", log_dict)
+                raise
+            except Exception as exc:
+                latency = time.monotonic() - start
+                log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
+                logging.error("POST dispatch result: %r", log_dict)
+                raise
+        else:
+            # Envia cada item individualmente (nunca em lista)
             for item in envelope.items:
                 payload = item.body
                 headers: dict[str, str] = {}
@@ -1656,62 +1712,6 @@ class EventDispatcher:
                     log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
                     logging.error("POST dispatch result: %r", log_dict)
                     raise
-        else:
-            # Batch permitido
-            payload: Any = [item.body for item in envelope.items]
-            headers: dict[str, str] = {}
-            for key, value in (envelope.items[0].headers or {}).items():
-                headers[str(key)] = str(value)
-            headers.setdefault("Content-Type", "application/json")
-            body_bytes = orjson.dumps(payload)
-
-            log_dict = {
-                "type": "post",
-                "source": envelope.key.source_name,
-                "url": envelope.key.url,
-                "batch_size": batch_size,
-                "queued_for": queued_for,
-            }
-            try:
-                if self._post_inflight_semaphore is not None:
-                    async with self._post_inflight_semaphore:
-                        response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-                else:
-                    response = await self._http_client.post(envelope.key.url, headers=headers, content=body_bytes)
-                latency = time.monotonic() - start
-                response.raise_for_status()
-                if self._should_log_post_success():
-                    response_preview = bytes(response.content[:200]) if response.content else b""
-                    log_dict.update(
-                        {
-                            "status": response.status_code,
-                            "latency": latency,
-                            "response_preview": response_preview.decode("utf-8", errors="ignore"),
-                        }
-                    )
-                    logging.info("POST dispatch result: %r", log_dict)
-            except httpx.TimeoutException as exc:
-                latency = time.monotonic() - start
-                log_dict.update({"error": f"TIMEOUT: {exc}", "latency": latency})
-                logging.error("POST dispatch result: %r", log_dict)
-                raise
-            except httpx.HTTPStatusError as exc:
-                latency = time.monotonic() - start
-                log_dict.update(
-                    {
-                        "error": f"HTTP ERROR: {exc}",
-                        "status": getattr(exc.response, "status_code", None),
-                        "latency": latency,
-                        "response": getattr(exc.response, "text", None),
-                    }
-                )
-                logging.error("POST dispatch result: %r", log_dict)
-                raise
-            except Exception as exc:
-                latency = time.monotonic() - start
-                log_dict.update({"error": f"FAILED: {exc}", "latency": latency})
-                logging.error("POST dispatch result: %r", log_dict)
-                raise
 
     async def _dispatch_sql_plan(self, plan: _CompiledDispatch, context: dict[str, Any]) -> None:
         if plan.params_renderer is None:
