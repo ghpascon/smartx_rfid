@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import copy
 
 import httpx
 
@@ -81,7 +82,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 protected_inventory_active = False
                 protected_inventory_password = "12345678"
             # Configuration
-            reading_config = R700_IOT_config_example.copy()
+            # Make a deep copy to avoid sharing nested structures between instances
+            reading_config = copy.deepcopy(R700_IOT_config_example)
             if gpi_start is False:
                 reading_config.pop("startTriggers")
                 reading_config.pop("stopTriggers")
@@ -90,7 +92,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             if not isinstance(active_ant, list):
                 active_ant = [1]
             for ant in active_ant:
-                ant_cfg = ant_config_example.copy()
+                # Copy antenna example to avoid mutating the module-level example
+                ant_cfg = copy.deepcopy(ant_config_example)
                 ant_cfg["antennaPort"] = ant
                 ant_cfg["inventorySession"] = session
                 ant_cfg["receiveSensitivityDbm"] = read_rssi

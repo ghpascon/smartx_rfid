@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import copy
 
 from typing import Callable
 
@@ -190,7 +191,8 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         if isinstance(ant_dict, dict) and not ant_dict == {}:
             self.ant_dict = ant_dict
         else:
-            self.ant_dict = ant_default_config.copy()
+            # Use a deep copy to avoid sharing nested dict objects between instances
+            self.ant_dict = copy.deepcopy(ant_default_config)
             for ant in self.ant_dict.keys():
                 ant_num = int(ant)
                 if active_ant and ant_num in active_ant:
