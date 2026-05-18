@@ -190,7 +190,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         if isinstance(ant_dict, dict) and not ant_dict == {}:
             self.ant_dict = ant_dict
         else:
-            self.ant_dict = ant_default_config
+            self.ant_dict = ant_default_config.copy()
             for ant in self.ant_dict.keys():
                 ant_num = int(ant)
                 if active_ant and ant_num in active_ant:
