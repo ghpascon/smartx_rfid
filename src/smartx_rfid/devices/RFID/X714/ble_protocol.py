@@ -155,8 +155,35 @@ class BLEProtocol:
                         while client.is_connected and not self.ble_stop and not disconnected_event.is_set():
                             now = loop.time()
                             if now - last_ping >= 5:
-                                await self.write_ble(b"#ping")
+                                # Envia um ping e valida retorno; se falhar, assume desconexão
+                                try:
+                                    success = await self.write_ble(b"#ping")
+                                except Exception as e:
+                                    logging.warning(f"{self.name} - [Ping Error] {e}")
+                                    success = False
                                 last_ping = now
+                                if not success:
+                                    logging.warning(
+                                        f"{self.name} - ⚠️ Ping falhou — assumindo desconexão e forçando reconnect"
+                                    )
+                                    try:
+                                        # Tenta parar notify para acelerar desconexão
+                                        if self.notify_enabled:
+                                            try:
+                                                await client.stop_notify(CHARACTERISTIC_TX)
+                                            except Exception:
+                                                # tenta fallback para quaisquer características notify
+                                                for service in client.services:
+                                                    for char in service.characteristics:
+                                                        if "notify" in char.properties:
+                                                            try:
+                                                                await client.stop_notify(char.uuid)
+                                                                break
+                                                            except Exception:
+                                                                pass
+                                    except Exception:
+                                        pass
+                                    break
                             await asyncio.sleep(0.5)
 
                         logging.info(f"{self.name} - 🔌 Disconnected from device.")

@@ -16,6 +16,9 @@ class OnReceive:
             data = data.decode(errors="ignore")
         data = data.replace("\r", "").replace("\n", "")
         data = data.lower()
+
+        if data == "" or data == "#pong":
+            return
         if verbose:
             self.on_event(self.name, "receive", data)
 
