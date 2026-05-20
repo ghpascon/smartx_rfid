@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, List, Optional, Type, Union
 from contextlib import contextmanager
+from datetime import datetime, date
+from decimal import Decimal
 from sqlalchemy import create_engine, text, MetaData, inspect, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, scoped_session
 from sqlalchemy.pool import QueuePool
@@ -291,6 +293,15 @@ class DatabaseManager:
             raise DatabaseError("Database not initialized. Call initialize() first.")
         return self._scoped_session
 
+    def _normalize(self, v):
+        if isinstance(v, Decimal):
+            return float(v)
+        if isinstance(v, (datetime, date)):
+            return v.isoformat()
+        if isinstance(v, (bytes, bytearray, memoryview)):
+            return v.hex()
+        return v
+
     def execute_query(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> Any:
         """
         Execute a raw SQL query and return results as a list of dicts.
@@ -310,41 +321,12 @@ class DatabaseManager:
                 result = session.execute(query, params or {})
 
                 if result.returns_rows:
-                    return [dict(row) for row in result.mappings()]
-                else:
-                    return None
+                    return [{k: self._normalize(v) for k, v in row.items()} for row in result.mappings()]
+                return None
 
             except Exception as e:
                 self.logger.error(f"Query execution failed: {str(e)}")
                 raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
-
-    def execute_query_fetchall(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> List[Any]:
-        """
-        Execute a raw SQL query and fetch all results.
-
-        Args:
-            query (Union[str, text]): SQL query to execute
-            params (Optional[Dict[str, Any]]): Query parameters
-
-        Returns:
-            List[Any]: Query results
-        """
-        result = self.execute_query(query, params)
-        return result.fetchall()
-
-    def execute_query_fetchone(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> Any:
-        """
-        Execute a raw SQL query and fetch one result.
-
-        Args:
-            query (Union[str, text]): SQL query to execute
-            params (Optional[Dict[str, Any]]): Query parameters
-
-        Returns:
-            Any: Query result
-        """
-        result = self.execute_query(query, params)
-        return result.fetchone()
 
     def bulk_insert(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
         """
