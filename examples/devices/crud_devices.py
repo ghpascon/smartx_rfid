@@ -66,17 +66,17 @@ async def main():
         print("\n" + "=" * 60)
         print("2. Criando device 'leitor_tcp'")
         print("=" * 60)
-        ok, err = manager.create_device_config("leitor_tcp", TCP_DEVICE)
+        ok, err = await manager.create_device_config("leitor_tcp", TCP_DEVICE)
         print(f"  Resultado: ok={ok}, err={err}")
         print(f"  Devices após create: {manager.get_devices()}")
 
         print("\n  Criando device 'leitor_serial'")
-        ok, err = manager.create_device_config("leitor_serial", SERIAL_DEVICE)
+        ok, err = await manager.create_device_config("leitor_serial", SERIAL_DEVICE)
         print(f"  Resultado: ok={ok}, err={err}")
         print(f"  Devices após create: {manager.get_devices()}")
 
         print("\n  Tentando criar 'leitor_tcp' novamente sem overwrite (deve falhar)")
-        ok, err = manager.create_device_config("leitor_tcp", TCP_DEVICE)
+        ok, err = await manager.create_device_config("leitor_tcp", TCP_DEVICE)
         print(f"  Resultado: ok={ok}, err={err}")
 
         # ------------------------------------------------------------------
@@ -124,7 +124,7 @@ async def main():
         print("\n" + "=" * 60)
         print("6. Tentando criar device sem campo 'reader' (deve falhar)")
         print("=" * 60)
-        ok, err = manager.create_device_config("invalido", {"IP": "1.2.3.4"})
+        ok, err = await manager.create_device_config("invalido", {"IP": "1.2.3.4"})
         print(f"  Resultado: ok={ok}, err={err}")
 
         print("\n" + "=" * 60)

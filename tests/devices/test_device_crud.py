@@ -8,6 +8,7 @@ entre testes sem modificar o diretório real de devices.
 
 import json
 import os
+import asyncio
 
 import pytest
 
@@ -58,7 +59,7 @@ def manager(tmp_path):
 def manager_with_tcp(tmp_path):
     """DeviceManager com um device TCP pré-criado no disco."""
     m = DeviceManager(devices_path=str(tmp_path))
-    ok, _ = m.create_device_config("leitor_tcp", TCP_CONFIG)
+    ok, _ = asyncio.run(m.create_device_config("leitor_tcp", TCP_CONFIG))
     assert ok
     return m
 
@@ -70,14 +71,14 @@ def manager_with_tcp(tmp_path):
 
 class TestCreateDeviceConfig:
     def test_create_success(self, manager, tmp_path):
-        ok, err = manager.create_device_config("leitor", TCP_CONFIG)
+        ok, err = asyncio.run(manager.create_device_config("leitor", TCP_CONFIG))
 
         assert ok is True
         assert err is None
         assert os.path.exists(tmp_path / "leitor.json")
 
     def test_create_writes_valid_json(self, manager, tmp_path):
-        manager.create_device_config("leitor", TCP_CONFIG)
+        asyncio.run(manager.create_device_config("leitor", TCP_CONFIG))
 
         with open(tmp_path / "leitor.json", encoding="utf-8") as f:
             saved = json.load(f)
@@ -88,29 +89,29 @@ class TestCreateDeviceConfig:
     def test_create_reloads_device_list(self, manager):
         assert manager.get_device_count() == 0
 
-        manager.create_device_config("leitor", TCP_CONFIG)
+        asyncio.run(manager.create_device_config("leitor", TCP_CONFIG))
 
         assert manager.get_device_count() == 1
         assert "leitor" in manager.get_devices()
 
     def test_create_multiple_devices(self, manager):
-        manager.create_device_config("tcp1", TCP_CONFIG)
-        manager.create_device_config("serial1", SERIAL_CONFIG)
+        asyncio.run(manager.create_device_config("tcp1", TCP_CONFIG))
+        asyncio.run(manager.create_device_config("serial1", SERIAL_CONFIG))
 
         assert manager.get_device_count() == 2
         assert set(manager.get_devices()) == {"tcp1", "serial1"}
 
     def test_create_duplicate_without_overwrite_fails(self, manager):
-        manager.create_device_config("leitor", TCP_CONFIG)
-        ok, err = manager.create_device_config("leitor", TCP_CONFIG)
+        asyncio.run(manager.create_device_config("leitor", TCP_CONFIG))
+        ok, err = asyncio.run(manager.create_device_config("leitor", TCP_CONFIG))
 
         assert ok is False
         assert err is not None
         assert "already exists" in err
 
     def test_create_with_overwrite_succeeds(self, manager, tmp_path):
-        manager.create_device_config("leitor", TCP_CONFIG)
-        ok, err = manager.create_device_config("leitor", TCP_CONFIG_UPDATED, overwrite=True)
+        asyncio.run(manager.create_device_config("leitor", TCP_CONFIG))
+        ok, err = asyncio.run(manager.create_device_config("leitor", TCP_CONFIG_UPDATED, overwrite=True))
 
         assert ok is True
         assert err is None
@@ -120,7 +121,7 @@ class TestCreateDeviceConfig:
         assert saved["IP"] == TCP_CONFIG_UPDATED["IP"]
 
     def test_create_invalid_config_no_reader(self, manager, tmp_path):
-        ok, err = manager.create_device_config("invalido", INVALID_CONFIG_NO_READER)
+        ok, err = asyncio.run(manager.create_device_config("invalido", INVALID_CONFIG_NO_READER))
 
         assert ok is False
         assert "reader" in (err or "").lower()
@@ -128,7 +129,7 @@ class TestCreateDeviceConfig:
 
     def test_create_does_not_reload_on_failure(self, manager):
         # Device inválido não deve aparecer na lista
-        manager.create_device_config("invalido", INVALID_CONFIG_NO_READER)
+        asyncio.run(manager.create_device_config("invalido", INVALID_CONFIG_NO_READER))
         assert "invalido" not in manager.get_devices()
 
 
@@ -211,8 +212,8 @@ class TestDeleteDeviceConfig:
 
     @pytest.mark.asyncio
     async def test_delete_does_not_affect_other_devices(self, manager, tmp_path):
-        manager.create_device_config("tcp1", TCP_CONFIG)
-        manager.create_device_config("serial1", SERIAL_CONFIG)
+        await manager.create_device_config("tcp1", TCP_CONFIG)
+        await manager.create_device_config("serial1", SERIAL_CONFIG)
 
         await manager.delete_device_config("tcp1")
 

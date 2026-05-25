@@ -435,21 +435,14 @@ class DeviceManager:
     # CRUD – device config files
     # ------------------------------------------------------------------
 
-    def create_device_config(self, name: str, data: dict, overwrite: bool = False) -> Tuple[bool, Optional[str]]:
-        """
-        Persist a new device configuration to disk and reload the device list.
+    async def create_device_config(self, name: str, data: dict, overwrite: bool = False) -> Tuple[bool, Optional[str]]:
+        """Asynchronously persist a new device configuration and update memory.
 
-        Writes ``{name}.json`` inside *devices_path*. Fails if the file already
-        exists unless *overwrite* is True.  The in-memory device list is refreshed
-        automatically after a successful write via :meth:`load_devices`.
-
-        Args:
-            name:      Logical device name (becomes the filename without extension).
-            data:      Config dict; must contain a ``reader`` key (case-insensitive).
-            overwrite: When True an existing config file will be replaced.
-
-        Returns:
-            ``(True, None)`` on success, ``(False, error_message)`` otherwise.
+        This performs an atomic write to disk, then attempts to update the in-
+        memory device list without forcing a full reload. If a device with the
+        same name is already loaded, it will try to shutdown that single
+        device and replace it in-memory; if that fails, a full reload is
+        performed as a fallback.
         """
         # Validate required 'reader' field
         normalized = {k.lower(): v for k, v in data.items()}
@@ -464,51 +457,107 @@ class DeviceManager:
                 f"Device config '{name}' already exists. Use update_device_config to overwrite.",
             )
 
-        try:
-            # Ensure directory exists
-            os.makedirs(self._devices_path, exist_ok=True)
-
-            # Write to a temporary file in the same directory and atomically replace
-            fd, tmp_path = tempfile.mkstemp(prefix=f".{name}.", suffix=".json.tmp", dir=self._devices_path)
+        # Perform atomic write in a thread to avoid blocking the event loop.
+        def _atomic_write(devices_path, target_filepath, payload):
+            os.makedirs(devices_path, exist_ok=True)
+            fd, tmp_path = tempfile.mkstemp(prefix=f".{name}.", suffix=".json.tmp", dir=devices_path)
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as tf:
-                    json.dump(data, tf, indent=2, ensure_ascii=False)
+                    json.dump(payload, tf, indent=2, ensure_ascii=False)
                     tf.flush()
                     try:
                         os.fsync(tf.fileno())
                     except Exception:
-                        # not critical on all platforms
                         pass
-
-                os.replace(tmp_path, filepath)
+                os.replace(tmp_path, target_filepath)
             finally:
-                # If tmp file still exists, try to remove it
                 try:
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
                 except Exception:
                     pass
 
+        try:
+            await asyncio.to_thread(_atomic_write, self._devices_path, filepath, data)
             logging.info(f"✅ Device config '{name}' saved to '{filepath}'.")
         except Exception as e:
             logging.error(f"❌ Error writing device config '{name}': {e}")
             return False, str(e)
 
-        # Reload devices: if we're not inside an event loop run the async loader
-        # to completion; if inside a loop, leave it to the caller to await a
-        # reload (update_device_config / delete_device_config do that).
+        # Post-write: try to update in-memory state without full reload.
         try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            # no running loop -> perform reload now
+            existing = self.get_device(name)
+            if existing is not None:
+                # Try graceful shutdown of the existing device. If shutdown
+                # fails or the device remains, fallback to a full reload.
+                try:
+                    await self._shutdown_single_device(existing)
+                except Exception as e:
+                    logging.debug(f"Error shutting down existing device '{name}': {e}")
+                    try:
+                        await self._load_devices_async()
+                    except Exception as e2:
+                        logging.debug(f"Error reloading devices after failed shutdown: {e2}")
+                    return True, None
+
+                # If the device still exists after shutdown, perform full reload
+                if self.get_device(name) is not None:
+                    try:
+                        await self._load_devices_async()
+                    except Exception as e:
+                        logging.debug(f"Error reloading devices after failed removal: {e}")
+                    return True, None
+
+                # Add the new device to memory and, if connect tasks are active,
+                # start a connection task for it.
+                lock = self._ensure_async_lock()
+                async with lock:
+                    try:
+                        device_type = data.get("READER") or data.get("reader") or normalized.get("reader")
+                        self.add_device(name, device_type, normalized)
+                        self.assign_event_function()
+                        existing_tasks = [t for t in getattr(self, "_connect_tasks", []) if not t.done()]
+                        if existing_tasks:
+                            new_device = self.get_device(name)
+                            if new_device is not None:
+                                task = asyncio.create_task(self._device_connect_runner(new_device))
+                                self._connect_tasks.append(task)
+                    except Exception as e:
+                        logging.debug(f"Error adding new device to memory after create: {e}")
+                        try:
+                            await self._load_devices_async()
+                        except Exception as e2:
+                            logging.debug(f"Error reloading devices after failure adding new device: {e2}")
+                return True, None
+
+            # Not previously loaded: add to memory and start task if needed.
+            lock = self._ensure_async_lock()
+            async with lock:
+                try:
+                    device_type = data.get("READER") or data.get("reader") or normalized.get("reader")
+                    self.add_device(name, device_type, normalized)
+                    self.assign_event_function()
+                    existing_tasks = [t for t in getattr(self, "_connect_tasks", []) if not t.done()]
+                    if existing_tasks:
+                        new_device = self.get_device(name)
+                        if new_device is not None:
+                            task = asyncio.create_task(self._device_connect_runner(new_device))
+                            self._connect_tasks.append(task)
+                except Exception as e:
+                    logging.debug(f"Error adding new device in-memory after create: {e}")
+                    try:
+                        await self._load_devices_async()
+                    except Exception as e2:
+                        logging.debug(f"Error reloading devices after failure: {e2}")
+
+            return True, None
+        except Exception as e:
+            logging.debug(f"Unexpected error during post-create handling: {e}")
             try:
-                asyncio.run(self._load_devices_async())
-            except Exception:
-                logging.debug("Error running device reload synchronously", exc_info=True)
-        else:
-            # in running loop: do not block here; caller (async) should await
-            pass
-        return True, None
+                await self._load_devices_async()
+            except Exception as e2:
+                logging.debug(f"Error reloading devices after unexpected error: {e2}")
+            return True, None
 
     async def update_device_config(self, name: str, data: dict) -> Tuple[bool, Optional[str]]:
         """
@@ -525,19 +574,12 @@ class DeviceManager:
         Returns:
             ``(True, None)`` on success, ``(False, error_message)`` otherwise.
         """
-        device = self.get_device(name)
-        if device is not None:
-            await self._shutdown_single_device(device)
-
-        ok, err = self.create_device_config(name, data, overwrite=True)
+        # Use the async create implementation (overwrite) which will attempt
+        # to shutdown the existing device and update memory without forcing a
+        # full reload; it falls back to full reload on failure.
+        ok, err = await self.create_device_config(name, data, overwrite=True)
         if not ok:
             return ok, err
-
-        # Ensure devices are reloaded and cleanup completed
-        try:
-            await self._load_devices_async()
-        except Exception as e:
-            logging.debug(f"Error reloading devices after update: {e}")
 
         return True, None
 
