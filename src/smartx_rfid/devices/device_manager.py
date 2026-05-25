@@ -11,11 +11,13 @@ from smartx_rfid.devices import (
     SatoWs4Printer,
 )
 import asyncio
+import tempfile
 from typing import List, Dict, Optional, Tuple
 from smartx_rfid.schemas.tag import WriteTagValidator
 from smartx_rfid.schemas.devices import GpoSchema
 from typing import Callable
 import inspect
+import threading
 
 
 class DeviceManager:
@@ -25,6 +27,10 @@ class DeviceManager:
         self._example_path = example_path
         self._connect_tasks = []
         self._event_func: Callable | None = event_func
+        # Protect concurrent access to `devices` and `_connect_tasks`
+        self._lock = threading.RLock()
+        # Async lock for coroutine-safe operations (created lazily)
+        self._async_lock: Optional[asyncio.Lock] = None
 
     def __len__(self):
         return len(self.devices)
@@ -37,41 +43,146 @@ class DeviceManager:
             device.on_event = self._event_func
 
     def load_devices(self):
-        self.devices = []
+        """Synchronous wrapper to load devices.
 
+        If called outside an event loop this will run the async loader with
+        `asyncio.run`. If called inside an event loop the async loader is
+        scheduled and will run in background (prefer calling
+        ``await _load_devices_async()`` from async code).
+        """
         try:
-            # Create directory if it does not exist
-            if not os.path.exists(self._devices_path):
-                os.makedirs(self._devices_path)
-                logging.info(f"📁 Directory created: {self._devices_path}")
-        except Exception as e:
-            logging.error(f"❌ Error checking/creating directory '{self._devices_path}': {e}")
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop — run the async loader to completion
+            asyncio.run(self._load_devices_async())
             return
 
-        # Iterate over JSON files in the directory
-        for filename in os.listdir(self._devices_path):
-            if filename.endswith(".json"):
-                filepath = os.path.join(self._devices_path, filename)
-                logging.info(f"📄 File: {filename}")
-                try:
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        # Lower case the keys
-                        data = {k.lower(): v for k, v in data.items()}
-                    # If the device config is invalid, remove the file
-                    if data.get("reader") is None:
-                        os.remove(filepath)
-                        continue
-                    name = filename.replace(".json", "")
-                    device_type = data.get("reader", "UNKNOWN")
-                    self.add_device(name, device_type, data)
-                except json.JSONDecodeError as e:
-                    logging.error(f"❌ JSON decode error: {e}")
-                except Exception as e:
-                    logging.error(f"❌ Error processing file '{filename}': {e}")
+        # If we're here, loop is running; schedule the async loader
+        try:
+            loop.create_task(self._load_devices_async())
+        except Exception:
+            # Fallback: run synchronously (may block the caller)
+            asyncio.run(self._load_devices_async())
 
-        # Assign event handlers to devices
-        self.assign_event_function()
+    async def _load_devices_async(self):
+        """Actual async implementation for loading devices from disk.
+
+        This method performs a preload cleanup, reads JSON device configs and
+        instantiates device objects. It uses an asyncio lock to prevent
+        concurrent loaders.
+        """
+        # Perform preload cleanup before acquiring the loader lock to avoid
+        # deadlocks: cleanup will obtain the same async lock internally.
+        try:
+            await self._preload_cleanup_async()
+        except Exception as e:
+            logging.debug(f"Error during preload cleanup: {e}")
+
+        lock = self._ensure_async_lock()
+        async with lock:
+            # Reset devices list and create directory if needed
+            self.devices = []
+            try:
+                if not os.path.exists(self._devices_path):
+                    os.makedirs(self._devices_path, exist_ok=True)
+                    logging.info(f"📁 Directory created: {self._devices_path}")
+            except Exception as e:
+                logging.error(f"❌ Error checking/creating directory '{self._devices_path}': {e}")
+                return
+
+            # Iterate over JSON files in the directory
+            for filename in os.listdir(self._devices_path):
+                if filename.endswith(".json"):
+                    filepath = os.path.join(self._devices_path, filename)
+                    logging.info(f"📄 File: {filename}")
+                    try:
+                        # Read file in thread to avoid blocking
+                        def _read():
+                            with open(filepath, "r", encoding="utf-8") as f:
+                                return json.load(f)
+
+                        try:
+                            data = await asyncio.to_thread(_read)
+                        except Exception as e:
+                            logging.error(f"❌ Error reading file '{filename}': {e}")
+                            continue
+
+                        # Lower case the keys
+                        if isinstance(data, dict):
+                            data = {k.lower(): v for k, v in data.items()}
+                        else:
+                            logging.error(f"❌ Invalid config in '{filename}', expected object")
+                            try:
+                                os.remove(filepath)
+                            except Exception:
+                                pass
+                            continue
+
+                        # If the device config is invalid, remove the file
+                        if data.get("reader") is None:
+                            try:
+                                os.remove(filepath)
+                            except Exception:
+                                pass
+                            continue
+
+                        name = filename.replace(".json", "")
+                        device_type = data.get("reader", "UNKNOWN")
+                        # instantiate device (may be sync)
+                        try:
+                            self.add_device(name, device_type, data)
+                        except Exception as e:
+                            logging.error(f"❌ Error adding device '{name}': {e}")
+                    except json.JSONDecodeError as e:
+                        logging.error(f"❌ JSON decode error: {e}")
+                    except Exception as e:
+                        logging.error(f"❌ Error processing file '{filename}': {e}")
+
+            # Assign event handlers to devices
+            self.assign_event_function()
+
+    def _ensure_async_lock(self) -> asyncio.Lock:
+        """Create lazily and return an asyncio.Lock for coroutine-safe ops."""
+        if getattr(self, "_async_lock", None) is None:
+            self._async_lock = asyncio.Lock()
+        return self._async_lock
+
+    async def _preload_cleanup_async(self):
+        """Async cleanup run before reloading device configs.
+
+        This method awaits the cancellation of connect tasks and disconnects
+        devices using the async helpers. It's intended to be awaited from
+        async callers. For synchronous callers use the `_preload_cleanup` wrapper.
+        """
+        try:
+            await self.cancel_connect_tasks()
+        except Exception as e:
+            logging.debug(f"Error cancelling connect tasks during preload cleanup: {e}")
+
+        try:
+            await self.disconnect_devices()
+        except Exception as e:
+            logging.debug(f"Error disconnecting devices during preload cleanup: {e}")
+
+    def _preload_cleanup(self):
+        """Synchronous wrapper for preload cleanup.
+
+        If called outside an event loop it will run the async cleanup to
+        completion. If inside a running loop it will schedule the cleanup task
+        to run in background.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self._preload_cleanup_async())
+            return
+
+        # running loop: schedule background cleanup
+        try:
+            loop.create_task(self._preload_cleanup_async())
+        except Exception:
+            # fallback to running synchronously
+            asyncio.run(self._preload_cleanup_async())
 
     def add_device(self, name: str, device_type: str, data: dict):
         device_type = device_type.upper()
@@ -134,8 +245,8 @@ class DeviceManager:
         except Exception as e:
             logging.debug(f"Error disconnecting existing devices: {e}")
 
-        # reload device definitions
-        self.load_devices()
+        # reload device definitions (async)
+        await self._load_devices_async()
 
         tasks = []
         for device in self.devices:
@@ -153,36 +264,50 @@ class DeviceManager:
             logging.info(f"Started {len(tasks)} device connect task(s).")
 
     async def cancel_connect_tasks(self):
-        """Cancel any ongoing connect tasks and wait for their cancellation to complete."""
-        tasks = list(getattr(self, "_connect_tasks", []) or [])
-        if not tasks:
+        """Cancel any ongoing connect tasks and wait for their cancellation to complete.
+
+        Snapshot the task list under the async lock, clear it and then perform
+        cancellation/await outside the lock to avoid blocking other coroutines.
+        """
+        lock = self._ensure_async_lock()
+        async with lock:
+            tasks = list(getattr(self, "_connect_tasks", []) or [])
             self._connect_tasks = []
+
+        if not tasks:
             return
+
         # request cancellation
         for t in tasks:
-            if not t.done():
-                t.cancel()
-                logging.info("Cancelled previous device connection task.")
+            try:
+                if not t.done():
+                    t.cancel()
+                    logging.info("Cancelled previous device connection task.")
+            except Exception:
+                logging.debug("Error while cancelling a connect task", exc_info=True)
+
         # wait for them to finish/cancel
         try:
             await asyncio.gather(*tasks, return_exceptions=True)
         except Exception:
-            # exceptions are expected here due to cancellations; log at debug
+            # exceptions may occur due to cancellations; log at debug
             logging.debug("Exceptions occurred while awaiting cancelled tasks", exc_info=True)
-        self._connect_tasks = []
 
     async def _device_connect_runner(self, device):
         """Run device.connect() and ensure resources are closed on cancellation/exit."""
         try:
-            # if device.connect is a coroutine it will be awaited; if it raises CancelledError
-            # it will propagate to here so we can cleanup in finally.
-            res = device.connect()
-            if asyncio.iscoroutine(res):
-                await res
+            connect = getattr(device, "connect", None)
+            if not callable(connect):
+                logging.warning(f"Device {getattr(device, 'name', None)} has no connect() method")
+                return
+
+            # If connect is async, await it; otherwise run it in a thread to avoid
+            # blocking the event loop.
+            if asyncio.iscoroutinefunction(connect) or inspect.iscoroutinefunction(connect):
+                await connect()
             else:
-                # device.connect may be synchronous/blocking; run in thread
                 try:
-                    await asyncio.to_thread(res)
+                    await asyncio.to_thread(connect)
                 except Exception as e:
                     logging.error(f"Error running blocking connect for device {getattr(device, 'name', None)}: {e}")
         except asyncio.CancelledError:
@@ -204,39 +329,56 @@ class DeviceManager:
             if not callable(method):
                 continue
             try:
-                res = method()
-                if asyncio.iscoroutine(res):
-                    await res
-                # if method is sync, it should run immediately and close resource
+                # If the method is async, await it. Otherwise run in thread to
+                # avoid blocking the event loop for potentially slow shutdowns.
+                if asyncio.iscoroutinefunction(method) or inspect.iscoroutinefunction(method):
+                    await method()
+                else:
+                    try:
+                        await asyncio.to_thread(method)
+                    except Exception:
+                        # If running in thread fails for some reason, try calling
+                        # directly as a last resort.
+                        try:
+                            method()
+                        except Exception as e:
+                            logging.debug(f"Error calling {name} on device {getattr(device, 'name', None)}: {e}")
             except Exception as e:
                 logging.debug(f"Error calling {name} on device {getattr(device, 'name', None)}: {e}")
 
     async def disconnect_devices(self):
-        for device in list(self.devices):
-            try:
-                # cancel_all (sync ou async)
-                if hasattr(device, "cancel_all") and callable(getattr(device, "cancel_all")):
-                    result = device.cancel_all()
-                    if inspect.isawaitable(result):
-                        await result
+        # Snapshot and clear device list under async lock to avoid races.
+        lock = self._ensure_async_lock()
+        async with lock:
+            devices_snapshot = list(self.devices)
+            self.devices = []
 
-                # shutdown (sync ou async)
+        for device in devices_snapshot:
+            try:
+                # cancel_all (sync or async)
+                if hasattr(device, "cancel_all") and callable(getattr(device, "cancel_all")):
+                    method = getattr(device, "cancel_all")
+                    if asyncio.iscoroutinefunction(method) or inspect.iscoroutinefunction(method):
+                        await method()
+                    else:
+                        await asyncio.to_thread(method)
+
+                # shutdown (sync or async)
                 if hasattr(device, "shutdown") and callable(getattr(device, "shutdown")):
-                    result = device.shutdown()
-                    if inspect.isawaitable(result):
-                        await result
+                    method = getattr(device, "shutdown")
+                    if asyncio.iscoroutinefunction(method) or inspect.iscoroutinefunction(method):
+                        await method()
+                    else:
+                        await asyncio.to_thread(method)
 
             except Exception as e:
                 logging.exception(f"Erro ao desconectar device {device}: {e}")
             finally:
-                # Remove da lista de controle
+                # Remove local reference
                 try:
-                    self.devices.remove(device)
-                except ValueError:
+                    del device
+                except Exception:
                     pass
-
-                # Remove referência local
-                del device
 
     def get_devices(self):
         """Return a list of device names."""
@@ -257,29 +399,26 @@ class DeviceManager:
         """
         Return a list of example device names from the example path.
         Only JSON files are considered, and the '.json' extension is removed.
+        The example_path should already point to the devices directory.
         """
         if not self._example_path:
             return []
 
-        # Join example path with 'devices' folder
-        devices_path = os.path.join(self._example_path, "devices")
-
-        if not os.path.exists(devices_path):
+        if not os.path.exists(self._example_path):
             return []
 
-        return [f.replace(".json", "") for f in os.listdir(devices_path) if f.endswith(".json")]
+        return [f.replace(".json", "") for f in os.listdir(self._example_path) if f.endswith(".json")]
 
     def get_device_config_example(self, name: str):
         """
         Load and return the example configuration for a given device name.
         Returns None if the file does not exist or an error occurs.
+        The example_path should already point to the devices directory.
         """
         if not self._example_path:
             return None
 
-        # Join example path with 'devices' folder
-        devices_path = os.path.join(self._example_path, "devices")
-        filepath = os.path.join(devices_path, f"{name}.json")
+        filepath = os.path.join(self._example_path, f"{name}.json")
 
         if not os.path.exists(filepath):
             return None
@@ -291,6 +430,180 @@ class DeviceManager:
         except Exception as e:
             logging.error(f"❌ Error loading example config for device '{name}': {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # CRUD – device config files
+    # ------------------------------------------------------------------
+
+    def create_device_config(self, name: str, data: dict, overwrite: bool = False) -> Tuple[bool, Optional[str]]:
+        """
+        Persist a new device configuration to disk and reload the device list.
+
+        Writes ``{name}.json`` inside *devices_path*. Fails if the file already
+        exists unless *overwrite* is True.  The in-memory device list is refreshed
+        automatically after a successful write via :meth:`load_devices`.
+
+        Args:
+            name:      Logical device name (becomes the filename without extension).
+            data:      Config dict; must contain a ``reader`` key (case-insensitive).
+            overwrite: When True an existing config file will be replaced.
+
+        Returns:
+            ``(True, None)`` on success, ``(False, error_message)`` otherwise.
+        """
+        # Validate required 'reader' field
+        normalized = {k.lower(): v for k, v in data.items()}
+        if not normalized.get("reader"):
+            return False, "Invalid config: 'reader' field is required."
+
+        filepath = os.path.join(self._devices_path, f"{name}.json")
+
+        if os.path.exists(filepath) and not overwrite:
+            return (
+                False,
+                f"Device config '{name}' already exists. Use update_device_config to overwrite.",
+            )
+
+        try:
+            # Ensure directory exists
+            os.makedirs(self._devices_path, exist_ok=True)
+
+            # Write to a temporary file in the same directory and atomically replace
+            fd, tmp_path = tempfile.mkstemp(prefix=f".{name}.", suffix=".json.tmp", dir=self._devices_path)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as tf:
+                    json.dump(data, tf, indent=2, ensure_ascii=False)
+                    tf.flush()
+                    try:
+                        os.fsync(tf.fileno())
+                    except Exception:
+                        # not critical on all platforms
+                        pass
+
+                os.replace(tmp_path, filepath)
+            finally:
+                # If tmp file still exists, try to remove it
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except Exception:
+                    pass
+
+            logging.info(f"✅ Device config '{name}' saved to '{filepath}'.")
+        except Exception as e:
+            logging.error(f"❌ Error writing device config '{name}': {e}")
+            return False, str(e)
+
+        # Reload devices: if we're not inside an event loop run the async loader
+        # to completion; if inside a loop, leave it to the caller to await a
+        # reload (update_device_config / delete_device_config do that).
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # no running loop -> perform reload now
+            try:
+                asyncio.run(self._load_devices_async())
+            except Exception:
+                logging.debug("Error running device reload synchronously", exc_info=True)
+        else:
+            # in running loop: do not block here; caller (async) should await
+            pass
+        return True, None
+
+    async def update_device_config(self, name: str, data: dict) -> Tuple[bool, Optional[str]]:
+        """
+        Overwrite an existing device configuration and reload the device list.
+
+        If the device is currently loaded (connected or not), it is gracefully
+        shut down before the file is overwritten.  The device list is refreshed
+        automatically after a successful write.
+
+        Args:
+            name: Logical device name whose config file will be replaced.
+            data: New config dict; must contain a ``reader`` key.
+
+        Returns:
+            ``(True, None)`` on success, ``(False, error_message)`` otherwise.
+        """
+        device = self.get_device(name)
+        if device is not None:
+            await self._shutdown_single_device(device)
+
+        ok, err = self.create_device_config(name, data, overwrite=True)
+        if not ok:
+            return ok, err
+
+        # Ensure devices are reloaded and cleanup completed
+        try:
+            await self._load_devices_async()
+        except Exception as e:
+            logging.debug(f"Error reloading devices after update: {e}")
+
+        return True, None
+
+    async def delete_device_config(self, name: str) -> Tuple[bool, Optional[str]]:
+        """
+        Remove a device configuration file from disk and reload the device list.
+
+        If the device is currently loaded, it is gracefully shut down before the
+        file is deleted.  The device list is refreshed automatically.
+
+        Args:
+            name: Logical device name to remove.
+
+        Returns:
+            ``(True, None)`` on success, ``(False, error_message)`` otherwise.
+        """
+        filepath = os.path.join(self._devices_path, f"{name}.json")
+
+        if not os.path.exists(filepath):
+            return False, f"Device config '{name}' not found."
+
+        device = self.get_device(name)
+        if device is not None:
+            await self._shutdown_single_device(device)
+
+        try:
+            os.remove(filepath)
+            logging.info(f"🗑️  Device config '{name}' deleted from '{filepath}'.")
+        except Exception as e:
+            logging.error(f"❌ Error deleting device config '{name}': {e}")
+            return False, str(e)
+
+        # Reload devices synchronously within this async context
+        try:
+            await self._load_devices_async()
+        except Exception as e:
+            logging.debug(f"Error reloading devices after delete: {e}")
+
+        return True, None
+
+    async def _shutdown_single_device(self, device) -> None:
+        """
+        Gracefully shut down a single device and remove it from the managed list.
+
+        Calls ``cancel_all`` and ``shutdown`` when available, supporting both sync
+        and async variants.  The device is then removed from ``self.devices``.
+        """
+        for method_name in ("cancel_all", "shutdown"):
+            method = getattr(device, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                if asyncio.iscoroutinefunction(method) or inspect.iscoroutinefunction(method):
+                    await method()
+                else:
+                    await asyncio.to_thread(method)
+            except Exception as e:
+                logging.debug(f"Error calling {method_name} on device {getattr(device, 'name', None)}: {e}")
+
+        # Remove device under async lock
+        lock = self._ensure_async_lock()
+        async with lock:
+            try:
+                self.devices.remove(device)
+            except ValueError:
+                pass
 
     def get_device_count(self):
         return len(self.devices)
@@ -577,7 +890,7 @@ class DeviceManager:
             logging.error(f"❌ Error writing GPO on device '{device_name}': {e}")
             return False, str(e)
 
-    def get_serial_number(self, device_name: str) -> Optional[str]:
+    def get_serial_number(self, device_name: str) -> Tuple[bool, Optional[str]]:
         device = self.get_device(device_name)
         if device is None:
             return False, "Device not found."
