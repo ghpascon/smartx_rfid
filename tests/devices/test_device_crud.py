@@ -82,9 +82,9 @@ class TestCreateDeviceConfig:
 
         with open(tmp_path / "leitor.json", encoding="utf-8") as f:
             saved = json.load(f)
-
-        assert saved["READER"] == "TCP"
-        assert saved["IP"] == TCP_CONFIG["IP"]
+        # DeviceManager normaliza chaves para lower-case ao salvar
+        assert saved["reader"] == "TCP"
+        assert saved["ip"] == TCP_CONFIG["IP"]
 
     def test_create_reloads_device_list(self, manager):
         assert manager.get_device_count() == 0
@@ -118,7 +118,7 @@ class TestCreateDeviceConfig:
 
         with open(tmp_path / "leitor.json", encoding="utf-8") as f:
             saved = json.load(f)
-        assert saved["IP"] == TCP_CONFIG_UPDATED["IP"]
+        assert saved["ip"] == TCP_CONFIG_UPDATED["IP"]
 
     def test_create_invalid_config_no_reader(self, manager, tmp_path):
         ok, err = asyncio.run(manager.create_device_config("invalido", INVALID_CONFIG_NO_READER))
@@ -153,8 +153,8 @@ class TestUpdateDeviceConfig:
         with open(tmp_path / "leitor_tcp.json", encoding="utf-8") as f:
             saved = json.load(f)
 
-        assert saved["IP"] == TCP_CONFIG_UPDATED["IP"]
-        assert saved["PORT"] == TCP_CONFIG_UPDATED["PORT"]
+        assert saved["ip"] == TCP_CONFIG_UPDATED["IP"]
+        assert saved["port"] == TCP_CONFIG_UPDATED["PORT"]
 
     @pytest.mark.asyncio
     async def test_update_reloads_device_list(self, manager_with_tcp):
