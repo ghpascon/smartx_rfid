@@ -32,6 +32,8 @@ class LicenseManager:
         self.public_key = None
         self.public_key_pem: Optional[str] = None
         self.license_data: Optional[Dict[str, Any]] = None
+        # Cached parsed expiration datetime (avoid repeated parsing)
+        self._expires_at: Optional[datetime] = None
 
         if private_key_pem:
             self.load_private_key(private_key_pem)
@@ -187,24 +189,30 @@ class LicenseManager:
         if data.get("hardware_id") != self.get_hardware_id():
             raise Exception("License not valid for this hardware")
 
-        # Expiration validation
-        if data.get("expires"):
-            exp = datetime.fromisoformat(data["expires"])
-            if datetime.now() > exp:
+        # Expiration validation (parse once and cache)
+        exp_dt = None
+        expires_raw = data.get("expires")
+        if expires_raw:
+            exp_dt = datetime.fromisoformat(expires_raw)
+            if datetime.now() > exp_dt:
                 raise Exception("License expired")
 
         self.license_data = data
+        self._expires_at = exp_dt
         logging.info("License loaded and valid")
 
     def validate_license(self) -> bool:
         if not self.license_data:
             return False
         try:
-            expires = self.license_data.get("expires")
-            if expires:
-                exp = datetime.fromisoformat(expires)
-                if datetime.now() > exp:
-                    return False
+            exp = self._expires_at
+            if exp is None:
+                expires_raw = self.license_data.get("expires")
+                if expires_raw:
+                    exp = datetime.fromisoformat(expires_raw)
+                    self._expires_at = exp
+            if datetime.now() > exp:
+                return False
             return True
         except Exception:
             return False
@@ -236,24 +244,30 @@ class LicenseManager:
     def is_expired(self) -> bool:
         if not self.license_data:
             return True
-        expires = self.license_data.get("expires")
-        if not expires:
-            return False
-        try:
-            exp = datetime.fromisoformat(expires)
-            return datetime.now() > exp
-        except Exception:
-            return True
+        exp = self._expires_at
+        if exp is None:
+            expires_raw = self.license_data.get("expires")
+            if not expires_raw:
+                return False
+            try:
+                exp = datetime.fromisoformat(expires_raw)
+                self._expires_at = exp
+            except Exception:
+                return True
+        return datetime.now() > exp
 
     def expires_in(self) -> Optional[int]:
         if not self.license_data:
             return None
-        expires = self.license_data.get("expires")
-        if not expires:
-            return None
-        try:
-            exp = datetime.fromisoformat(expires)
-            delta = exp - datetime.now()
-            return max(delta.days, 0)
-        except Exception:
-            return None
+        exp = self._expires_at
+        if exp is None:
+            expires_raw = self.license_data.get("expires")
+            if not expires_raw:
+                return None
+            try:
+                exp = datetime.fromisoformat(expires_raw)
+                self._expires_at = exp
+            except Exception:
+                return None
+        delta = exp - datetime.now()
+        return max(delta.days, 0)
