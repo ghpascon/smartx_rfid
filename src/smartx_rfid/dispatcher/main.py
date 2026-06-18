@@ -343,15 +343,26 @@ class SqlDispatcher:
             await conn.execute(stmt, params_list)
             await conn.commit()
 
-    def _create_engine(self, connection_string: str) -> AsyncEngine:
-        engine = create_async_engine(
-            connection_string,
-            pool_pre_ping=True,
-            pool_size=20,
-            max_overflow=30,
-            pool_recycle=1800,
-            future=True,
-        )
+    def _create_engine(self, connection_string: str):
+        kwargs = {
+            "pool_pre_ping": True,
+        }
+
+        # detecta sqlite
+        is_sqlite = connection_string.startswith("sqlite")
+
+        if not is_sqlite:
+            kwargs.update(
+                {
+                    "pool_size": 20,
+                    "max_overflow": 30,
+                    "pool_recycle": 1800,
+                    "future": True,
+                }
+            )
+
+        engine = create_async_engine(connection_string, **kwargs)
+
         self._engines[connection_string] = engine
         return engine
 
