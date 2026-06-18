@@ -97,7 +97,7 @@ class JsonQueueHandler(logging.Handler):
 
 class LoggerManager:
     """
-    Professional logger with daily rotation, JSON file output, console output,
+    Professional logger with daily rotation, JSONL file output, console output,
     automatic cleanup of old logs, and async logging via queue.
     """
 
@@ -133,7 +133,7 @@ class LoggerManager:
     # Filename helpers
     # -------------------
     def _get_filename_for_date(self, date: datetime.date) -> str:
-        return str(self.log_path / f"{date:%Y-%m-%d}_{self.base_filename}.json")
+        return str(self.log_path / f"{date:%Y-%m-%d}_{self.base_filename}.jsonl")
 
     def _is_writable_path(self, path: Path) -> bool:
         try:
@@ -226,7 +226,7 @@ class LoggerManager:
 
         logs = []
         try:
-            files = list(self.log_path.glob(f"*_{self.base_filename}.json"))
+            files = list(self.log_path.glob(f"*_{self.base_filename}.jsonl"))
         except Exception as e:
             logging.getLogger().warning(f"Falha ao listar logs em {self.log_path}: {e}")
             return
