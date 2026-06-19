@@ -546,12 +546,12 @@ class DeviceManager:
             return False, str(e)
 
     @staticmethod
-    async def _call_or_run(func, *args):
+    async def _call_or_run(func, *args, **kwargs):
         """Await func if async, otherwise run it in a thread."""
         if asyncio.iscoroutinefunction(func) or inspect.iscoroutinefunction(func):
-            await func(*args)
+            await func(*args, **kwargs)
         else:
-            await asyncio.to_thread(func, *args)
+            await asyncio.to_thread(func, *args, **kwargs)
 
     # ------------------------------------------------------------------
     # GPO
