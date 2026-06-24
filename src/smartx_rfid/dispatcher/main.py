@@ -63,10 +63,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 import oracledb
 
-oracledb.init_oracle_client(lib_dir="/opt/oracle/instantclient")
-
 
 logger = logging.getLogger(__name__)
+
+
+try:
+    oracledb.init_oracle_client()
+    logger.info("Oracle client initialized successfully")
+except Exception as e:
+    logger.warning(f"Failed to initialize Oracle client: {e}")
 
 # ---------------------------------------------------------------------------
 # Sentinels and patterns
