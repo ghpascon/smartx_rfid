@@ -61,6 +61,10 @@ import httpx
 import orjson
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+import oracledb
+
+oracledb.init_oracle_client(lib_dir="/opt/oracle/instantclient")
+
 
 logger = logging.getLogger(__name__)
 
