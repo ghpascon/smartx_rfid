@@ -65,41 +65,206 @@ class ApiXtrack:
             logging.error(f"[ XTRACK ] Connection test failed: {response}")
         return success, response
 
-    async def get_objects(self):
+    # GET INFORMATION METHODS
+    async def get_categories(self):
         xml_payload = """
         <msg>
-            <command>GetObject</command>
+            <command>GetCategory</command>
             <terminal>ERP</terminal>
         </msg>
         """
         headers = {"Content-Type": "application/xml"}
-        # Faz o POST sem endpoint, enviando o XML como payload
         success, response = await self.post(data=xml_payload, headers=headers)
         xml_response = response.get("raw_response", None) if success else None
-        data_list = []
-        wanted_fields = [
-            "IDCODE",
-            "ACTIVE",
-            "DESCRIPTION",
-            "LOCATION_ID",
-            "LAST_SEEN",
-            "HOME_LOCATION_ID",
-            "LAST_MODIFIED",
-            "LAST_LOCATION",
-        ]
+        category_list = []
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
                 for data_elem in root.findall(".//data"):
-                    data_dict = {child.tag: child.text for child in data_elem if child.tag in wanted_fields}
-                    data_list.append(data_dict)
-                logging.info(f"[ XTRACK ] get_objects parsed data: {len(data_list)} items")
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    category_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_categories parsed data: {len(category_list)} items")
             except Exception as e:
                 logging.error(f"[ XTRACK ] XML parsing error: {e}")
                 return False, {"error": "XML parsing failed", "detail": str(e)}
         else:
-            logging.info(f"[ XTRACK ] get_objects response: {xml_response}")
-        return success, data_list if success else response
+            logging.info(f"[ XTRACK ] get_categories response: {xml_response}")
+        return success, category_list if success else response
+
+    async def get_conditions(self):
+        xml_payload = """
+        <msg>
+            <command>GetCondition</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        condition_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    condition_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_conditions parsed data: {len(condition_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_conditions response: {xml_response}")
+        return success, condition_list if success else response
+
+    async def get_cost_centers(self):
+        xml_payload = """
+        <msg>
+            <command>GetCostCenter</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        cost_center_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    cost_center_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_cost_centers parsed data: {len(cost_center_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_cost_centers response: {xml_response}")
+        return success, cost_center_list if success else response
+
+    async def get_custodians(self):
+        xml_payload = """
+        <msg>
+            <command>GetCustodian</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        custodian_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    custodian_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_custodians parsed data: {len(custodian_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_custodians response: {xml_response}")
+        return success, custodian_list if success else response
+
+    async def get_departments(self):
+        xml_payload = """
+        <msg>
+            <command>GetDepartment</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        department_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    department_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_departments parsed data: {len(department_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_departments response: {xml_response}")
+        return success, department_list if success else response
+
+    async def get_disposals(self):
+        xml_payload = """
+        <msg>
+            <command>GetDisposal</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        disposal_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    disposal_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_disposals parsed data: {len(disposal_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_disposals response: {xml_response}")
+        return success, disposal_list if success else response
+
+    async def get_dispositions(self):
+        xml_payload = """
+        <msg>
+            <command>GetDisposition</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        disposition_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    disposition_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_dispositions parsed data: {len(disposition_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_dispositions response: {xml_response}")
+        return success, disposition_list if success else response
+
+    async def get_groups(self):
+        xml_payload = """
+        <msg>
+            <command>GetGroup</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        group_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    group_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_groups parsed data: {len(group_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_groups response: {xml_response}")
+        return success, group_list if success else response
 
     async def get_locations(self):
         xml_payload = """
@@ -112,12 +277,11 @@ class ApiXtrack:
         success, response = await self.post(data=xml_payload, headers=headers)
         xml_response = response.get("raw_response", None) if success else None
         location_list = []
-        wanted_fields = ["ID", "NAME"]
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
                 for data_elem in root.findall(".//data"):
-                    data_dict = {child.tag: child.text for child in data_elem if child.tag in wanted_fields}
+                    data_dict = {child.tag: child.text for child in data_elem}
                     location_list.append(data_dict)
                 logging.info(f"[ XTRACK ] get_locations parsed data: {len(location_list)} items")
             except Exception as e:
@@ -126,6 +290,57 @@ class ApiXtrack:
         else:
             logging.info(f"[ XTRACK ] get_locations response: {xml_response}")
         return success, location_list if success else response
+
+    async def get_products(self):
+        xml_payload = """
+        <msg>
+            <command>GetProduct</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        product_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    product_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_products parsed data: {len(product_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_products response: {xml_response}")
+        return success, product_list if success else response
+
+    async def get_objects(self):
+        xml_payload = """
+        <msg>
+            <command>GetObject</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        # Faz o POST sem endpoint, enviando o XML como payload
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        data_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    data_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_objects parsed data: {len(data_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_objects response: {xml_response}")
+        return success, data_list if success else response
 
     async def get_identifications(self):
         xml_payload = """
@@ -138,12 +353,11 @@ class ApiXtrack:
         success, response = await self.post(data=xml_payload, headers=headers)
         xml_response = response.get("raw_response", None) if success else None
         identification_list = []
-        wanted_fields = ["IDCODE", "DESCRIPTION", "LOCATION_ID", "LAST_MODIFIED"]
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
                 for data_elem in root.findall(".//data"):
-                    data_dict = {child.tag: child.text for child in data_elem if child.tag in wanted_fields}
+                    data_dict = {child.tag: child.text for child in data_elem}
                     identification_list.append(data_dict)
                 logging.info(f"[ XTRACK ] get_identifications parsed data: {len(identification_list)} items")
             except Exception as e:
@@ -153,6 +367,673 @@ class ApiXtrack:
             logging.info(f"[ XTRACK ] get_identifications response: {xml_response}")
         return success, identification_list if success else response
 
+    async def get_users(self):
+        xml_payload = """
+        <msg>
+            <command>GetUser</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        user_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    user_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_users parsed data: {len(user_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_users response: {xml_response}")
+        return success, user_list if success else response
+
+    # REGISTER METHODS
+    async def register_category(self, category_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportCategory</command>
+            <terminal>ERP</terminal>
+            <data>
+                <category>
+                    <NAME>{category_name}</NAME>
+                </category>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_category response: {response}")
+        return success, response
+
+    async def register_condition(self, condition_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportCondition</command>
+            <terminal>ERP</terminal>
+            <data>
+                <condition>
+                    <NAME>{condition_name}</NAME>
+                </condition>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_condition response: {response}")
+        return success, response
+
+    async def register_cost_center(self, cost_center_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportCostCenter</command>
+            <terminal>ERP</terminal>
+            <data>
+                <costcenter>
+                    <NAME>{cost_center_name}</NAME>
+                </costcenter>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_cost_center response: {response}")
+        return success, response
+
+    async def register_custodian(self, custodian_name: str, custodian_description: str = ""):
+        xml_payload = f"""
+        <msg>
+            <command>ImportCustodian</command>
+            <terminal>ERP</terminal>
+            <data>
+                <custodian>
+                    <NAME>{custodian_name}</NAME>
+                    <DESCRIPTION>{custodian_description}</DESCRIPTION>
+                </custodian>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_custodian response: {response}")
+        return success, response
+
+    async def register_department(self, department_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportDepartment</command>
+            <terminal>ERP</terminal>
+            <data>
+                <department>
+                    <NAME>{department_name}</NAME>
+                </department>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_department response: {response}")
+        return success, response
+
+    async def register_disposal(self, disposal_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportDisposal</command>
+            <terminal>ERP</terminal>
+            <data>
+                <disposal>
+                    <NAME>{disposal_name}</NAME>
+                </disposal>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_disposal response: {response}")
+        return success, response
+
+    async def register_disposition(self, disposition_name: str, epc: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportDisposition</command>
+            <terminal>ERP</terminal>
+            <data>
+                <disposition>
+                    <NAME>{disposition_name}</NAME>
+                    <EPC_URI>{epc}</EPC_URI>
+                </disposition>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_disposition response: {response}")
+        return success, response
+
+    async def register_group(self, group_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>ImportGroup</command>
+            <terminal>ERP</terminal>
+            <data>
+                <group>
+                    <NAME>{group_name}</NAME>
+                </group>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_group response: {response}")
+        return success, response
+
+    async def register_location(
+        self,
+        location_name: str,
+        allocable: bool = True,
+        idetype1: str = "",
+        idecode1: str = "",
+        idetype2: str = "",
+        idecode2: str = "",
+        idetype3: str = "",
+        idecode3: str = "",
+        idetype4: str = "",
+        idecode4: str = "",
+    ):
+        allocable_value = "1" if allocable else "0"
+        xml_payload = f"""
+        <msg>
+            <command>ImportLocation</command>
+            <terminal>ERP</terminal>
+            <data>
+                <location>
+                    <NAME>{location_name}</NAME>
+                    <ALLOCABLE>{allocable_value}</ALLOCABLE>
+                    <IDETYPE1>{idetype1}</IDETYPE1>
+                    <IDECODE1>{idecode1}</IDECODE1>
+                    <IDETYPE2>{idetype2}</IDETYPE2>
+                    <IDECODE2>{idecode2}</IDECODE2>
+                    <IDETYPE3>{idetype3}</IDETYPE3>
+                    <IDECODE3>{idecode3}</IDECODE3>
+                    <IDETYPE4>{idetype4}</IDETYPE4>
+                    <IDECODE4>{idecode4}</IDECODE4>
+                </location>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_location response: {response}")
+        return success, response
+
+    async def register_product(
+        self,
+        idcode: str,
+        description: str,
+        category: str,
+        gs1ref: str = "",
+        container: int = 0,
+        usrdata1: str = "",
+        usrdata2: str = "",
+        usrdata3: str = "",
+        usrdata4: str = "",
+        usrdata5: str = "",
+        usrdata6: str = "",
+        usrdata7: str = "",
+        usrdata8: str = "",
+        usrdata9: str = "",
+        idetype1: str = "",
+        idecode1: str = "",
+        idetype2: str = "",
+        idecode2: str = "",
+        idetype3: str = "",
+        idecode3: str = "",
+        idetype4: str = "",
+        idecode4: str = "",
+        imagefile: str = "",
+    ):
+        xml_payload = f"""
+        <msg>
+            <command>ImportItemModel</command>
+            <terminal>ERP</terminal>
+            <data>
+                <itemmodel>
+                    <IDCODE>{idcode}</IDCODE>
+                    <DESCRIPTION>{description}</DESCRIPTION>
+                    <CATEGORY>{category}</CATEGORY>
+                    <GS1REF>{gs1ref}</GS1REF>
+                    <CONTAINER>{container}</CONTAINER>
+                    <USRDATA1>{usrdata1}</USRDATA1>
+                    <USRDATA2>{usrdata2}</USRDATA2>
+                    <USRDATA3>{usrdata3}</USRDATA3>
+                    <USRDATA4>{usrdata4}</USRDATA4>
+                    <USRDATA5>{usrdata5}</USRDATA5>
+                    <USRDATA6>{usrdata6}</USRDATA6>
+                    <USRDATA7>{usrdata7}</USRDATA7>
+                    <USRDATA8>{usrdata8}</USRDATA8>
+                    <USRDATA9>{usrdata9}</USRDATA9>
+                    <IDETYPE1>{idetype1}</IDETYPE1>
+                    <IDECODE1>{idecode1}</IDECODE1>
+                    <IDETYPE2>{idetype2}</IDETYPE2>
+                    <IDECODE2>{idecode2}</IDECODE2>
+                    <IDETYPE3>{idetype3}</IDETYPE3>
+                    <IDECODE3>{idecode3}</IDECODE3>
+                    <IDETYPE4>{idetype4}</IDETYPE4>
+                    <IDECODE4>{idecode4}</IDECODE4>
+                    <IMAGEFILE>{imagefile}</IMAGEFILE>
+                </itemmodel>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_product response: {response}")
+        return success, response
+
+    async def register_object(
+        self,
+        active: int,
+        idcode: str,
+        description: str,
+        serialnumber: str,
+        quantity: int,
+        itemmodel_idcode: str,
+        department_name: str,
+        condition_name: str,
+        disposition_name: str,
+        location_name: str,
+        homelocation_name: str = "",
+        group_name: str = "",
+        custodian_name: str = "",
+        disposal_name: str = "",
+        costcenter_name: str = "",
+        container_idcode: str = "",
+        latitude: str = "",
+        longitude: str = "",
+        usrdata1: str = "",
+        usrdata2: str = "",
+        usrdata3: str = "",
+        usrdata4: str = "",
+        usrdata5: str = "",
+        usrdata6: str = "",
+        usrdata7: str = "",
+        usrdata8: str = "",
+        usrdata9: str = "",
+        idetype1: str = "BARCODE",
+        idecode1: str = "",
+        idetype2: str = "RFID",
+        idecode2: str = "",
+        idetype3: str = "",
+        idecode3: str = "",
+        idetype4: str = "",
+        idecode4: str = "",
+        imagefile: str = "",
+    ):
+        xml_payload = f"""
+        <msg>
+            <command>ImportObject</command>
+            <terminal>ERP</terminal>
+            <data>
+                <object>
+                    <ACTIVE>{active}</ACTIVE>
+                    <IDCODE>{idcode}</IDCODE>
+                    <DESCRIPTION>{description}</DESCRIPTION>
+                    <SERIALNUMBER>{serialnumber}</SERIALNUMBER>
+                    <QUANTITY>{quantity}</QUANTITY>
+                    <ITEMMODEL_IDCODE>{itemmodel_idcode}</ITEMMODEL_IDCODE>
+                    <DEPARTMENT_NAME>{department_name}</DEPARTMENT_NAME>
+                    <CONDITION_NAME>{condition_name}</CONDITION_NAME>
+                    <DISPOSITION_NAME>{disposition_name}</DISPOSITION_NAME>
+                    <LOCATION_NAME>{location_name}</LOCATION_NAME>
+                    <HOMELOCATION_NAME>{homelocation_name}</HOMELOCATION_NAME>
+                    <GROUP_NAME>{group_name}</GROUP_NAME>
+                    <CUSTODIAN_NAME>{custodian_name}</CUSTODIAN_NAME>
+                    <DISPOSAL_NAME>{disposal_name}</DISPOSAL_NAME>
+                    <COSTCENTER_NAME>{costcenter_name}</COSTCENTER_NAME>
+                    <CONTAINER_IDCODE>{container_idcode}</CONTAINER_IDCODE>
+                    <LATITUDE>{latitude}</LATITUDE>
+                    <LONGITUDE>{longitude}</LONGITUDE>
+                    <USRDATA1>{usrdata1}</USRDATA1>
+                    <USRDATA2>{usrdata2}</USRDATA2>
+                    <USRDATA3>{usrdata3}</USRDATA3>
+                    <USRDATA4>{usrdata4}</USRDATA4>
+                    <USRDATA5>{usrdata5}</USRDATA5>
+                    <USRDATA6>{usrdata6}</USRDATA6>
+                    <USRDATA7>{usrdata7}</USRDATA7>
+                    <USRDATA8>{usrdata8}</USRDATA8>
+                    <USRDATA9>{usrdata9}</USRDATA9>
+                    <IDETYPE1>{idetype1}</IDETYPE1>
+                    <IDECODE1>{idecode1}</IDECODE1>
+                    <IDETYPE2>{idetype2}</IDETYPE2>
+                    <IDECODE2>{idecode2}</IDECODE2>
+                    <IDETYPE3>{idetype3}</IDETYPE3>
+                    <IDECODE3>{idecode3}</IDECODE3>
+                    <IDETYPE4>{idetype4}</IDETYPE4>
+                    <IDECODE4>{idecode4}</IDECODE4>
+                    <IMAGEFILE>{imagefile}</IMAGEFILE>
+                </object>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_object response: {response}")
+        return success, response
+
+    # DELETE METHODS
+    async def delete_category(self, category_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteCategory</command>
+            <terminal>ERP</terminal>
+            <data>
+                <category>
+                    <NAME>{category_name}</NAME>
+                </category>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_category response: {response}")
+        return success, response
+
+    async def delete_all_categories(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllCategory</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_categories response: {response}")
+        return success, response
+
+    async def delete_condition(self, condition_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteCondition</command>
+            <terminal>ERP</terminal>
+            <data>
+                <condition>
+                    <NAME>{condition_name}</NAME>
+                </condition>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_condition response: {response}")
+        return success, response
+
+    async def delete_all_conditions(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllCondition</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_conditions response: {response}")
+        return success, response
+
+    async def delete_cost_center(self, cost_center_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteCostCenter</command>
+            <terminal>ERP</terminal>
+            <data>
+                <costcenter>
+                    <NAME>{cost_center_name}</NAME>
+                </costcenter>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_cost_center response: {response}")
+        return success, response
+
+    async def delete_all_cost_centers(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllCostCenter</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_cost_centers response: {response}")
+        return success, response
+
+    async def delete_custodian(self, custodian_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteCustodian</command>
+            <terminal>ERP</terminal>
+            <data>
+                <custodian>
+                    <NAME>{custodian_name}</NAME>
+                </custodian>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_custodian response: {response}")
+        return success, response
+
+    async def delete_all_custodians(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllCustodian</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_custodians response: {response}")
+        return success, response
+
+    async def delete_department(self, department_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteDepartment</command>
+            <terminal>ERP</terminal>
+            <data>
+                <department>
+                    <NAME>{department_name}</NAME>
+                </department>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_department response: {response}")
+        return success, response
+
+    async def delete_all_departments(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllDepartment</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_departments response: {response}")
+        return success, response
+
+    async def delete_disposal(self, disposal_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteDisposal</command>
+            <terminal>ERP</terminal>
+            <data>
+                <disposal>
+                    <NAME>{disposal_name}</NAME>
+                </disposal>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_disposal response: {response}")
+        return success, response
+
+    async def delete_all_disposals(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllDisposal</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_disposals response: {response}")
+        return success, response
+
+    async def delete_disposition(self, disposition_name: str, epc_uri: str = ""):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteDisposition</command>
+            <terminal>ERP</terminal>
+            <data>
+                <disposition>
+                    <NAME>{disposition_name}</NAME>
+                    <EPC_URI>{epc_uri}</EPC_URI>
+                </disposition>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_disposition response: {response}")
+        return success, response
+
+    async def delete_all_dispositions(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllDisposition</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_dispositions response: {response}")
+        return success, response
+
+    async def delete_group(self, group_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteGroup</command>
+            <terminal>ERP</terminal>
+            <data>
+                <group>
+                    <NAME>{group_name}</NAME>
+                </group>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_group response: {response}")
+        return success, response
+
+    async def delete_all_groups(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllGroup</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_groups response: {response}")
+        return success, response
+
+    async def delete_location(self, location_name: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteLocation</command>
+            <terminal>ERP</terminal>
+            <data>
+                <location>
+                    <NAME>{location_name}</NAME>
+                </location>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_location response: {response}")
+        return success, response
+
+    async def delete_all_locations(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllLocation</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_locations response: {response}")
+        return success, response
+
+    async def delete_item_model(self, idcode: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteItemModel</command>
+            <terminal>ERP</terminal>
+            <data>
+                <itemmodel>
+                    <IDCODE>{idcode}</IDCODE>
+                </itemmodel>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_item_model response: {response}")
+        return success, response
+
+    async def delete_all_item_models(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllItemModel</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_item_models response: {response}")
+        return success, response
+
+    async def delete_object(self, idcode: str):
+        xml_payload = f"""
+        <msg>
+            <command>DeleteObject</command>
+            <terminal>ERP</terminal>
+            <data>
+                <object>
+                    <IDCODE>{idcode}</IDCODE>
+                </object>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_object response: {response}")
+        return success, response
+
+    # MOVE METHODS
     async def move_object(self, idcode: str, location_id: str):
         xml_payload = f"""
         <msg>
@@ -168,3 +1049,243 @@ class ApiXtrack:
         success, response = await self.post(data=xml_payload, headers=headers)
         logging.info(f"[ XTRACK ] move_object response: {response}")
         return success, response
+
+    async def move_condition(self, idcode: str, condition: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveCondition</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <condition>{condition}</condition>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_condition response: {response}")
+        return success, response
+
+    async def move_disposition(self, idcode: str, disposition: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveDisposition</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <disposition>{disposition}</disposition>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_disposition response: {response}")
+        return success, response
+
+    async def move_custodian(self, idcode: str, custodian: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveCustodian</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <custodian>{custodian}</custodian>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_custodian response: {response}")
+        return success, response
+
+    async def move_cost_center(self, idcode: str, costcenter: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveCostCenter</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <costcenter>{costcenter}</costcenter>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_cost_center response: {response}")
+        return success, response
+
+    async def move_group(self, idcode: str, group: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveGroup</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <group>{group}</group>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_group response: {response}")
+        return success, response
+
+    async def move_disposal(self, idcode: str, disposal: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveDisposal</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <disposal>{disposal}</disposal>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_disposal response: {response}")
+        return success, response
+
+    async def move_department(self, idcode: str, department: str):
+        xml_payload = f"""
+        <msg>
+            <command>MoveDepartment</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <department>{department}</department>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_department response: {response}")
+        return success, response
+
+    async def update_usrdata(
+        self,
+        idcode: str,
+        usrdata1: str = "",
+        usrdata2: str = "",
+        usrdata3: str = "",
+        usrdata4: str = "",
+        usrdata5: str = "",
+        usrdata6: str = "",
+        usrdata7: str = "",
+        usrdata8: str = "",
+        usrdata9: str = "",
+    ):
+        usr_values = [usrdata1, usrdata2, usrdata3, usrdata4, usrdata5, usrdata6, usrdata7, usrdata8, usrdata9]
+        data_fields = "".join(
+            f"<USRDATA{i + 1}>{usr_values[i]}</USRDATA{i + 1}>" for i in range(len(usr_values)) if usr_values[i] != ""
+        )
+        xml_payload = f"""
+        <msg>
+            <command>UpdateUsrData</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                {data_fields}
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] update_usrdata response: {response}")
+        return success, response
+
+    async def update_home_location(self, idcode: str, homelocation: str):
+        xml_payload = f"""
+        <msg>
+            <command>UpdateHomeLocation</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <homelocation>{homelocation}</homelocation>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] update_home_location response: {response}")
+        return success, response
+
+    async def update_active(self, idcode: str, active: str):
+        active_value = str(active).lower()
+        xml_payload = f"""
+        <msg>
+            <command>UpdateActive</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <active>{active_value}</active>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] update_active response: {response}")
+        return success, response
+
+    async def update_due_date(self, idcode: str, duedate: str):
+        xml_payload = f"""
+        <msg>
+            <command>UpdateDueDate</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <duedate>{duedate}</duedate>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] update_due_date response: {response}")
+        return success, response
+
+    async def update_last_seen(self, idcode: str, lastseen: str):
+        xml_payload = f"""
+        <msg>
+            <command>UpdateLastSeen</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <object>{idcode}</object>
+                <lastseen>{lastseen}</lastseen>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] update_last_seen response: {response}")
+        return success, response
+
+    async def get_rep_hist_loc(self, startdate: str, enddate: str, object_id: str, column: str):
+        xml_payload = f"""
+        <msg>
+            <command>GetRepHistLoc</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <startdate>{startdate}</startdate>
+                <enddate>{enddate}</enddate>
+                <object>{object_id}</object>
+                <column>{column}</column>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        results = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    results.append(data_dict)
+                logging.info(f"[ XTRACK ] get_rep_hist_loc parsed data: {len(results)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_rep_hist_loc response: {xml_response}")
+        return success, results if success else response
