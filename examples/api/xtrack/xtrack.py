@@ -69,6 +69,7 @@ ACTION_MAP = {
         ("get_objects", "List objects", []),
         ("get_identifications", "List identifications", []),
         ("get_users", "List users", []),
+        ("get_idcode_from_epc", "Get IDCODE by EPC", [("epc", str, "")]),
     ],
     "REGISTER": [
         ("register_category", "Create category", [("category_name", str, "")]),

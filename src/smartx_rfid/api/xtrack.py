@@ -392,6 +392,36 @@ class ApiXtrack:
             logging.info(f"[ XTRACK ] get_users response: {xml_response}")
         return success, user_list if success else response
 
+    async def get_idcode_from_epc(self, epc: str):
+        xml_payload = f"""
+        <msg>
+            <command>GetObjectByEPC</command>
+            <terminal>SAPext</terminal>
+            <data>
+                <epc>{epc}</epc>
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        idcode = None
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                data_elem = root.find(".//data")
+                if data_elem is not None:
+                    idcode_elem = data_elem.find("IDCODE")
+                    if idcode_elem is not None:
+                        idcode = idcode_elem.text
+                logging.info(f"[ XTRACK ] get_idcode_from_epc parsed IDCODE: {idcode}")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_idcode_from_epc response: {xml_response}")
+        return success, idcode if success else response
+
     # REGISTER METHODS
     async def register_category(self, category_name: str):
         xml_payload = f"""
