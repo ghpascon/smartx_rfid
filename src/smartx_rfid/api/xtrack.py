@@ -398,7 +398,7 @@ class ApiXtrack:
             <command>GetObjectByEPC</command>
             <terminal>SAPext</terminal>
             <data>
-                <epc>{epc}</epc>
+                <epc>{epc.upper()}</epc>
             </data>
         </msg>
         """
