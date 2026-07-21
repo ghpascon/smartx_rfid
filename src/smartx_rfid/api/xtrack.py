@@ -409,17 +409,23 @@ class ApiXtrack:
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
-                data_elem = root.find(".//data")
-                if data_elem is not None:
-                    idcode_elem = data_elem.find("IDCODE")
-                    if idcode_elem is not None:
-                        idcode = idcode_elem.text
+                # localizar especificamente o idcode do <object> dentro de <data>
+                idcode_elem = root.find(".//data/object/idcode")
+                if idcode_elem is None:
+                    idcode_elem = root.find(".//object/idcode")
+                if idcode_elem is None:
+                    idcode_elem = root.find(".//idcode")
+
+                if idcode_elem is not None and idcode_elem.text:
+                    idcode = idcode_elem.text.strip()
+
                 logging.info(f"[ XTRACK ] get_idcode_from_epc parsed IDCODE: {idcode}")
             except Exception as e:
                 logging.error(f"[ XTRACK ] XML parsing error: {e}")
                 return False, {"error": "XML parsing failed", "detail": str(e)}
         else:
             logging.info(f"[ XTRACK ] get_idcode_from_epc response: {xml_response}")
+
         return success, idcode if success else response
 
     # REGISTER METHODS
