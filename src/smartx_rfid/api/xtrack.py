@@ -392,7 +392,7 @@ class ApiXtrack:
             logging.info(f"[ XTRACK ] get_users response: {xml_response}")
         return success, user_list if success else response
 
-    async def get_idcode_from_epc(self, epc: str):
+    async def get_object_by_epc(self, epc: str):
         xml_payload = f"""
         <msg>
             <command>GetObjectByEPC</command>
@@ -405,28 +405,43 @@ class ApiXtrack:
         headers = {"Content-Type": "application/xml"}
         success, response = await self.post(data=xml_payload, headers=headers)
         xml_response = response.get("raw_response", None) if success else None
-        idcode = None
+        parsed = None
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
-                # localizar especificamente o idcode do <object> dentro de <data>
-                idcode_elem = root.find(".//data/object/idcode")
-                if idcode_elem is None:
-                    idcode_elem = root.find(".//object/idcode")
-                if idcode_elem is None:
-                    idcode_elem = root.find(".//idcode")
+                data_elem = root.find(".//data")
+                object_elem = data_elem.find("object") if data_elem is not None else None
+                # product_elem = data_elem.find("product") if data_elem is not None else None
 
-                if idcode_elem is not None and idcode_elem.text:
-                    idcode = idcode_elem.text.strip()
+                def _elem_to_dict(elem):
+                    if elem is None:
+                        return None
+                    d = {}
+                    for child in elem:
+                        tag = child.tag.split("}")[-1]
+                        d[tag] = child.text.strip() if child.text and child.text.strip() else None
+                    return d
 
-                logging.info(f"[ XTRACK ] get_idcode_from_epc parsed IDCODE: {idcode}")
+                parsed = _elem_to_dict(object_elem)
+
+                logging.info(f"[ XTRACK ] get_object_by_epc parsed data: {parsed}")
             except Exception as e:
                 logging.error(f"[ XTRACK ] XML parsing error: {e}")
                 return False, {"error": "XML parsing failed", "detail": str(e)}
         else:
-            logging.info(f"[ XTRACK ] get_idcode_from_epc response: {xml_response}")
+            logging.info(f"[ XTRACK ] get_object_by_epc response: {xml_response}")
 
-        return success, idcode if success else response
+        return success, parsed if success else response
+
+    async def get_idcode_from_epc(self, epc: str):
+        # reutiliza get_object_by_epc e retorna apenas o idcode do <object> (fallback para <product>)
+        success, data = await self.get_object_by_epc(epc)
+        if not success:
+            return success, data
+
+        idcode = data.get("idcode") if isinstance(data, dict) else None
+        logging.info(f"[ XTRACK ] get_idcode_from_epc resolved IDCODE: {idcode}")
+        return True, idcode
 
     # REGISTER METHODS
     async def register_category(self, category_name: str):
