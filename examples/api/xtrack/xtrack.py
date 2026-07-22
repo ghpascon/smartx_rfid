@@ -173,6 +173,7 @@ ACTION_MAP = {
         ("delete_item_model", "Delete item model", [("idcode", str, "")]),
         ("delete_all_item_models", "Delete all item models", []),
         ("delete_object", "Delete object", [("idcode", str, "")]),
+        ("delete_all_objects", "Delete all objects", []),
     ],
     "MOVE": [
         ("move_object", "Move object to location", [("idcode", str, ""), ("location_id", str, "")]),

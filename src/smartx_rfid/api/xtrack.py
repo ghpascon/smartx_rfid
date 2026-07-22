@@ -1084,6 +1084,18 @@ class ApiXtrack:
         logging.info(f"[ XTRACK ] delete_object response: {response}")
         return success, response
 
+    async def delete_all_objects(self):
+        xml_payload = """
+        <msg>
+            <command>DeleteAllObject</command>
+            <terminal>ERP</terminal>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] delete_all_objects response: {response}")
+        return success, response
+
     # MOVE METHODS
     async def move_object(self, idcode: str, location_id: str):
         xml_payload = f"""
