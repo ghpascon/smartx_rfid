@@ -491,6 +491,58 @@ class DeviceManager:
                 results[device.name] = await self.stop_inventory(device.name)
         return results
 
+    async def set_power(self, device_name: str, power: int) -> Tuple[bool, Optional[str]]:
+        """
+        Set the power level of a device. Returns (success, error_message). If success is True, error_message is None. If success is False, error_message contains the reason for failure.
+        find recursively in the device file, set the power, save and reconnect the device. If the device does not support setting power, return an error message.
+        """
+        device = self.get_device(device_name)
+        if device is None:
+            return False, f"Device '{device_name}' not found."
+
+        # Get device config file path
+        filepath = os.path.join(self._devices_path, f"{device_name}.json")
+        if not os.path.exists(filepath):
+            return False, f"Device config file for '{device_name}' not found."
+
+        # Load device config
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except Exception as e:
+            return False, f"Error reading device config for '{device_name}': {e}"
+
+        # Recursively find power in the config and update
+        valid_power_names = ["read_power", "power", "transmitpowercdbm"]
+
+        found_qty = 0
+
+        def set_power_recursively(d):
+            nonlocal found_qty
+            for k, v in d.items():
+                if k.lower() in valid_power_names:
+                    d[k] = power
+                    found_qty += 1
+                elif isinstance(v, dict):
+                    set_power_recursively(v)
+
+        set_power_recursively(config)
+        if found_qty == 0:
+            return False, f"No power setting found in device config for '{device_name}'."
+
+        # Save updated config
+        try:
+            self._atomic_write(filepath, config)
+        except Exception as e:
+            return False, f"Error writing device config for '{device_name}': {e}"
+
+        # Reconnect the device
+        try:
+            await self._reload_single_device(device_name, config)
+            return True, f"Power for device '{device_name}' set to {power} ({found_qty} occurrences)."
+        except Exception as e:
+            return False, f"Error reconnecting device '{device_name}': {e}"
+
     # ------------------------------------------------------------------
     # EPC write / protected mode
     # ------------------------------------------------------------------
