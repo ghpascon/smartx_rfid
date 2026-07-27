@@ -39,6 +39,7 @@ class Readers(Base, BaseMixin):
     serial_number = Column(String(100), nullable=False, index=True, unique=True)
     hostname = Column(String(255), nullable=True, index=True)
     available = Column(Boolean, nullable=False, default=True, index=True)
+    can_generate_license = Column(Boolean, nullable=True, default=False, index=False)
 
 
 @event.listens_for(Readers, "before_insert")
@@ -48,6 +49,14 @@ def check_reader_type_id(mapper, connection, target):
     session.close()
     if not exists:
         raise ValueError(f"reader_type_id {target.reader_type_id} não existe em ReadersType.")
+
+
+@event.listens_for(Readers, "before_insert")
+def smtx_devices_can_generate_license(mapper, connection, target):
+    session = Session(bind=connection)
+    if target.serial_number and target.serial_number.lower().startswith("smtx"):
+        target.can_generate_license = True
+    session.close()
 
 
 class Orders(Base, BaseMixin):
