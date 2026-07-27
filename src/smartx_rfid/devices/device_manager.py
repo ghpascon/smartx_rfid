@@ -42,6 +42,8 @@ class DeviceManager:
         self._example_path = example_path
         self._event_func: Callable | None = event_func
         self._connect_tasks: list[asyncio.Task] = []
+        # Map device name -> list of connect tasks for per-device cancellation
+        self._connect_tasks_map: Dict[str, List[asyncio.Task]] = {}
         # Single asyncio lock – created once, never replaced.
         self._lock = asyncio.Lock()
 
@@ -67,12 +69,32 @@ class DeviceManager:
             else:
                 await asyncio.to_thread(method)
         except Exception as e:
-            logging.debug(f"Error calling '{method_name}' on device '{getattr(device, 'name', device)}': {e}")
+            logging.error(f"Error calling '{method_name}' on device '{getattr(device, 'name', device)}': {e}")
 
     async def _shutdown_device(self, device) -> None:
         """Gracefully shut down one device and remove it from self.devices."""
-        for method_name in ("cancel_all", "shutdown"):
+        # Ensure any connect tasks for this device are cancelled first so
+        # they don't race with the shutdown sequence.
+        device_name = getattr(device, "name", None)
+        if device_name:
+            try:
+                await self._cancel_connect_tasks_for_device(device_name)
+            except Exception as e:
+                logging.error(f"Error cancelling connect tasks for '{device_name}': {e}")
+
+        # Try a set of teardown methods in a defensive order.
+        for method_name in ("cancel_all", "disconnect", "close", "stop", "shutdown"):
             await self._call_method(device, method_name)
+
+        # Wait briefly for the device to report it is disconnected. This
+        # helps ensure OS resources (serial ports, sockets) are released
+        # before attempting to re-open them, reducing "permission denied"
+        # races on some platforms.
+        try:
+            await self._wait_for_device_disconnected(device, timeout=3.0)
+        except Exception:
+            # Non-fatal; proceed with removal regardless.
+            pass
 
         async with self._lock:
             try:
@@ -80,10 +102,26 @@ class DeviceManager:
             except ValueError:
                 pass
 
+    async def _wait_for_device_disconnected(self, device, timeout: float = 3.0, interval: float = 0.1) -> None:
+        """Poll `device.is_connected` until False or timeout.
+
+        This is intentionally conservative: devices should implement
+        their own close/disconnect logic, but some drivers need a short
+        delay for OS resources to be freed.
+        """
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        while getattr(device, "is_connected", False) and (loop.time() - start) < timeout:
+            await asyncio.sleep(interval)
+        if getattr(device, "is_connected", False):
+            logging.warning(f"⚠️ Device '{getattr(device, 'name', device)}' still reports connected after {timeout}s.")
+
     async def _cancel_connect_tasks(self) -> None:
         """Cancel all pending connect tasks and wait for them to finish."""
         async with self._lock:
             tasks, self._connect_tasks = self._connect_tasks, []
+            # clear per-device map as well
+            self._connect_tasks_map = {}
 
         if not tasks:
             return
@@ -93,6 +131,50 @@ class DeviceManager:
                 task.cancel()
 
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _register_connect_task(self, device_name: str, task: asyncio.Task) -> None:
+        """Register a connect task in both the global list and the per-device map."""
+        async with self._lock:
+            if task not in self._connect_tasks:
+                self._connect_tasks.append(task)
+            self._connect_tasks_map.setdefault(device_name, []).append(task)
+
+    async def _unregister_connect_task(self, device_name: str, task: asyncio.Task) -> None:
+        """Remove a task from tracking structures."""
+        async with self._lock:
+            try:
+                if task in self._connect_tasks:
+                    self._connect_tasks.remove(task)
+            except ValueError:
+                pass
+            lst = self._connect_tasks_map.get(device_name)
+            if lst:
+                try:
+                    lst.remove(task)
+                except ValueError:
+                    pass
+                if not lst:
+                    self._connect_tasks_map.pop(device_name, None)
+
+    async def _cancel_connect_tasks_for_device(self, device_name: str) -> None:
+        """Cancel and await connect tasks associated with a single device."""
+        async with self._lock:
+            tasks = self._connect_tasks_map.pop(device_name, [])
+            # remove from global list while holding the lock
+            if tasks:
+                self._connect_tasks = [t for t in self._connect_tasks if t not in tasks]
+
+        if not tasks:
+            return
+
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception) and not isinstance(r, asyncio.CancelledError):
+                logging.error(f"Exception while cancelling task for '{device_name}': {r}")
 
     async def _disconnect_all_devices(self) -> None:
         """Shut down every device currently in memory."""
@@ -216,15 +298,19 @@ class DeviceManager:
         await self._disconnect_all_devices()
         await self._load_devices_async()
 
-        tasks = []
+        started = 0
         for device in self.devices:
             logging.info(f"🚀 Starting connection for '{device.name}'")
-            task = asyncio.create_task(self._device_connect_runner(device))
-            tasks.append(task)
+            try:
+                task = asyncio.create_task(self._device_connect_runner(device))
+                # register the task in our tracking structures
+                await self._register_connect_task(device.name, task)
+                started += 1
+            except Exception as e:
+                logging.error(f"❌ Failed to start connect task for '{device.name}': {e}")
 
-        self._connect_tasks = tasks
-        if tasks:
-            logging.info(f"Started {len(tasks)} connect task(s).")
+        if started:
+            logging.info(f"Started {started} connect task(s).")
 
     async def _device_connect_runner(self, device) -> None:
         """Run device.connect() and clean up resources on exit/cancellation."""
@@ -247,6 +333,14 @@ class DeviceManager:
         finally:
             for method_name in ("disconnect", "close", "stop", "shutdown"):
                 await self._call_method(device, method_name)
+
+            # Unregister this task from tracking structures so stale entries are removed
+            try:
+                cur = asyncio.current_task()
+                if cur is not None:
+                    await self._unregister_connect_task(getattr(device, "name", None), cur)
+            except Exception as e:
+                logging.error(f"Error unregistering connect task for '{getattr(device, 'name', device)}': {e}")
 
     # ------------------------------------------------------------------
     # Public API – queries
@@ -406,7 +500,7 @@ class DeviceManager:
                 new_device = self.get_device(name)
                 if new_device is not None:
                     task = asyncio.create_task(self._device_connect_runner(new_device))
-                    self._connect_tasks.append(task)
+                    await self._register_connect_task(name, task)
 
     def _atomic_write(self, filepath: str, payload: dict) -> None:
         """Write *payload* to *filepath* atomically using a temp file + rename."""
