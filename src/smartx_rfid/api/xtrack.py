@@ -342,6 +342,34 @@ class ApiXtrack:
             logging.info(f"[ XTRACK ] get_objects response: {xml_response}")
         return success, data_list if success else response
 
+    async def get_object_by_idcode(self, idcode: str):
+        xml_payload = f"""
+        <msg>
+            <command>GetObject</command>
+            <terminal>ERP</terminal>
+            <data><object>
+                <IDCODE>{idcode.upper()}</IDCODE>
+            </object></data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        xml_response = response.get("raw_response", None) if success else None
+        data_list = []
+        if success and xml_response:
+            try:
+                root = ET.fromstring(xml_response)
+                for data_elem in root.findall(".//data"):
+                    data_dict = {child.tag: child.text for child in data_elem}
+                    data_list.append(data_dict)
+                logging.info(f"[ XTRACK ] get_object_by_idcode parsed data: {len(data_list)} items")
+            except Exception as e:
+                logging.error(f"[ XTRACK ] XML parsing error: {e}")
+                return False, {"error": "XML parsing failed", "detail": str(e)}
+        else:
+            logging.info(f"[ XTRACK ] get_object_by_idcode response: {xml_response}")
+        return success, data_list if success else response
+
     async def get_identifications(self):
         xml_payload = """
         <msg>
