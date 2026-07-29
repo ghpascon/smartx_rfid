@@ -237,6 +237,16 @@ class TestSERIAL:
             tags.add({"epc": f"00000000000000000000000{i}"})
         assert len(tags.get_epcs(limit=-5)) == 10
 
+    def test_change_epc_len(self):
+        tags = TagList(unique_identifier="tid")
+        tags.add({"epc": "000000000000000000000001", "tid": "e28000000000000000000001"})
+        tag = tags.get_by_identifier("e28000000000000000000001", identifier_type="tid")
+        assert tag.get("epc_len") == 24
+
+        tags.add({"epc": "0001", "tid": "e28000000000000000000001"})
+        tag = tags.get_by_identifier("e28000000000000000000001", identifier_type="tid")
+        assert tag.get("epc_len") == 4
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

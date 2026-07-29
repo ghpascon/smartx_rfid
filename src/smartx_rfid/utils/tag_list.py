@@ -222,6 +222,7 @@ class TagList:
 
         current["rssi"] = tag.get("rssi")
         current["ant"] = tag.get("ant")
+        current["epc_len"] = tag.get("epc_len")
         if not device == current["device"]:
             current["device"] = device
         if not tag.get("epc") == current.get("epc"):
