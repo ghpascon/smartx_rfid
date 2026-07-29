@@ -69,14 +69,14 @@ class WriteTagValidator(BaseModel):
         if v is None or v == "None":
             v = "0" * 24
 
-        if not regex_hex(v, 24):
-            raise ValueError(f"{field} must contain only hexadecimal characters (0-9, a-f)")
+        if not regex_hex(v):
+            raise ValueError(f"{field.name} must contain only hexadecimal characters (0-9, a-f)")
         return v.lower()
 
     @field_validator("password")
     def validate_password_length_and_hex(cls, v, field):
         if len(v) != 8:
-            raise ValueError(f"{field} must have exactly 8 characters")
+            raise ValueError(f"{field.name} must have exactly 8 characters")
         if not regex_hex(v, 8):
-            raise ValueError(f"{field} must contain only hexadecimal characters (0-9, a-f)")
+            raise ValueError(f"{field.name} must contain only hexadecimal characters (0-9, a-f)")
         return v.lower()
