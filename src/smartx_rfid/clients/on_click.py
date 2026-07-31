@@ -1,5 +1,7 @@
 import httpx
 from typing import Optional
+from smartx_rfid.parser.main import get_serial_from_tid
+from smartx_rfid.utils import regex_hex
 
 
 class OnClickClient:
@@ -72,3 +74,30 @@ class OnClickClient:
             "expected_products": expected_products,
         }
         return simplified_order
+
+    # serialization methods
+    @staticmethod
+    def serialize_tag(product_code: int, tid: str) -> str:
+        """
+        Serialize product code and TID into a single string.
+        """
+        if not product_code or not tid:
+            raise ValueError("Product code and TID must be provided.")
+        if not regex_hex(tid, 24):
+            raise ValueError("TID must be a valid 24-character hexadecimal string.")
+        serial = get_serial_from_tid(tid)
+        if serial is None:
+            raise ValueError("Invalid TID format; unable to extract serial number.")
+        return f"{(str(product_code)).zfill(12)}{serial.zfill(12)}"  # Ensure both parts are 12 characters long
+
+    @staticmethod
+    def deserialize_tag(serialized: str) -> Optional[dict]:
+        """
+        Deserialize a serialized tag string into its components.
+        Expected format: {product_code}{serial}
+        """
+        if not serialized or len(serialized) != 24:
+            return None
+        product_code = serialized[:12]  # Remove leading zeros
+        serial = serialized[12:]  # Remove leading zeros
+        return {"product_code": int(product_code), "serial": int(serial)}
