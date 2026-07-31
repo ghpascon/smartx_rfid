@@ -57,7 +57,7 @@ class OnClickClient:
         for product in order.get("iped", []):
             expected_products.append(
                 {
-                    "product_code": product.get("codprod"),
+                    "product_code": str(product.get("codprod")),
                     "description": product.get("descricao"),
                     "qty": product.get("qtde"),
                 }
@@ -65,7 +65,7 @@ class OnClickClient:
 
         # Simplify the order data structure
         simplified_order = {
-            "id": str(order.get("nrpedido")),
+            "id": order.get("nrpedido"),
             "name": order.get("nome"),
             "date": order.get("dtpedido"),
             "expected_products": expected_products,
