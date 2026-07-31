@@ -60,26 +60,24 @@ class OnClickClient:
                     "product_code": product.get("codprod"),
                     "description": product.get("descricao"),
                     "qty": product.get("qtde"),
-                    "aux_product_code": product.get("produto_codauxiliar"),
-                    "barcode": product.get("codbarra"),
                 }
             )
 
         # Simplify the order data structure
         simplified_order = {
-            "id": order.get("nrpedido"),
+            "id": str(order.get("nrpedido")),
             "name": order.get("nome"),
             "date": order.get("dtpedido"),
-            "nfe": order.get("nfe"),
             "expected_products": expected_products,
         }
         return simplified_order
 
     # serialization methods
     @staticmethod
-    def serialize_tag(product_code: int, tid: str) -> str:
+    def serialize_tag(product_code: str, tid: str) -> str:
         """
         Serialize product code and TID into a single string.
+        Format: {product_code}:{tid}
         """
         if not product_code or not tid:
             raise ValueError("Product code and TID must be provided.")
@@ -98,6 +96,6 @@ class OnClickClient:
         """
         if not serialized or len(serialized) != 24:
             return None
-        product_code = serialized[:12]  # Remove leading zeros
-        serial = serialized[12:]  # Remove leading zeros
-        return {"product_code": int(product_code), "serial": int(serial)}
+        product_code = serialized[:12].lstrip("0")  # Remove leading zeros
+        serial = serialized[12:].lstrip("0")  # Remove leading zeros
+        return {"product_code": product_code, "serial": serial}
