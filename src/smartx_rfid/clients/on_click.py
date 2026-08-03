@@ -47,6 +47,15 @@ class OnClickClient:
                 return None
             return response.json()
 
+    async def update_order_status(self, order_id: str, status: int) -> bool:
+        url = f"{self.base_url}/pedido/{order_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        payload = {"statuspedido": status}
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.status_code == 200
+
     # enhancements for better usability
     async def get_enhanced_order(self, order_id: str) -> Optional[dict]:
         order = await self.get_order(order_id)

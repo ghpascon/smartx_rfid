@@ -14,6 +14,7 @@ def _print_menu() -> None:
     print("  1 - Health check")
     print("  2 - Obter pedido por ID")
     print("  3 - Obter produto por ID")
+    print("  4 - Atualizar status do pedido")
     print("  q - Sair")
     print()
 
@@ -69,8 +70,22 @@ async def main() -> None:
             except Exception as exc:
                 print("Erro ao obter produto:", exc)
 
+        elif choice == "4":
+            order_id = input("ID do pedido: ").strip()
+            if not order_id:
+                print("ID vazio, tente novamente.")
+                continue
+            status = input("Novo status do pedido (número): ").strip()
+            if not status.isdigit():
+                print("Status inválido, deve ser um número.")
+                continue
+            try:
+                ok = await client.update_order_status(order_id, int(status))
+                print("Resultado:", "OK" if ok else "Falhou")
+            except Exception as exc:
+                print("Erro ao atualizar status do pedido:", exc)
         else:
-            print("Opção inválida. Digite 1, 2, 3 ou q para sair.")
+            print("Opção inválida. Digite 1, 2, 3, 4 ou q para sair.")
 
 
 if __name__ == "__main__":
