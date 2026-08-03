@@ -67,6 +67,7 @@ class OnClickClient:
             expected_products.append(
                 {
                     "product_code": str(product.get("codprod")),
+                    "aux_code": product.get("produto_codauxiliar"),
                     "description": product.get("descricao"),
                     "qty": product.get("qtde"),
                 }
