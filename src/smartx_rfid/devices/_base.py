@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 class DeviceBase:
@@ -54,7 +54,7 @@ class DeviceBase:
         return getattr(self, "_reading_since", None)
 
     def mark_connected(self) -> None:
-        self._connected_since = datetime.now(timezone.utc)
+        self._connected_since = datetime.now()
 
     def mark_disconnected(self) -> None:
         # clear both connection and reading timestamps
@@ -66,7 +66,7 @@ class DeviceBase:
         if getattr(self, "_connected_since", None) is None:
             # not connected -> ignore
             return
-        self._reading_since = datetime.now(timezone.utc)
+        self._reading_since = datetime.now()
 
     def mark_reading_stop(self) -> None:
         self._reading_since = None

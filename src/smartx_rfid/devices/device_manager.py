@@ -406,9 +406,9 @@ class DeviceManager:
         return {
             "name": device.name,
             "is_connected": is_connected,
-            "connected_since": connected_since,
+            "connected_since": connected_since.isoformat() if connected_since else None,
             "is_reading": getattr(device, "is_reading", False) if is_connected else False,
-            "reading_since": reading_since,
+            "reading_since": reading_since.isoformat() if reading_since else None,
             "device_type": getattr(device, "device_type", "UNKNOWN"),
             "is_gpi_trigger_on": getattr(device, "is_gpi_trigger_on", False),
             "can_print": getattr(device, "can_print", False),
