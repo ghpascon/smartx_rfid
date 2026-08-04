@@ -166,6 +166,7 @@ class TestX714:
             x714_device = X714()
 
             # Test read start
+            x714_device.is_connected = True
             x714_device.on_start()
             assert x714_device.is_reading is True
 

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 
 class DeviceBase:
@@ -13,6 +14,10 @@ class DeviceBase:
     def __init__(self):
         self._tasks: set[asyncio.Task] = set()
         self._running = True
+        # connection / reading timestamps
+        # Use timezone-aware datetimes (UTC)
+        self._connected_since: datetime | None = None
+        self._reading_since: datetime | None = None
 
     def create_task(self, coro: asyncio.coroutines):
         loop = asyncio.get_running_loop()
@@ -36,6 +41,57 @@ class DeviceBase:
                     t.cancel()
                 except Exception:
                     pass
+
+    # -----------------------------
+    # Connection / reading timestamp helpers
+    # -----------------------------
+    @property
+    def connected_since(self) -> datetime | None:
+        return getattr(self, "_connected_since", None)
+
+    @property
+    def reading_since(self) -> datetime | None:
+        return getattr(self, "_reading_since", None)
+
+    def mark_connected(self) -> None:
+        self._connected_since = datetime.now(timezone.utc)
+
+    def mark_disconnected(self) -> None:
+        # clear both connection and reading timestamps
+        self._connected_since = None
+        self._reading_since = None
+
+    def mark_reading_start(self) -> None:
+        # only record reading timestamp if connected
+        if getattr(self, "_connected_since", None) is None:
+            # not connected -> ignore
+            return
+        self._reading_since = datetime.now(timezone.utc)
+
+    def mark_reading_stop(self) -> None:
+        self._reading_since = None
+
+    @property
+    def is_connected(self) -> bool:
+        return getattr(self, "_connected_since", None) is not None
+
+    @is_connected.setter
+    def is_connected(self, value: bool) -> None:
+        if value:
+            self.mark_connected()
+        else:
+            self.mark_disconnected()
+
+    @property
+    def is_reading(self) -> bool:
+        return getattr(self, "_reading_since", None) is not None
+
+    @is_reading.setter
+    def is_reading(self, value: bool) -> None:
+        if value:
+            self.mark_reading_start()
+        else:
+            self.mark_reading_stop()
 
     async def shutdown(self, timeout: float = 2.0):
         """Cancel and wait for outstanding tasks."""

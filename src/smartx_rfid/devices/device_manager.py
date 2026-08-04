@@ -400,10 +400,15 @@ class DeviceManager:
 
         is_connected: bool = getattr(device, "is_connected", False)
         has_serial, serial_number = self.get_serial_number(name)
+        # Timestamps
+        connected_since = getattr(device, "connected_since", None)
+        reading_since = getattr(device, "reading_since", None)
         return {
             "name": device.name,
             "is_connected": is_connected,
+            "connected_since": connected_since,
             "is_reading": getattr(device, "is_reading", False) if is_connected else False,
+            "reading_since": reading_since,
             "device_type": getattr(device, "device_type", "UNKNOWN"),
             "is_gpi_trigger_on": getattr(device, "is_gpi_trigger_on", False),
             "can_print": getattr(device, "can_print", False),
