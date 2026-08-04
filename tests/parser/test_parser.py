@@ -1,6 +1,5 @@
-from smartx_rfid.parser import get_serial_from_tid
+from smartx_rfid.parser import get_serial_from_tid, serialize_gtin
 import pytest
-from pyepc import SGTIN
 
 
 class TestParser:
@@ -14,8 +13,7 @@ class TestParser:
         assert serial == "188736049667"
 
         ean = "7891234567895"
-        sgtin = SGTIN.from_sgtin(ean.zfill(14), serial, 7)
-        sgtin = sgtin.encode().lower()
+        sgtin = serialize_gtin(ean, serial)
         assert sgtin == "3035e1a48837756bf18b9203"
 
 

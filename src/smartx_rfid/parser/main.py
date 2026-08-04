@@ -1,9 +1,10 @@
 import logging
 from .rfid_tag_parser.tag_tid_parser import parse_tid
 from smartx_rfid.utils import regex_hex
+from pyepc import SGTIN
 
 
-def get_serial_from_tid(tid: str) -> bool:
+def get_serial_from_tid(tid: str) -> str | None:
     """
     Extract serial number from TID.
     """
@@ -25,3 +26,12 @@ def get_serial_from_tid(tid: str) -> bool:
     except Exception as e:
         logging.error(f"Parse ERROR: {e}")
         return None
+
+
+def serialize_gtin(gtin: str, serial: str) -> str:
+    """
+    Serialize GTIN and serial number into a single string.
+    """
+    sgtin = SGTIN.from_sgtin(gtin.zfill(14), serial, 7)
+    sgtin = sgtin.encode().lower()
+    return sgtin
