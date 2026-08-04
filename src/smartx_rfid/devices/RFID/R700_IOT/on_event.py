@@ -7,12 +7,10 @@ class OnEvent:
     async def on_start(self):
         """Called when reader starts reading tags."""
         self.is_reading = True
-        self.on_event(self.name, "reading", True)
 
     async def on_stop(self):
         """Called when reader stops reading tags."""
         self.is_reading = False
-        self.on_event(self.name, "reading", False)
 
     async def on_tag(self, tag):
         """Process detected RFID tag data.
@@ -27,4 +25,4 @@ class OnEvent:
             rssi=int(tag.get("peakRssiCdbm", 0) / 100),
             protected=self.is_protected_inventory_active,
         )
-        self.on_event(self.name, "tag", current_tag.model_dump())
+        self.emit_event("tag", current_tag.model_dump())

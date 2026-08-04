@@ -4,8 +4,6 @@ import time
 from smartx_rfid.schemas import TagSchema
 import serial.tools.list_ports
 import serial_asyncio
-from typing import Callable
-from smartx_rfid.utils.event import on_event
 
 
 from smartx_rfid.devices._base import DeviceBase
@@ -101,7 +99,6 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
         if not isinstance(beep, bool):
             beep = False
         self.beep = beep
-        self.on_event: Callable = on_event
 
     def connection_made(self, transport):
         """
@@ -112,7 +109,6 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
         """
         self.transport = transport
         self.is_connected = True
-        self.on_event(self.name, "connection", True)
         self.config_reader()
 
     def data_received(self, data):
@@ -174,7 +170,6 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
 
         if self.on_con_lost:
             self.on_con_lost.set()
-        self.on_event(self.name, "connection", False)
 
     def write(self, to_send, verbose=False):
         """
@@ -314,12 +309,10 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
         return crc & 0xFFFF
 
     async def start_inventory(self):
-        self.on_event(self.name, "reading", True)
         self.write("readtag on", verbose=True)
         self.is_reading = True
 
     async def stop_inventory(self):
-        self.on_event(self.name, "reading", False)
         self.write("readtag off", verbose=True)
         self.is_reading = False
 
@@ -363,9 +356,9 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
                     rssi=int(rssi) * (-1),
                 ).model_dump()
 
-                self.on_event(self.name, "tag", tag)
+                self.emit_event("tag", tag)
                 return
             except Exception as e:
                 logging.error(f"Error parsing tag data: {e}")
 
-        self.on_event(self.name, "receive", message)
+        self.emit_event("receive", message)

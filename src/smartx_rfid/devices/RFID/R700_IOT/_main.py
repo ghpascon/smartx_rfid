@@ -5,7 +5,6 @@ import copy
 import httpx
 
 from smartx_rfid.schemas.tag import WriteTagValidator
-from smartx_rfid.utils.event import on_event
 from smartx_rfid.utils import regex_hex
 
 from .on_event import OnEvent
@@ -156,8 +155,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             firmware_version = None
         self.firmware_version = firmware_version
 
-        self.on_event = on_event
-
         DeviceBase.__init__(self)
 
         self.is_connected = False
@@ -192,8 +189,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
 
         self.is_connected = False
         self.is_reading = False
-        self.on_event(self.name, "reading", False)
-        self.on_event(self.name, "connection", False)
         self.serial_number = None
 
     async def close(self):
@@ -214,9 +209,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             try:
                 # Criar sessão HTTP persistente
                 self._session = httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0)
-
-                if self.is_connected:
-                    self.on_event(self.name, "connection", False)
 
                 self.is_connected = False
                 self.is_reading = False
@@ -266,7 +258,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                             continue
                 if self.start_reading:
                     self.is_reading = True
-                    self.on_event(self.name, "reading", True)
 
                 # Clear GPO states
                 for i in range(1, 4):
@@ -276,7 +267,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                         asyncio.create_task(self.write_gpo(pin=i, state=False))
 
                 self.is_connected = True
-                self.on_event(self.name, "connection", True)
 
                 # Manter conexão com stream de dados
                 await self.get_tag_list(self._session)
@@ -287,7 +277,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                     await self._session.aclose()
                     self._session = None
                 self.is_connected = False
-                self.on_event(self.name, "connection", False)
                 self.serial_number = None
                 await asyncio.sleep(2)
 

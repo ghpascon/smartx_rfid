@@ -38,7 +38,7 @@ class Helpers:
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     # event received
-                    self.on_event(self.name, "receive", line.strip())
+                    self.emit_event("receive", line.strip())
 
         except Exception as e:
             self.is_connected = False

@@ -66,7 +66,6 @@ class BLEProtocol:
             self.is_connected = False
             self.is_reading = False
             self.serial_number = None
-            self.on_event(self.name, "connection", False)
 
     # ---------------- Main Connection ----------------
     async def connect_and_run(self):
@@ -145,8 +144,6 @@ class BLEProtocol:
                         self.is_connected = True
                         if hasattr(self, "on_connected"):
                             self.on_connected()
-                        else:
-                            self.on_event(self.name, "connection", True)
                         logging.info(f"{self.name} - ✅ BLE connection successfully established.")
 
                         # Loop de manutenção

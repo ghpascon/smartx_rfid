@@ -63,7 +63,6 @@ class ReaderHelpers:
                 success = await self._start_inventory(self._session)
                 if success:
                     self.is_reading = True
-                    self.on_event(self.name, "reading", True)
                 return success
             else:
                 logging.warning(f"{self.name} - Cannot start inventory: session is closed")
@@ -83,7 +82,6 @@ class ReaderHelpers:
                 success = await self._stop_inventory(self._session)
                 if success:
                     self.is_reading = False
-                    self.on_event(self.name, "reading", False)
                 return success
             else:
                 logging.warning(f"{self.name} - Cannot stop inventory: session is closed")
@@ -191,7 +189,6 @@ class ReaderHelpers:
             # Se não foi uma desconexão intencional, marcar como desconectado
             if not self._stop_connection:
                 self.is_connected = False
-                self.on_event(self.name, "connection", False)
 
     async def get_gpo_command(
         self, pin: int = 1, state: bool | str = True, control: str = "static", time: int = 1000
@@ -249,7 +246,7 @@ class ReaderHelpers:
 
             info = response.json()
             self.serial_number = info.get("serialNumber")
-            self.on_event(self.name, "serial_number", self.serial_number)
+            self.emit_event("serial_number", self.serial_number)
 
             logging.info(f"{self.name} - Reader Serial Number: {self.serial_number}")
             return info

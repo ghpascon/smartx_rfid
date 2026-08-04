@@ -11,8 +11,8 @@ class TestR700_IOT:
     def test_create_object_default(self):
         """Test creating R700_IOT object with default parameters"""
 
-        # Mock the problematic on_event import
-        with patch("smartx_rfid.devices.RFID.R700_IOT._main.on_event", Mock()):
+        # Patch default event handler used by DeviceBase
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             r700_device = R700_IOT(reading_config=R700_IOT_config_example)
 
             # Check if object is instance of R700_IOT class
@@ -29,7 +29,7 @@ class TestR700_IOT:
     def test_url_endpoints_construction(self):
         """Test URL endpoints are constructed correctly"""
 
-        with patch("smartx_rfid.devices.RFID.R700_IOT._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             ip = "192.168.1.101"
             r700_device = R700_IOT(reading_config=R700_IOT_config_example, ip=ip)
 
@@ -47,7 +47,7 @@ class TestR700_IOT:
     @pytest.mark.asyncio
     async def test_gpi_trigger_blocks_start_inventory(self):
         """Test that start_inventory returns False when GPI trigger is enabled"""
-        with patch("smartx_rfid.devices.RFID.R700_IOT._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             r700_device = R700_IOT(reading_config=R700_IOT_config_example)
             r700_device.is_connected = True
             r700_device.is_gpi_trigger_on = True
@@ -60,7 +60,7 @@ class TestR700_IOT:
     @pytest.mark.asyncio
     async def test_gpi_trigger_allows_start_inventory_when_disabled(self):
         """Test that start_inventory works normally when GPI trigger is disabled"""
-        with patch("smartx_rfid.devices.RFID.R700_IOT._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             r700_device = R700_IOT(reading_config=R700_IOT_config_example)
             r700_device.is_connected = True
             r700_device.is_gpi_trigger_on = False

@@ -4,8 +4,6 @@ import time
 
 import serial.tools.list_ports
 import serial_asyncio
-from typing import Callable
-from smartx_rfid.utils.event import on_event
 
 
 from smartx_rfid.devices._base import DeviceBase
@@ -67,8 +65,6 @@ class SERIAL(DeviceBase, asyncio.Protocol):
         self.is_connected = False
         self.is_reading = False
 
-        self.on_event: Callable = on_event
-
     def connection_made(self, transport):
         """
         Callback invoked when a connection is established.
@@ -78,7 +74,6 @@ class SERIAL(DeviceBase, asyncio.Protocol):
         """
         self.transport = transport
         self.is_connected = True
-        self.on_event(self.name, "connection", True)
 
     def data_received(self, data):
         """
@@ -122,7 +117,7 @@ class SERIAL(DeviceBase, asyncio.Protocol):
             self.rx_buffer = self.rx_buffer[pos + 1 :]
 
             if message:
-                self.on_event(self.name, "receive", message)
+                self.emit_event("receive", message)
 
     def connection_lost(self, exc):
         """
@@ -138,7 +133,6 @@ class SERIAL(DeviceBase, asyncio.Protocol):
 
         if self.on_con_lost:
             self.on_con_lost.set()
-        self.on_event(self.name, "connection", False)
 
     def write(self, to_send, verbose=True):
         """

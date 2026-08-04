@@ -34,12 +34,10 @@ class OnReceive:
         """Called when reader starts reading tags."""
         self.is_reading = True
         self.clear_tags()
-        self.on_event(self.name, "reading", True)
 
     def on_stop(self):
         """Called when reader stops reading tags."""
         self.is_reading = False
-        self.on_event(self.name, "reading", False)
 
     def on_tag(self, tag: dict):
         """Process detected RFID tag data.
@@ -50,7 +48,7 @@ class OnReceive:
         try:
             tag_data = TagSchema(**tag)
             tag = tag_data.model_dump()
-            self.on_event(self.name, "tag", tag)
+            self.emit_event("tag", tag)
         except Exception as e:
             logging.error(f"{self.name} - Invalid tag data: {e}")
 
@@ -68,7 +66,7 @@ class OnReceive:
 
         if verbose:
             try:
-                self.on_event(self.name, "receive", raw)
+                self.emit_event("receive", raw)
             except Exception:
                 pass
 
@@ -100,13 +98,13 @@ class OnReceive:
 
         elif lower == "#tags_cleared":
             try:
-                self.on_event(self.name, "tags_cleared", True)
+                self.emit_event("tags_cleared", True)
             except Exception:
                 pass
 
         elif lower == "#setup_done":
             try:
-                self.on_event(self.name, "setup_done", True)
+                self.emit_event("setup_done", True)
             except Exception:
                 pass
 
@@ -114,12 +112,12 @@ class OnReceive:
             _, serial = raw.split(":", 1)
             self.serial_number = serial.strip()
             try:
-                self.on_event(self.name, "serial_number", self.serial_number)
+                self.emit_event("serial_number", self.serial_number)
             except Exception:
                 pass
 
         else:
             try:
-                self.on_event(self.name, "receive", raw)
+                self.emit_event("receive", raw)
             except Exception:
                 pass

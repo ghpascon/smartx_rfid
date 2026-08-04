@@ -15,7 +15,6 @@ class Helpers:
             await asyncio.sleep(0.5)
             if (self.writer and self.writer.is_closing()) or (self.reader and self.reader.at_eof()):
                 self.is_connected = False
-                self.on_event(self.name, "connection", False)
                 break
 
             await self.write(get_status_cmd, verbose=False)
@@ -24,9 +23,9 @@ class Helpers:
                 logging.info(f"{self.name} - Sending: ZPL ID: {get_hash(zpl)}, {len(self._to_print)} left.")
                 status, msg = self.print(zpl)
                 if not status:
-                    self.on_event(self.name, "print_sent_error", msg)
+                    self.emit_event("print_sent_error", msg)
                 if status:
-                    self.on_event(self.name, "print_sent", msg)
+                    self.emit_event("print_sent", msg)
 
     async def receive_data(self):
         """Receive and process incoming TCP data."""
@@ -71,29 +70,29 @@ class Helpers:
         if "a000000" == cmd:
             self.can_print = True
             if self._print_sent:
-                self.on_event(self.name, "print_success", f"{self._zpl_id}")
+                self.emit_event("print_success", f"{self._zpl_id}")
                 self._print_sent = False
                 self._zpl_id = None
-            self.on_event(self.name, "status", "ready")
+            self.emit_event("status", "ready")
         # printing
         elif "g000001" == cmd:
-            self.on_event(self.name, "status", "printing")
+            self.emit_event("status", "printing")
         # offline
         elif "0000000" == cmd:
-            self.on_event(self.name, "status", "offline")
+            self.emit_event("status", "offline")
         # error:
         elif cmd.startswith("e") or cmd.startswith("f"):
             if self._print_sent:
-                self.on_event(self.name, "print_error", f"{self._zpl_id}")
+                self.emit_event("print_error", f"{self._zpl_id}")
                 self._print_sent = False
                 self._zpl_id = None
-            self.on_event(self.name, "status", f"error: {cmd}")
+            self.emit_event("status", f"error: {cmd}")
         # open
         elif cmd == "b000000":
-            self.on_event(self.name, "status", "error: Open")
+            self.emit_event("status", "error: Open")
         # Fallback
         else:
-            self.on_event(self.name, "status", cmd)
+            self.emit_event("status", cmd)
 
         # Update Last Status
         self.last_status = cmd

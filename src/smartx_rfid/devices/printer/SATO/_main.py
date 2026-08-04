@@ -1,9 +1,8 @@
 import asyncio
 import logging
-from typing import Callable, Optional
+from typing import Optional
 
 from smartx_rfid.devices._base import DeviceBase
-from smartx_rfid.utils.event import on_event
 from .helpers import Helpers
 from smartx_rfid.utils import get_hash
 
@@ -24,7 +23,6 @@ class SatoPrinter(DeviceBase, Helpers):
         self.port = port
         self.reconnection_time = reconnection_time
         self.is_connected: bool = False
-        self.on_event: Callable = on_event
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._connect_lock = asyncio.Lock()
@@ -41,7 +39,6 @@ class SatoPrinter(DeviceBase, Helpers):
         self.is_connected = False
         self.can_print = False
         self.last_status = None
-        self.on_event: Callable = on_event
 
         self._to_print: list[str] = []
 
@@ -59,7 +56,6 @@ class SatoPrinter(DeviceBase, Helpers):
                 )
                 if not self.is_connected:
                     self.is_connected = True
-                    self.on_event(self.name, "connection", True)
 
                 # Start the receive and monitor tasks
                 tasks = [
@@ -75,12 +71,10 @@ class SatoPrinter(DeviceBase, Helpers):
                     task.cancel()
 
                 self.is_connected = False
-                self.on_event(self.name, "connection", False)
 
             except Exception as e:
                 if self.is_connected:
                     self.is_connected = False
-                    self.on_event(self.name, "connection", False)
                 logging.error(f"[CONNECTION ERROR] {e}")
 
             await asyncio.sleep(3)
@@ -123,7 +117,6 @@ class SatoPrinter(DeviceBase, Helpers):
                 logging.warning(f"[{self.name}] [SEND ERROR] data={data.strip()} error={e}")
                 if self.is_connected:
                     self.is_connected = False
-                    self.on_event(self.name, "connection", False)
 
     def print(self, zpl: str):
         """Send ZPL command to printer."""

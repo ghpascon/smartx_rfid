@@ -1,5 +1,9 @@
 import asyncio
+import logging
 from datetime import datetime
+from typing import Any, Optional, Callable
+
+from smartx_rfid.utils.event import on_event
 
 
 class DeviceBase:
@@ -18,6 +22,9 @@ class DeviceBase:
         # Use timezone-aware datetimes (UTC)
         self._connected_since: datetime | None = None
         self._reading_since: datetime | None = None
+        # Event handler default (can be overridden per-device or by DeviceManager)
+        # Signature: on_event(name: str, event_type: str, event_data=None)
+        self.on_event: Callable[[str, str, Any], None] = on_event
 
     def create_task(self, coro: asyncio.coroutines):
         loop = asyncio.get_running_loop()
@@ -54,22 +61,66 @@ class DeviceBase:
         return getattr(self, "_reading_since", None)
 
     def mark_connected(self) -> None:
-        self._connected_since = datetime.now()
+        prev = getattr(self, "_connected_since", None)
+        if prev is None:
+            self._connected_since = datetime.now()
+            try:
+                self.emit_event("connection", True)
+            except Exception:
+                logging.exception("Error emitting connection=true event")
 
     def mark_disconnected(self) -> None:
+        prev_conn = getattr(self, "_connected_since", None)
+        prev_read = getattr(self, "_reading_since", None)
         # clear both connection and reading timestamps
         self._connected_since = None
         self._reading_since = None
+        # emit reading off if it was active
+        try:
+            if prev_read is not None:
+                self.emit_event("reading", False)
+        except Exception:
+            logging.exception("Error emitting reading=false event on disconnect")
+        # emit connection off if previously connected
+        try:
+            if prev_conn is not None:
+                self.emit_event("connection", False)
+        except Exception:
+            logging.exception("Error emitting connection=false event on disconnect")
 
     def mark_reading_start(self) -> None:
         # only record reading timestamp if connected
         if getattr(self, "_connected_since", None) is None:
             # not connected -> ignore
             return
-        self._reading_since = datetime.now()
+        prev = getattr(self, "_reading_since", None)
+        if prev is None:
+            self._reading_since = datetime.now()
+            try:
+                self.emit_event("reading", True)
+            except Exception:
+                logging.exception("Error emitting reading=true event")
 
     def mark_reading_stop(self) -> None:
-        self._reading_since = None
+        prev = getattr(self, "_reading_since", None)
+        if prev is not None:
+            self._reading_since = None
+            try:
+                self.emit_event("reading", False)
+            except Exception:
+                logging.exception("Error emitting reading=false event")
+
+    def emit_event(self, event_type: str, event_data: Any = None, *, name: Optional[str] = None) -> None:
+        """Call the configured event handler safely.
+
+        Defaults to `smartx_rfid.utils.event.on_event` if not overridden.
+        """
+        try:
+            target_name = name or getattr(self, "name", None) or "UNKNOWN"
+            if callable(self.on_event):
+                self.on_event(target_name, event_type, event_data)
+        except Exception as e:
+            logging.error(f"Error in event handler for {getattr(self, 'name', None)}: {e}")
 
     @property
     def is_connected(self) -> bool:

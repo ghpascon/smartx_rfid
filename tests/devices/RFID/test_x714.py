@@ -10,7 +10,7 @@ class TestX714:
     def test_create_object_default(self):
         """Test creating X714 object with default parameters"""
         # Mock the problematic on_event import
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
 
             # Check if object is instance of X714 class
@@ -26,7 +26,7 @@ class TestX714:
 
     def test_create_object_serial_config(self):
         """Test creating X714 object with SERIAL configuration"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714(
                 name="TEST_X714",
                 connection_type="SERIAL",
@@ -50,7 +50,7 @@ class TestX714:
 
     def test_create_object_tcp_config(self):
         """Test creating X714 object with TCP configuration"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714(
                 name="TCP_X714",
                 connection_type="TCP",
@@ -66,7 +66,7 @@ class TestX714:
 
     def test_create_object_ble_config(self):
         """Test creating X714 object with BLE configuration"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714(
                 name="BLE_X714",
                 connection_type="BLE",
@@ -80,7 +80,7 @@ class TestX714:
 
     def test_invalid_connection_type(self):
         """Test creating X714 with invalid connection type defaults to SERIAL"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             with patch("logging.warning") as mock_warning:
                 x714_device = X714(connection_type="INVALID")
 
@@ -90,7 +90,7 @@ class TestX714:
 
     def test_antenna_configuration_default(self):
         """Test default antenna configuration"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
 
             # Check antenna configuration
@@ -104,7 +104,7 @@ class TestX714:
 
     def test_antenna_configuration_custom_active(self):
         """Test custom active antenna configuration"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714(active_ant=[1, 2, 3], read_power=25, read_rssi=-100)
 
             # Check antenna configuration
@@ -124,7 +124,7 @@ class TestX714:
             "2": {"active": True, "power": 28, "rssi": -95},
         }
 
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714(ant_dict=custom_ant_dict)
 
             # Should use provided dictionary
@@ -132,7 +132,7 @@ class TestX714:
 
     def test_write_method_serial(self):
         """Test write method with SERIAL connection type"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714(connection_type="SERIAL")
             x714_device.write_serial = Mock()
 
@@ -144,7 +144,7 @@ class TestX714:
 
     def test_on_receive_tag_data(self):
         """Test on_receive method with tag data"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
             x714_device.on_tag = Mock()
 
@@ -162,7 +162,7 @@ class TestX714:
 
     def test_on_receive_read_start_stop(self):
         """Test on_receive method with read start/stop commands"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
 
             # Test read start
@@ -176,7 +176,7 @@ class TestX714:
 
     def test_on_connected_callback(self):
         """Test on_connected callback"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
             x714_device.config_reader = Mock()
             x714_device.on_event = Mock()
@@ -184,9 +184,9 @@ class TestX714:
             # Test on_connected
             x714_device.on_connected()
 
-            # Should call config_reader and on_event
+            # Should call only config_reader (connection event now comes from DeviceBase setter)
             x714_device.config_reader.assert_called_once()
-            x714_device.on_event.assert_called_once_with("X714", "connection", True)
+            x714_device.on_event.assert_not_called()
 
     def test_invalid_prefix(self):
         x714_device = X714(prefix="GHIJKL")
@@ -203,7 +203,7 @@ class TestX714:
     @pytest.mark.asyncio
     async def test_gpi_trigger_blocks_start_inventory(self):
         """Test that start_inventory returns False when GPI trigger is enabled"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
             x714_device.is_connected = True
             x714_device.is_gpi_trigger_on = True
@@ -216,7 +216,7 @@ class TestX714:
     @pytest.mark.asyncio
     async def test_gpi_trigger_allows_start_inventory_when_disabled(self):
         """Test that start_inventory works normally when GPI trigger is disabled"""
-        with patch("smartx_rfid.devices.RFID.X714._main.on_event", Mock()):
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             x714_device = X714()
             x714_device.is_connected = True
             x714_device.is_gpi_trigger_on = False

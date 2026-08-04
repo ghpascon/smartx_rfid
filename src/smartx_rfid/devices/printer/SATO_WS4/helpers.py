@@ -9,13 +9,12 @@ class Helpers:
 
     async def get_status(self):
         """Check if TCP connection is still alive."""
-        get_status_cmd = get_status_cmd = "~HS"
+        get_status_cmd = "~HS"
 
         while self.is_connected:
             await asyncio.sleep(0.5)
             if (self.writer and self.writer.is_closing()) or (self.reader and self.reader.at_eof()):
                 self.is_connected = False
-                self.on_event(self.name, "connection", False)
                 break
 
             await self.write(get_status_cmd, verbose=False)
@@ -24,9 +23,9 @@ class Helpers:
                 logging.info(f"{self.name} - Sending: ZPL ID: {get_hash(zpl)}, {len(self._to_print)} left.")
                 status, msg = self.print(zpl)
                 if not status:
-                    self.on_event(self.name, "print_sent_error", msg)
+                    self.emit_event("print_sent_error", msg)
                 if status:
-                    self.on_event(self.name, "print_sent", msg)
+                    self.emit_event("print_sent", msg)
 
     async def receive_data(self):
         """Receive and process incoming TCP data."""
@@ -79,19 +78,19 @@ class Helpers:
 
             if self._print_sent:
                 print_sent = True
-                self.on_event(self.name, "print_success", f"{self._zpl_id}")
+                self.emit_event("print_success", f"{self._zpl_id}")
                 self._print_sent = False
                 self._zpl_id = None
             if not self.last_can_print or print_sent:
-                self.on_event(self.name, "status", "ready")
+                self.emit_event("status", "ready")
         # error:
         elif status == "00001":
             if self._print_sent:
-                self.on_event(self.name, "print_error", f"{self._zpl_id}")
+                self.emit_event("print_error", f"{self._zpl_id}")
                 self._print_sent = False
                 self._zpl_id = None
-            self.on_event(self.name, "status", f"error: {status}")
+            self.emit_event("status", f"error: {status}")
         else:
-            self.on_event(self.name, "status", status)
+            self.emit_event("status", status)
 
         self.last_can_print = self.can_print

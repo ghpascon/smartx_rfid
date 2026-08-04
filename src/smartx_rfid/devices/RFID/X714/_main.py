@@ -3,8 +3,6 @@ import logging
 import re
 import copy
 
-from typing import Callable
-
 from .ble_protocol import BLEProtocol
 from .on_receive import OnReceive
 from .rfid import RfidCommands
@@ -12,7 +10,6 @@ from .serial_protocol import SerialProtocol
 from .tcp_protocol import TCPProtocol
 from .write_commands import WriteCommands
 
-from smartx_rfid.utils.event import on_event
 from smartx_rfid.devices._base import DeviceBase
 
 ant_default_config = {
@@ -217,8 +214,6 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         if self.is_gpi_trigger_on:
             self.start_reading = False
 
-        self.on_event: Callable = on_event
-
     def write(self, to_send, verbose=True):
         """Send data to reader using current connection type.
 
@@ -251,7 +246,6 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
     def on_connected(self):
         """Called when connection is established. Sets up reader."""
         self.config_reader()
-        self.on_event(self.name, "connection", True)
 
     async def close(self):
         """Close connections and cancel background tasks for X714."""

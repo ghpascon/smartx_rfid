@@ -9,8 +9,8 @@ class TestTCP:
 
     def test_create_object_default(self):
         """Test creating TCP object with default parameters"""
-        # Mock the problematic on_event import
-        with patch("smartx_rfid.devices.generic.TCP._main.on_event", Mock()):
+        # Patch default event handler used by DeviceBase
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             tcp_device = TCP()
 
             # Check if object is instance of TCP class
@@ -24,8 +24,8 @@ class TestTCP:
 
     def test_create_object_and_check_instance(self):
         """Test creating TCP object and verify it's the correct class"""
-        # Mock the problematic on_event import
-        with patch("smartx_rfid.devices.generic.TCP._main.on_event", Mock()):
+        # Patch default event handler used by DeviceBase
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
             tcp_device = TCP(
                 name="TEST_TCP",
                 ip="192.168.1.100",

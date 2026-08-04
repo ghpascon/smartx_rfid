@@ -86,7 +86,6 @@ class TCPProtocol(TCPHelpers):
 
                 self.is_connected = False
                 self.is_reading = False
-                self.on_event(self.name, "connection", False)
                 self.serial_number = None
 
                 logging.info(f"🔌 [DISCONNECTED] {self.name} - Reconnecting...")
@@ -133,7 +132,6 @@ class TCPProtocol(TCPHelpers):
                 if self.is_connected:
                     self.is_connected = False
                     self.is_reading = False
-                    self.on_event(self.name, "connection", False)
                     self.serial_number = None
 
     async def periodic_ping(self, interval: int):
