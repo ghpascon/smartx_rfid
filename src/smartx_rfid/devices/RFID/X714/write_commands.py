@@ -43,9 +43,9 @@ class WriteCommands:
             logging.warning(f"{self.name} - Invalid control type: {control}")
             raise ValueError("Control must be 'static' or 'pulsed'")
 
-        if pin < 1 or pin > 3:
+        if pin < 0 or pin > 3:
             logging.warning(f"{self.name} - Invalid GPO pin: {pin}")
-            raise ValueError("Pin must be between 1 and 3")
+            raise ValueError("Pin must be between 0 and 3")
 
         if control == "static":
             command = f"#GPO:{pin},{'ON' if state else 'OFF'}"
