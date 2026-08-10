@@ -6,7 +6,7 @@ on:
       - "v*.*.*" # dispara quando você fizer push de uma tag vX.X.X
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -35,23 +35,12 @@ jobs:
       - name: Run linting
         run: poetry run ruff check
 
-  publish:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
       - name: Install build tools
-        run: pip install --upgrade build twine poetry
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: pip install --upgrade build twine
 
       - name: Verify tag matches pyproject.toml version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: |
           PROJECT_VERSION=$(poetry version --short)
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
@@ -63,10 +52,13 @@ jobs:
           fi
 
       - name: Build package
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: python -m build
 
       - name: Check package
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: twine check dist/*
 
       - name: Publish to PyPI
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: twine upload dist/* --username __token__ --password "${{ secrets.PYPI_API_TOKEN }}" --verbose
