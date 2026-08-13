@@ -143,10 +143,6 @@ class SERIAL(DeviceBase, asyncio.Protocol):
             verbose: Show sent data in logs
         """
         if self.transport:
-            if isinstance(to_send, str):
-                to_send += "\n"
-                to_send = to_send.encode()
-
             # If it's bytes, calculate CRC and replace last two bytes
             if isinstance(to_send, bytes) and len(to_send) >= 2:
                 crc = self.crc16(to_send)
@@ -158,7 +154,9 @@ class SERIAL(DeviceBase, asyncio.Protocol):
                     logging.info(f"📤 Sending: {hex_list}")
                 else:
                     logging.info(f"📤 Sending: {to_send}")
-
+            if isinstance(to_send, str):
+                to_send += "\n"
+                to_send = to_send.encode()
             self.transport.write(to_send)
         else:
             logging.warning("❌ Send attempt failed: connection not established.")
