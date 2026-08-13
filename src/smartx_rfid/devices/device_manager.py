@@ -453,15 +453,25 @@ class DeviceManager:
             logging.error(f"❌ Error writing device config '{name}': {e}")
             return False, str(e)
 
+        had_active_tasks = any(not t.done() for t in self._connect_tasks)
+
         # Update in-memory state for this single device
         try:
             await self._reload_single_device(name, normalised)
         except Exception as e:
             logging.warning(f"⚠️ Partial reload failed for '{name}', doing full reload: {e}")
             try:
-                await self._load_devices_async()
+                # Safe fallback path: rebuild lifecycle using teardown + load,
+                # and restore connect tasks only if they were active before.
+                if had_active_tasks:
+                    await self.connect_devices(force=True)
+                else:
+                    await self._cancel_connect_tasks()
+                    await self._disconnect_all_devices()
+                    await self._load_devices_async()
             except Exception as e2:
                 logging.error(f"❌ Full reload also failed: {e2}")
+                return False, f"Error reloading device '{name}': {e2}"
 
         return True, None
 
@@ -495,6 +505,8 @@ class DeviceManager:
         if device is not None:
             await self._shutdown_device(device)
 
+        start_connect_for_new = False
+        new_device = None
         async with self._lock:
             self._add_device(name, normalised["reader"], normalised)
             self._assign_event_function()
@@ -504,8 +516,12 @@ class DeviceManager:
             if active_tasks:
                 new_device = self.get_device(name)
                 if new_device is not None:
-                    task = asyncio.create_task(self._device_connect_runner(new_device))
-                    await self._register_connect_task(name, task)
+                    start_connect_for_new = True
+
+        # Avoid deadlock: task registration acquires self._lock internally.
+        if start_connect_for_new and new_device is not None:
+            task = asyncio.create_task(self._device_connect_runner(new_device))
+            await self._register_connect_task(name, task)
 
     def _atomic_write(self, filepath: str, payload: dict) -> None:
         """Write *payload* to *filepath* atomically using a temp file + rename."""

@@ -178,6 +178,38 @@ class TestUpdateDeviceConfig:
         assert ok is False
         assert err is not None
 
+    @pytest.mark.asyncio
+    async def test_update_with_active_tasks_does_not_deadlock(self, manager_with_tcp, monkeypatch):
+        """Regressão: update não deve travar quando já existem connect tasks ativas."""
+
+        started_devices = []
+
+        async def fake_connect_runner(device):
+            started_devices.append(device.name)
+
+        monkeypatch.setattr(manager_with_tcp, "_device_connect_runner", fake_connect_runner)
+
+        blocker = asyncio.Event()
+
+        async def keep_alive_task():
+            await blocker.wait()
+
+        pending_task = asyncio.create_task(keep_alive_task())
+        await manager_with_tcp._register_connect_task("outra_task", pending_task)
+
+        try:
+            ok, err = await asyncio.wait_for(
+                manager_with_tcp.update_device_config("leitor_tcp", TCP_CONFIG_UPDATED),
+                timeout=2.0,
+            )
+        finally:
+            blocker.set()
+            await manager_with_tcp._cancel_connect_tasks()
+
+        assert ok is True
+        assert err is None
+        assert "leitor_tcp" in started_devices
+
 
 # ---------------------------------------------------------------------------
 # delete_device_config
