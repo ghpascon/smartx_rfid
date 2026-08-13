@@ -4,9 +4,10 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
+client = ToolSortClient(url="https://hapiapp.toolsort.com.br", username="smartx", password="5c1EGxL1#")
+
 
 async def main():
-    client = ToolSortClient(url="https://hapiapp.toolsort.com.br", username="smartx", password="5c1EGxL1#")
     # client = ToolSortClient(url="https://hapiapp.toolsort.com.br", username="username", password="password")
     data = await client.verify_card("1234567890")  # Replace with a valid card ID for testing
     logging.info(f"Verified card response: {data}")

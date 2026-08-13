@@ -15,10 +15,19 @@ class ToolSortClient:
         self.expire_time = expire_time * 60  # Convert minutes to seconds
         self.account_id = None
 
+        # Schedule initial authentication on the running event loop when available.
+        # If there's no running loop (e.g. created in sync context), run it synchronously.
         try:
-            asyncio.create_task(self.authenticate())
-        except Exception as e:
-            logging.error(f"[ TOOLSORT ] Initial authentication failed: {e}")
+            loop = asyncio.get_running_loop()
+            try:
+                loop.create_task(self.authenticate())
+            except Exception as e:
+                logging.error(f"[ TOOLSORT ] Scheduling initial authentication failed: {e}")
+        except RuntimeError:
+            try:
+                asyncio.run(self.authenticate())
+            except Exception as e:
+                logging.error(f"[ TOOLSORT ] Initial authentication failed (sync): {e}")
 
     async def authenticate(self):
         url = f"{self.url}/api/v1/Auth/Login"
