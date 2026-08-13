@@ -15,7 +15,10 @@ class ToolSortClient:
         self.expire_time = expire_time * 60  # Convert minutes to seconds
         self.account_id = None
 
-        asyncio.create_task(self.authenticate())
+        try:
+            asyncio.create_task(self.authenticate())
+        except Exception as e:
+            logging.error(f"[ TOOLSORT ] Initial authentication failed: {e}")
 
     async def authenticate(self):
         url = f"{self.url}/api/v1/Auth/Login"
