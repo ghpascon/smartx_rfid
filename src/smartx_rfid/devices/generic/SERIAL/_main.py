@@ -33,6 +33,8 @@ class SERIAL(DeviceBase, asyncio.Protocol):
         vid: int = 1,
         pid: int = 1,
         reconnection_time: int = 3,
+        ping_active: bool = False,
+        ping_interval: int = 5,
         **kwargs,
     ):
         """
@@ -45,6 +47,8 @@ class SERIAL(DeviceBase, asyncio.Protocol):
                 vid: USB Vendor ID for auto-detection
                 pid: USB Product ID for auto-detection
                 reconnection_time: Delay between reconnection attempts
+                ping_active: Enable or disable ping mechanism
+                ping_interval: Interval between ping messages (seconds)
         """
         DeviceBase.__init__(self)
         self.name = name
@@ -55,6 +59,8 @@ class SERIAL(DeviceBase, asyncio.Protocol):
         self.vid = vid
         self.pid = pid
         self.reconnection_time = reconnection_time
+        self.ping_active = ping_active
+        self.ping_interval = ping_interval
 
         self.transport = None
         self.on_con_lost = None
@@ -116,7 +122,7 @@ class SERIAL(DeviceBase, asyncio.Protocol):
             # Remove mensagem do buffer
             self.rx_buffer = self.rx_buffer[pos + 1 :]
 
-            if message:
+            if message and message.lower() != "#pong":
                 self.emit_event("receive", message)
 
     def connection_lost(self, exc):
@@ -199,6 +205,8 @@ class SERIAL(DeviceBase, asyncio.Protocol):
                 logging.info(f"🔌 Trying to connect to {self.port} at {self.baudrate} bps...")
                 await serial_asyncio.create_serial_connection(loop, lambda: self, self.port, baudrate=self.baudrate)
                 logging.info("🟢 Successfully connected.")
+                if self.ping_active:
+                    self.create_task(self.ping_loop())
                 await self.on_con_lost.wait()
                 logging.info("🔄 Connection lost. Attempting to reconnect...")
             except Exception as e:
@@ -266,3 +274,15 @@ class SERIAL(DeviceBase, asyncio.Protocol):
                 else:
                     crc >>= 1
         return crc & 0xFFFF
+
+    async def ping_loop(self):
+        """
+        Periodically send a ping message to the device to check connectivity.
+
+        This method runs in a loop, sending a ping message every 5 seconds
+        if the ping mechanism is enabled. It helps to maintain the connection
+        and detect any disconnections.
+        """
+        while self._running and self.ping_active and self.is_connected:
+            self.write("#ping", verbose=False)
+            await asyncio.sleep(self.ping_interval)
