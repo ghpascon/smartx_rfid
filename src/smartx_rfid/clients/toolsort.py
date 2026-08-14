@@ -63,6 +63,8 @@ class ToolSortClient:
 
         url = f"{self.url}/api/v1/Service/GetClient/{self.account_id}/{card_id}"
         headers = {"Authorization": f"Bearer {self.token}"}
+
+        logging.info(f"[Integration] Verifying card {card_id} at {url}")
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=headers)
@@ -128,6 +130,8 @@ class ToolSortClient:
             payload["status"] = door
 
         headers = {"Authorization": f"Bearer {self.token}"}
+
+        logging.info(f"[Integration] Posting tags to {url} with payload: {payload}")
 
         try:
             async with httpx.AsyncClient() as client:
