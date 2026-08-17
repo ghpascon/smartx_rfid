@@ -256,8 +256,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                             self._session = None
                             await asyncio.sleep(1)
                             continue
-                if self.start_reading:
-                    self.is_reading = True
 
                 # Clear GPO states
                 for i in range(1, 4):
@@ -267,6 +265,8 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                         asyncio.create_task(self.write_gpo(pin=i, state=False))
 
                 self.is_connected = True
+                if self.start_reading:
+                    self.is_reading = True
 
                 # Manter conexão com stream de dados
                 await self.get_tag_list(self._session)
