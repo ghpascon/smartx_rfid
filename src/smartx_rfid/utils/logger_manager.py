@@ -21,7 +21,7 @@ class JsonQueueHandler(logging.Handler):
     def emit(self, record: logging.LogRecord):
         try:
             log_entry = {
-                "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+                "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).astimezone().isoformat(),
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
@@ -78,7 +78,7 @@ class JsonQueueHandler(logging.Handler):
         super().handleError(record)
         try:
             error_entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(timezone.utc).astimezone().isoformat(),
                 "level": "ERROR",
                 "logger": record.name,
                 "message": "Logging handler error",
@@ -104,7 +104,7 @@ class LoggerManager:
     def __init__(self, log_path: str, base_filename: str, storage_days: int = 7):
         self.base_filename = base_filename
         self.storage_days = storage_days
-        self.current_date = datetime.now(timezone.utc).date()
+        self.current_date = datetime.now(timezone.utc).astimezone().date()
 
         requested_path = Path(log_path).expanduser().resolve()
         self.default_log_path = (Path.cwd() / "logs").resolve()
@@ -201,7 +201,7 @@ class LoggerManager:
                 continue
 
     def _write(self, msg: str):
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(timezone.utc).astimezone().date()
         if today != self.current_date:
             self.current_date = today
             self.filename = self._get_filename_for_date(today)
