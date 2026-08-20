@@ -658,7 +658,7 @@ class DeviceManager:
         except Exception as e:
             return False, f"Error reconnecting device '{device_name}': {e}"
 
-    async def write(self, device_name: str, data: str) -> Tuple[bool, Optional[str]]:
+    async def write(self, device_name: str, data: str, verbose: bool = True) -> Tuple[bool, Optional[str]]:
         device = self.get_device(device_name)
         if device is None:
             return False, f"Device '{device_name}' not found."
@@ -668,13 +668,13 @@ class DeviceManager:
             return False, f"Device '{device_name}' does not support writing data."
         if inspect.iscoroutinefunction(getattr(device, "write", None)):
             try:
-                await device.write(data)
+                await device.write(data, verbose=verbose)
                 return True, None
             except Exception as e:
                 return False, str(e)
         else:
             try:
-                device.write(data)
+                device.write(data, verbose=verbose)
                 return True, None
             except Exception as e:
                 return False, str(e)
