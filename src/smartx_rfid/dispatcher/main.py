@@ -21,6 +21,8 @@ POST:
         "headers": {"X-Token": "abc"},
         "body": {"id": "{data[id]}"},
         "allow_batches": true,
+        "batch_size": 500,
+        "flush_interval_seconds": 0.1,
         "retry_attempts": 3,
         "retry_backoff_seconds": 0.25,
         "filters": [{"key": "{data[status]}", "value": "active", "operator": "eq"}]
@@ -33,6 +35,9 @@ SQL:
         "connection_string": "postgresql://user:pass@host/db",
         "query": "INSERT INTO events (name, type) VALUES (:name, :event_type)",
         "params": {"name": "{name}", "event_type": "{event_type}"},
+        "allow_batches": true,
+        "batch_size": 500,
+        "flush_interval_seconds": 0.1,
         "retry_attempts": 3,
         "retry_backoff_seconds": 0.25
     }
@@ -100,6 +105,9 @@ class _Event:
 class _SqlBatchKey:
     connection_string: str
     query: str
+    batch_size: int
+    allow_batches: bool
+    flush_interval_seconds: float
     retry_attempts: int
     backoff_seconds: float
 
@@ -114,13 +122,15 @@ class _SqlItem:
 @dataclass(slots=True)
 class _PostItem:
     source: str
+    batch_size: int
+    allow_batches: bool
     retry_attempts: int
     backoff_seconds: float
+    flush_interval_seconds: float
     url: str
     headers: dict[str, Any] | None
     body: Any
     queued_at: float
-    allow_batches: bool = True
 
 
 @dataclass(slots=True, frozen=True)
@@ -128,6 +138,9 @@ class _PostBatchKey:
     source: str
     url: str
     headers_json: str
+    batch_size: int
+    allow_batches: bool
+    flush_interval_seconds: float
     retry_attempts: int
     backoff_seconds: float
 
@@ -150,6 +163,9 @@ class _CompiledFilter:
 class _CompiledDispatch:
     source: str
     dispatch_type: str
+    batch_size: int
+    allow_batches: bool
+    flush_interval_seconds: float
     event_type_fn: Callable[[dict[str, Any]], Any]
     event_type_static: str | None
     filters: tuple[_CompiledFilter, ...]
@@ -162,7 +178,6 @@ class _CompiledDispatch:
     query_fn: Callable[[dict[str, Any]], Any] | None
     params_fn: Callable[[dict[str, Any]], Any] | None
     sql_key_static: _SqlBatchKey | None
-    allow_batches: bool = True
 
 
 @dataclass
@@ -240,14 +255,7 @@ class SqlDispatcher:
 
     def ensure_engine(self, connection_string: str) -> None:
         if connection_string not in self._engines:
-            self._engines[connection_string] = create_async_engine(
-                connection_string,
-                pool_pre_ping=True,
-                pool_size=20,
-                max_overflow=30,
-                pool_recycle=1800,
-                future=True,
-            )
+            self._create_engine(connection_string)
             logger.debug("SQL engine created: %s", connection_string)
 
     def remove_stale_engines(self, active_connections: set[str]) -> None:
@@ -289,9 +297,9 @@ class SqlDispatcher:
     async def _loop(self) -> None:
         while True:
             try:
-                item = await asyncio.wait_for(self._queue.get(), timeout=self.flush_interval_seconds)
+                item = await asyncio.wait_for(self._queue.get(), timeout=self._next_timeout())
             except TimeoutError:
-                await self._flush_all()
+                await self._flush_due()
                 continue
 
             if item is _STOP:
@@ -302,8 +310,34 @@ class SqlDispatcher:
             assert isinstance(item, _SqlItem)
             batch = self._batches.setdefault(item.key, [])
             batch.append(item)
-            if len(batch) >= self.batch_size:
+            if not item.key.allow_batches or len(batch) >= item.key.batch_size:
                 await self._flush(item.key)
+            else:
+                await self._flush_due()
+
+    async def _flush_due(self) -> None:
+        if not self._batches:
+            return
+        now = time.monotonic()
+        for key, batch in list(self._batches.items()):
+            if not batch:
+                continue
+            oldest = batch[0].queued_at
+            if now - oldest >= key.flush_interval_seconds:
+                await self._flush(key)
+
+    def _next_timeout(self) -> float:
+        if not self._batches:
+            return self.flush_interval_seconds
+        now = time.monotonic()
+        remaining_times = [
+            max(0.0, key.flush_interval_seconds - (now - batch[0].queued_at))
+            for key, batch in self._batches.items()
+            if batch
+        ]
+        if not remaining_times:
+            return self.flush_interval_seconds
+        return max(0.001, min(self.flush_interval_seconds, min(remaining_times)))
 
     async def _flush_all(self) -> None:
         for key in list(self._batches):
@@ -541,6 +575,9 @@ class HttpDispatcher:
             source=item.source,
             url=item.url,
             headers_json=orjson.dumps(item.headers or {}, option=orjson.OPT_SORT_KEYS).decode(),
+            batch_size=item.batch_size,
+            allow_batches=item.allow_batches,
+            flush_interval_seconds=item.flush_interval_seconds,
             retry_attempts=item.retry_attempts,
             backoff_seconds=item.backoff_seconds,
         )
@@ -548,9 +585,9 @@ class HttpDispatcher:
     async def _batch_loop(self) -> None:
         while True:
             try:
-                item = await asyncio.wait_for(self._batch_queue.get(), timeout=self.flush_interval_seconds)
+                item = await asyncio.wait_for(self._batch_queue.get(), timeout=self._next_timeout())
             except TimeoutError:
-                await self._flush_all()
+                await self._flush_due()
                 continue
 
             if item is _STOP:
@@ -565,8 +602,34 @@ class HttpDispatcher:
             self._batch_queue.task_done()
 
             # flush immediately if batching disabled for this item or batch is full
-            if not item.allow_batches or len(batch) >= self.batch_size:
+            if not item.allow_batches or len(batch) >= item.batch_size:
                 await self._flush_batch(key)
+            else:
+                await self._flush_due()
+
+    async def _flush_due(self) -> None:
+        if not self._batches:
+            return
+        now = time.monotonic()
+        for key, batch in list(self._batches.items()):
+            if not batch:
+                continue
+            oldest = batch[0].queued_at
+            if now - oldest >= key.flush_interval_seconds:
+                await self._flush_batch(key)
+
+    def _next_timeout(self) -> float:
+        if not self._batches:
+            return self.flush_interval_seconds
+        now = time.monotonic()
+        remaining_times = [
+            max(0.0, key.flush_interval_seconds - (now - batch[0].queued_at))
+            for key, batch in self._batches.items()
+            if batch
+        ]
+        if not remaining_times:
+            return self.flush_interval_seconds
+        return max(0.001, min(self.flush_interval_seconds, min(remaining_times)))
 
     async def _flush_all(self) -> None:
         for key in list(self._batches):
@@ -1211,13 +1274,15 @@ class EventDispatcher:
     async def _enqueue_post(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
         item = _PostItem(
             source=plan.source,
+            batch_size=plan.batch_size,
+            allow_batches=plan.allow_batches,
             retry_attempts=plan.retry_attempts,
             backoff_seconds=plan.backoff_seconds,
+            flush_interval_seconds=plan.flush_interval_seconds,
             url=plan.url_fn(ctx) if plan.url_fn else "",
             headers=plan.headers_fn(ctx) if plan.headers_fn else {},
             body=plan.body_fn(ctx) if plan.body_fn else {},
             queued_at=time.monotonic(),
-            allow_batches=plan.allow_batches,
         )
         await self._http.enqueue(item)
 
@@ -1235,6 +1300,9 @@ class EventDispatcher:
             key = _SqlBatchKey(
                 connection_string=self._normalize_connection(cs),
                 query=q,
+                batch_size=plan.batch_size,
+                allow_batches=plan.allow_batches,
+                flush_interval_seconds=plan.flush_interval_seconds,
                 retry_attempts=plan.retry_attempts,
                 backoff_seconds=plan.backoff_seconds,
             )
@@ -1252,8 +1320,14 @@ class EventDispatcher:
             return None
 
         dtype = str(content.get("dispatch_type", "")).lower()
-        retry = max(1, int(content.get("retry_attempts", 3)))
-        backoff = float(content.get("retry_backoff_seconds", 0.25))
+        default_batch_size = self._http.batch_size if dtype == "post" else self._sql.batch_size
+        default_flush = self._http.flush_interval_seconds if dtype == "post" else self._sql.flush_interval_seconds
+
+        allow_batches = self._coerce_bool(content.get("allow_batches"), default=True)
+        batch_size = self._coerce_positive_int(content.get("batch_size"), default=default_batch_size)
+        retry = self._coerce_positive_int(content.get("retry_attempts"), default=3)
+        backoff = self._coerce_non_negative_float(content.get("retry_backoff_seconds"), default=0.25)
+        dispatch_flush = self._coerce_positive_float(content.get("flush_interval_seconds"), default=default_flush)
 
         event_fn, is_static, static_val = self._build_renderer(content.get("on_event"))
         event_static = static_val if (is_static and isinstance(static_val, str) and static_val) else None
@@ -1271,6 +1345,9 @@ class EventDispatcher:
         plan = _CompiledDispatch(
             source=source,
             dispatch_type=dtype,
+            batch_size=batch_size,
+            allow_batches=allow_batches,
+            flush_interval_seconds=dispatch_flush,
             event_type_fn=event_fn,
             event_type_static=event_static,
             filters=filters,
@@ -1300,6 +1377,9 @@ class EventDispatcher:
                 plan.sql_key_static = _SqlBatchKey(
                     connection_string=self._normalize_connection(conn_val),
                     query=query_val,
+                    batch_size=batch_size,
+                    allow_batches=allow_batches,
+                    flush_interval_seconds=dispatch_flush,
                     retry_attempts=retry,
                     backoff_seconds=backoff,
                 )
@@ -1498,6 +1578,41 @@ class EventDispatcher:
                 raise ValueError("Each filters entry must be a JSON object")
             if "operator" in item and not isinstance(item["operator"], str):
                 raise ValueError("filter operator must be a string")
+
+        if "allow_batches" in content and not isinstance(content["allow_batches"], bool):
+            raise ValueError("allow_batches must be a boolean")
+
+        if "batch_size" in content:
+            try:
+                batch_size = int(content["batch_size"])
+            except (TypeError, ValueError):
+                raise ValueError("batch_size must be an integer") from None
+            if batch_size <= 0:
+                raise ValueError("batch_size must be greater than zero")
+
+        if "flush_interval_seconds" in content:
+            try:
+                flush = float(content["flush_interval_seconds"])
+            except (TypeError, ValueError):
+                raise ValueError("flush_interval_seconds must be a number") from None
+            if flush <= 0:
+                raise ValueError("flush_interval_seconds must be greater than zero")
+
+        if "retry_attempts" in content:
+            try:
+                retry_attempts = int(content["retry_attempts"])
+            except (TypeError, ValueError):
+                raise ValueError("retry_attempts must be an integer") from None
+            if retry_attempts <= 0:
+                raise ValueError("retry_attempts must be greater than zero")
+
+        if "retry_backoff_seconds" in content:
+            try:
+                retry_backoff = float(content["retry_backoff_seconds"])
+            except (TypeError, ValueError):
+                raise ValueError("retry_backoff_seconds must be a number") from None
+            if retry_backoff < 0:
+                raise ValueError("retry_backoff_seconds must be greater than or equal to zero")
         if dtype == "post":
             url = content.get("url")
             if not isinstance(url, str) or not url.strip():
@@ -1513,6 +1628,36 @@ class EventDispatcher:
             params = content.get("params", {})
             if not isinstance(params, dict):
                 raise ValueError("sql dispatch params must be a JSON object")
+
+    @staticmethod
+    def _coerce_positive_float(value: Any, default: float, minimum: float = 0.001) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = float(default)
+        return max(minimum, parsed)
+
+    @staticmethod
+    def _coerce_non_negative_float(value: Any, default: float, minimum: float = 0.0) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = float(default)
+        return max(minimum, parsed)
+
+    @staticmethod
+    def _coerce_positive_int(value: Any, default: int, minimum: int = 1) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = int(default)
+        return max(minimum, parsed)
+
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        return default
 
     @staticmethod
     def _normalize_connection(cs: str) -> str:

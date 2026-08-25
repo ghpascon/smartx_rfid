@@ -1,0 +1,49 @@
+{
+    "_usage": {
+        "description": "SQL dispatch example for serial_number events (string payload).",
+        "notes": [
+            "serial_number events usually send data as string.",
+            "Use bound params in SQL and pass scalar payload as {data}."
+        ],
+        "async_connection_string_examples": {
+            "postgresql": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+            "mysql": "mysql+aiomysql://user:password@localhost:3306/mydatabase",
+            "sqlite": "sqlite+aiosqlite:///./mydatabase.db"
+        },
+        "possible_vars": {
+            "dispatch_type": "string — 'sql' (required)",
+            "on_event": "string — event name to match (required)",
+            "connection_string": "string — async DB connection string (e.g., postgresql+asyncpg://user:pass@host/db)",
+            "query": "string — SQL statement with named params (e.g., :device)",
+            "params": "object — mapping of param names to template values (supports placeholders)",
+            "allow_batches": "boolean — whether this dispatch should be batched (default true)",
+            "batch_size": "int — max rows per batch before immediate flush (default from dispatcher constructor)",
+            "flush_interval_seconds": "number — max wait time before flushing pending batch (seconds; default from dispatcher constructor)",
+            "retry_attempts": "int — number of retries on failure (default 3)",
+            "retry_backoff_seconds": "number — seconds between retries (default 0.25)",
+            "filters": "list — list of filter objects with keys 'key','value','operator' to restrict dispatch"
+        }
+    },
+    "dispatch_type": "sql",
+    "connection_string": "postgresql+asyncpg://user:password@localhost:5432/mydatabase",
+    "on_event": "serial_number",
+    "allow_batches": true,
+    "batch_size": 500,
+    "flush_interval_seconds": 0.1,
+    "retry_attempts": 3,
+    "retry_backoff_seconds": 0.25,
+    "filters": [
+        {
+            "_description": "Only dispatch for XPAD.",
+            "key": "{name}",
+            "value": "XPAD",
+            "operator": "eq"
+        }
+    ],
+    "query": "INSERT INTO device_serial_events (device, serial_number, event_type) VALUES (:device, :serial_number, :event_type)",
+    "params": {
+        "device": "{name}",
+        "serial_number": "{data}",
+        "event_type": "{event_type}"
+    }
+}

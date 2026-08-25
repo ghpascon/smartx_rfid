@@ -7,7 +7,7 @@ logging.basicConfig(
 )
 dispatcher = EventDispatcher(
     dispatches_path="examples/dispatcher/dispatches",
-    example_path="examples/dispatcher/dispatches_examples",
+    example_path="examples/dispatcher/dispatchers_examples",
 )
 
 

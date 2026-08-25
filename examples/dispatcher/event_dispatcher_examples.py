@@ -4,7 +4,7 @@ from smartx_rfid.dispatcher import EventDispatcher
 def main():
     dispatcher = EventDispatcher(
         dispatches_path="examples/dispatcher/dispatches",
-        example_path="examples/dispatcher/dispatches_examples",
+        example_path="examples/dispatcher/dispatchers_examples",
     )
 
     names = dispatcher.get_example_names()

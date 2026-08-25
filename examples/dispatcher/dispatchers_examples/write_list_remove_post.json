@@ -1,0 +1,34 @@
+{
+    "_usage": {
+        "description": "HTTP POST dispatch example for removed items from write list.",
+        "possible_vars": {
+            "dispatch_type": "string — 'post' (required)",
+            "on_event": "string — event name to match (required)",
+            "url": "string — destination HTTP URL",
+            "headers": "object — HTTP headers",
+            "body": "object|array|value — payload template; supports placeholders {name}, {event_type}, {data}, {data[key]}",
+            "allow_batches": "boolean — whether this dispatch should be batched (default true)",
+            "batch_size": "int — max items per batch before immediate flush (default from dispatcher constructor)",
+            "flush_interval_seconds": "number — max wait time before flushing pending batch (seconds; default from dispatcher constructor)",
+            "retry_attempts": "int — number of retries on failure (default 3)",
+            "retry_backoff_seconds": "number — seconds between retries (default 0.25)",
+            "filters": "list — list of filter objects with keys 'key','value','operator' to restrict dispatch"
+        }
+    },
+    "dispatch_type": "post",
+    "url": "http://localhost:5001/write_list/removed",
+    "on_event": "remove_from_write_list",
+    "allow_batches": false,
+    "batch_size": 1,
+    "flush_interval_seconds": 0.1,
+    "retry_attempts": 3,
+    "retry_backoff_seconds": 0.25,
+    "headers": {
+        "Content-Type": "application/json"
+    },
+    "body": {
+        "tid": "{data[tid]}",
+        "epc": "{data[epc]}",
+        "original_epc": "{data[original_epc]}"
+    }
+}

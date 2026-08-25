@@ -12,7 +12,7 @@ logging.basicConfig(
 async def main() -> None:
     dispatcher = EventDispatcher(
         dispatches_path="examples/dispatcher/dispatches",
-        example_path="examples/dispatcher/dispatches_examples",
+        example_path="examples/dispatcher/dispatchers_examples",
         max_workers=8,
         max_queue_size=50_000,
     )

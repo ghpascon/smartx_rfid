@@ -40,7 +40,7 @@ async def produce_events(dispatcher: EventDispatcher, start_index: int, end_inde
 async def main():
     dispatcher = EventDispatcher(
         dispatches_path="examples/dispatcher/dispatches",
-        example_path="examples/dispatcher/dispatches_examples",
+        example_path="examples/dispatcher/dispatchers_examples",
         max_workers=PRODUCER_WORKERS,
         max_queue_size=EVENT_QTY * 2,
     )

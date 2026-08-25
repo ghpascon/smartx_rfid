@@ -21,9 +21,11 @@
     "url": "http://localhost:5001",
     "on_event": "tag",
     "allow_batches": true,
-    "filters": [
-      
-    ],
+    "batch_size": 500,
+    "flush_interval_seconds": 0.1,
+    "retry_attempts": 3,
+    "retry_backoff_seconds": 0.25,
+    "filters": [],
     "headers": {
         "Content-Type": "application/json"
     },
