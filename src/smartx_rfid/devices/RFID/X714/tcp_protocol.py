@@ -47,6 +47,7 @@ class TCPHelpers:
 class TCPProtocol(TCPHelpers):
     async def connect_tcp(self, ip, port):
         while True:
+            await asyncio.sleep(self.reconnection_time)
             try:
                 logging.info(f"Connecting: {self.name} - {ip}:{port}")
 
@@ -117,7 +118,6 @@ class TCPProtocol(TCPHelpers):
                 self.is_reading = False
 
             logging.info(f"🔁 Retrying {self.name} in {self.reconnection_time}s...")
-            await asyncio.sleep(self.reconnection_time)
 
     async def write_tcp(self, data: str, verbose: bool = True):
         if self.is_connected and self.writer:
