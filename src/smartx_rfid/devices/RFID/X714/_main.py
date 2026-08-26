@@ -284,5 +284,11 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
         except Exception:
             pass
 
-        # final cleanup of device tasks
+        # garante que o estado de conexão seja limpo
+        try:
+            self.is_connected = False
+        except Exception:
+            pass
+
+        # final cleanup de tarefas do dispositivo
         await self.shutdown()

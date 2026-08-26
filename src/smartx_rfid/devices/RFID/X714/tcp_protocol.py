@@ -46,7 +46,8 @@ class TCPHelpers:
 
 class TCPProtocol(TCPHelpers):
     async def connect_tcp(self, ip, port):
-        while True:
+        # respeita self._running para permitir parada limpa
+        while getattr(self, "_running", True):
             await asyncio.sleep(self.reconnection_time)
             try:
                 logging.info(f"Connecting: {self.name} - {ip}:{port}")
