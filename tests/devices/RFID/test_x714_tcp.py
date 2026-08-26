@@ -43,6 +43,26 @@ class FakeBlockingWriter:
         await asyncio.sleep(0)
 
 
+class FakeFailingWriter:
+    def __init__(self):
+        self.closed = False
+
+    def is_closing(self):
+        return False
+
+    def write(self, data: bytes):
+        return None
+
+    async def drain(self):
+        raise ConnectionResetError("socket gone")
+
+    def close(self):
+        self.closed = True
+
+    async def wait_closed(self):
+        await asyncio.sleep(0)
+
+
 @pytest.mark.asyncio
 async def test_monitor_connection_detects_writer_closing():
     device = X714(connection_type="TCP")
@@ -82,3 +102,19 @@ async def test_write_tcp_timeout_marks_disconnected():
     await device.write_tcp("ping", verbose=False)
 
     assert device.is_connected is False
+
+
+@pytest.mark.asyncio
+async def test_write_tcp_send_error_cleans_writer_state():
+    device = X714(connection_type="TCP")
+    fake = FakeFailingWriter()
+    device.is_connected = True
+    device.writer = fake
+    device.reader = object()
+
+    await device.write_tcp("ping", verbose=False)
+
+    assert device.is_connected is False
+    assert fake.closed is True
+    assert device.writer is None
+    assert device.reader is None
