@@ -302,64 +302,7 @@ class DatabaseManager:
             return v.hex()
         return v
 
-    def execute_query(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> Any:
-        """
-        Execute a raw SQL query and return results as a list of dicts.
-
-        Args:
-            query (Union[str, text]): SQL query to execute
-            params (Optional[Dict[str, Any]]): Query parameters
-
-        Returns:
-            Any: List of dicts for SELECT queries, None for queries that do not return rows
-        """
-        with self.get_session() as session:
-            try:
-                if isinstance(query, str):
-                    query = text(query)
-
-                result = session.execute(query, params or {})
-
-                if result.returns_rows:
-                    return [{k: self._normalize(v) for k, v in row.items()} for row in result.mappings()]
-                return None
-
-            except Exception as e:
-                self.logger.error(f"Query execution failed: {str(e)}")
-                raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
-
-    def bulk_insert(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
-        """
-        Perform bulk insert operation.
-
-        Args:
-            model_class (Type[DeclarativeBase]): Model class
-            data (List[Dict[str, Any]]): List of data dictionaries
-        """
-        with self.get_session() as session:
-            try:
-                session.bulk_insert_mappings(model_class, data)
-                self.logger.info(f"Bulk inserted {len(data)} records into {model_class.__name__}")
-            except Exception as e:
-                self.logger.error(f"Bulk insert failed: {str(e)}")
-                raise DatabaseOperationError(f"Bulk insert failed: {str(e)}", e)
-
-    def bulk_update(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
-        """
-        Perform bulk update operation.
-
-        Args:
-            model_class (Type[DeclarativeBase]): Model class
-            data (List[Dict[str, Any]]): List of data dictionaries
-        """
-        with self.get_session() as session:
-            try:
-                session.bulk_update_mappings(model_class, data)
-                self.logger.info(f"Bulk updated {len(data)} records in {model_class.__name__}")
-            except Exception as e:
-                self.logger.error(f"Bulk update failed: {str(e)}")
-                raise DatabaseOperationError(f"Bulk update failed: {str(e)}", e)
-
+    # INFO
     def get_connection_info(self) -> Dict[str, Any]:
         """
         Get database connection information.
@@ -404,21 +347,6 @@ class DatabaseManager:
             self._scoped_session = None
             self._metadata = None
 
-    def clear_table(self, model: Type[DeclarativeBase]) -> None:
-        """
-        Clear all data from a table.
-
-        Args:
-            model (Type[DeclarativeBase]): Model class representing the table to clear
-        """
-        with self.get_session() as session:
-            try:
-                session.query(model).delete()
-                self.logger.info(f"Cleared all data from table {model.__tablename__}")
-            except Exception as e:
-                self.logger.error(f"Failed to clear table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Failed to clear table {model.__tablename__}: {str(e)}", e)
-
     def generate_table_report(self, model: Type[DeclarativeBase], limit: int = 10000, offset: int = 0) -> dict:
         with self.get_session() as session:
             # Get total count (more efficient than loading all records)
@@ -435,6 +363,63 @@ class DatabaseManager:
                 "has_more": (offset + limit) < total,
                 "data": records,
             }
+
+    # QUERY
+    def execute_query(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> Any:
+        """
+        Execute a raw SQL query and return results as a list of dicts.
+
+        Args:
+            query (Union[str, text]): SQL query to execute
+            params (Optional[Dict[str, Any]]): Query parameters
+
+        Returns:
+            Any: List of dicts for SELECT queries, None for queries that do not return rows
+        """
+        with self.get_session() as session:
+            try:
+                if isinstance(query, str):
+                    query = text(query)
+
+                result = session.execute(query, params or {})
+
+                if result.returns_rows:
+                    return [{k: self._normalize(v) for k, v in row.items()} for row in result.mappings()]
+                return None
+
+            except Exception as e:
+                self.logger.error(f"Query execution failed: {str(e)}")
+                raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
+
+    # GET
+    def get_where(self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any]) -> List[DeclarativeBase]:
+        """
+        Retrieve records from a table based on filter conditions.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            filter_conditions (Dict[str, Any]): Dictionary of field-value pairs to filter by
+
+        Returns:
+            List[DeclarativeBase]: List of matching records
+        """
+        with self.get_session() as session:
+            try:
+                query = session.query(model)
+                for field_name, value in filter_conditions.items():
+                    field = getattr(model, field_name)
+                    if field is None:
+                        raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+                    query = query.filter(field == value)
+                return query.all()
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to retrieve records from table {model.__tablename__} with conditions {filter_conditions}: {str(e)}"
+                )
+                raise DatabaseOperationError(
+                    f"Failed to retrieve records from table {model.__tablename__} with conditions {filter_conditions}: {str(e)}",
+                    e,
+                )
 
     def get_by_field(self, model: Type[DeclarativeBase], field_name: str, value: Any) -> Optional[DeclarativeBase]:
         """
@@ -501,6 +486,148 @@ class DatabaseManager:
             except Exception as e:
                 self.logger.error(f"Failed to get table summary for {model.__tablename__}: {str(e)}")
                 raise DatabaseOperationError(f"Failed to get table summary for {model.__tablename__}: {str(e)}", e)
+
+    # INSERT
+    def insert_record(self, model: Type[DeclarativeBase], data: Dict[str, Any]) -> DeclarativeBase:
+        """
+        Insert a single record into the database.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            data (Dict[str, Any]): Data to insert
+        Returns:
+            DeclarativeBase: The inserted record
+        """
+        with self.get_session() as session:
+            try:
+                record = model(**data)
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                return record
+            except Exception as e:
+                self.logger.error(f"Failed to insert record into table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Failed to insert record into table {model.__tablename__}: {str(e)}", e)
+
+    def bulk_insert(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
+        """
+        Perform bulk insert operation.
+
+        Args:
+            model_class (Type[DeclarativeBase]): Model class
+            data (List[Dict[str, Any]]): List of data dictionaries
+        """
+        with self.get_session() as session:
+            try:
+                session.bulk_insert_mappings(model_class, data)
+                self.logger.info(f"Bulk inserted {len(data)} records into {model_class.__name__}")
+            except Exception as e:
+                self.logger.error(f"Bulk insert failed: {str(e)}")
+                raise DatabaseOperationError(f"Bulk insert failed: {str(e)}", e)
+
+    # UPDATE
+    def update_where(
+        self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any], update_data: Dict[str, Any]
+    ) -> int:
+        """
+        Update records in a table based on filter conditions.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            filter_conditions (Dict[str, Any]): Conditions to filter records for update
+            update_data (Dict[str, Any]): Data to update
+        Returns:
+            int: Number of records updated
+        """
+        with self.get_session() as session:
+            try:
+                query = session.query(model)
+                for attr, value in filter_conditions.items():
+                    query = query.filter(getattr(model, attr) == value)
+                updated_count = query.update(update_data)
+                return updated_count
+            except Exception as e:
+                self.logger.error(f"Failed to update records in table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Failed to update records in table {model.__tablename__}: {str(e)}", e)
+
+    def bulk_update(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
+        """
+        Perform bulk update operation.
+
+        Args:
+            model_class (Type[DeclarativeBase]): Model class
+            data (List[Dict[str, Any]]): List of data dictionaries
+        """
+        with self.get_session() as session:
+            try:
+                session.bulk_update_mappings(model_class, data)
+                self.logger.info(f"Bulk updated {len(data)} records in {model_class.__name__}")
+            except Exception as e:
+                self.logger.error(f"Bulk update failed: {str(e)}")
+                raise DatabaseOperationError(f"Bulk update failed: {str(e)}", e)
+
+    # DELETE
+    def delete_where(self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any]) -> int:
+        """
+        Delete records from a table based on filter conditions.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            filter_conditions (Dict[str, Any]): Conditions to filter records for deletion
+        Returns:
+            int: Number of records deleted
+        """
+        with self.get_session() as session:
+            try:
+                query = session.query(model)
+                for attr, value in filter_conditions.items():
+                    query = query.filter(getattr(model, attr) == value)
+                deleted_count = query.delete()
+                return deleted_count
+            except Exception as e:
+                self.logger.error(f"Failed to delete records from table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Failed to delete records from table {model.__tablename__}: {str(e)}", e)
+
+    def delete_by_field(self, model: Type[DeclarativeBase], field_name: str, value: Any) -> int:
+        """
+        Delete records from a table based on a specific field.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            field_name (str): Field name to filter by
+            value (Any): Value to match
+        Returns:
+            int: Number of records deleted
+        """
+        with self.get_session() as session:
+            try:
+                field = getattr(model, field_name)
+                if field is None:
+                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+                deleted_count = session.query(model).filter(field == value).delete()
+                return deleted_count
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to delete records from table {model.__tablename__} by field {field_name}: {str(e)}"
+                )
+                raise DatabaseOperationError(
+                    f"Failed to delete records from table {model.__tablename__} by field {field_name}: {str(e)}", e
+                )
+
+    def clear_table(self, model: Type[DeclarativeBase]) -> None:
+        """
+        Clear all data from a table.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table to clear
+        """
+        with self.get_session() as session:
+            try:
+                session.query(model).delete()
+                self.logger.info(f"Cleared all data from table {model.__tablename__}")
+            except Exception as e:
+                self.logger.error(f"Failed to clear table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Failed to clear table {model.__tablename__}: {str(e)}", e)
 
     def __enter__(self):
         """Context manager entry."""
