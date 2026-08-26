@@ -66,6 +66,30 @@ class TCPProtocol(TCPHelpers):
                 self.on_connected()
                 logging.info(f"✅ [CONNECTED] {self.name} - {ip}:{port}")
 
+                # try to enable TCP keepalive on the underlying socket to help
+                # detect dead peers (e.g., cable unplug). Parameters are platform
+                # specific; set them if available but ignore errors.
+                try:
+                    sock = None
+                    if self.writer:
+                        sock = self.writer.get_extra_info("socket")
+                    if sock is not None:
+                        try:
+                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                        except Exception:
+                            pass
+                        # Linux-specific tuning (may not exist on all platforms)
+                        try:
+                            if hasattr(socket, "TCP_KEEPIDLE"):
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+                            if hasattr(socket, "TCP_KEEPINTVL"):
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
+                            if hasattr(socket, "TCP_KEEPCNT"):
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 # Cria tasks de leitura e monitoramento (usando tracking se disponível)
                 tasks = [
                     self.create_task(self.receive_data_tcp())
@@ -125,7 +149,15 @@ class TCPProtocol(TCPHelpers):
             try:
                 data = data + "\n"
                 self.writer.write(data.encode())
-                await self.writer.drain()
+                # Wait for drain but guard with a timeout so a stalled TCP stack
+                # (e.g., due to unplugged cable) doesn't hang indefinitely.
+                try:
+                    # choose a conservative timeout (at least 1s)
+                    timeout = max(1.0, getattr(self, "reconnection_time", 1) * 2)
+                    await asyncio.wait_for(self.writer.drain(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    logging.warning(f"{self.name} - [SEND TIMEOUT] drain() timed out")
+                    raise
                 if verbose:
                     logging.info(f"{self.name} - [SENT] {data.strip()}")
             except Exception as e:
