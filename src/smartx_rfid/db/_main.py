@@ -436,6 +436,72 @@ class DatabaseManager:
                 "data": records,
             }
 
+    def get_by_field(self, model: Type[DeclarativeBase], field_name: str, value: Any) -> Optional[DeclarativeBase]:
+        """
+        Retrieve a single record by a specific field.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            field_name (str): Field name to filter by
+            value (Any): Value to match
+
+        Returns:
+            Optional[DeclarativeBase]: The matching record, or None if not found
+        """
+        with self.get_session() as session:
+            try:
+                field = getattr(model, field_name)
+                if field is None:
+                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+                return session.query(model).filter(field == value).first()
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to retrieve record from table {model.__tablename__} by field {field_name}: {str(e)}"
+                )
+                raise DatabaseOperationError(
+                    f"Failed to retrieve record from table {model.__tablename__} by field {field_name}: {str(e)}", e
+                )
+
+    def get_all(self, model: Type[DeclarativeBase], limit: int = 10000, offset: int = 0) -> List[DeclarativeBase]:
+        """
+        Retrieve all records from a table with optional pagination.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            limit (int): Maximum number of records to retrieve
+            offset (int): Number of records to skip
+
+        Returns:
+            List[DeclarativeBase]: List of records
+        """
+        with self.get_session() as session:
+            try:
+                return session.query(model).limit(limit).offset(offset).all()
+            except Exception as e:
+                self.logger.error(f"Failed to retrieve records from table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(
+                    f"Failed to retrieve records from table {model.__tablename__}: {str(e)}", e
+                )
+
+    def get_table_summary(self, model: Type[DeclarativeBase]) -> dict:
+        """
+        Get a summary of the table including total records and column information.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+
+        Returns:
+            dict: Summary of the table including total records and column information
+        """
+        with self.get_session() as session:
+            try:
+                total_records = session.query(model).count()
+                columns = {column.name: str(column.type) for column in model.__table__.columns}
+                return {"total_records": total_records, "columns": columns}
+            except Exception as e:
+                self.logger.error(f"Failed to get table summary for {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Failed to get table summary for {model.__tablename__}: {str(e)}", e)
+
     def __enter__(self):
         """Context manager entry."""
         self.initialize()
