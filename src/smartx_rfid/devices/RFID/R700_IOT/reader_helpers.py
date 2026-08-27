@@ -190,7 +190,7 @@ class ReaderHelpers:
             if not self._stop_connection:
                 self.is_connected = False
 
-    async def get_gpo_command(
+    def get_gpo_command(
         self, pin: int = 1, state: bool | str = True, control: str = "static", time: int = 1000
     ) -> dict:
         """
@@ -210,7 +210,7 @@ class ReaderHelpers:
             dict: Payload compatível com a API do leitor RFID para configurar GPO.
 
         Example:
-            gpo_cmd = await self.get_gpo_command(pin=2, state=True, control="pulsed", time=500)
+            gpo_cmd = self.get_gpo_command(pin=2, state=True, control="pulsed", time=500)
         """
         # Normaliza o estado
         state = "high" if state is True else "low" if state is False else str(state)

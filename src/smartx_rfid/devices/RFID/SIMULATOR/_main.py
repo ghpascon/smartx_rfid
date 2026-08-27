@@ -186,7 +186,7 @@ class SIMULATOR(DeviceBase):
         self, pin: int = 1, state: bool = True, control: str = "static", time: int = 1000, *args, **kwargs
     ):
         try:
-            self.emit_event("gpo", {"pin": pin, "state": state})
+            self.emit_event("gpo", {"pin": pin, "state": state, "control": control, "time": time})
         except Exception:
             pass
         return True

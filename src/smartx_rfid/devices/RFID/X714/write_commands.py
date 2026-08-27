@@ -52,6 +52,8 @@ class WriteCommands:
             self.write(command)
             return
 
+        self.emit_event("gpo", {"pin": pin, "state": state, "control": control, "time": time})
+
         cmd_1 = f"#GPO:{pin},{'ON' if state else 'OFF'}"
         cmd_2 = f"#GPO:{pin},{'OFF' if state else 'ON'}"
         self.write(cmd_1)

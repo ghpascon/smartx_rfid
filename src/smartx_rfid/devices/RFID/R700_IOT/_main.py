@@ -298,7 +298,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             control: Control type (static or pulse)
             time: Pulse duration in milliseconds
         """
-        gpo_command = await self.get_gpo_command(pin=pin, state=state, control=control, time=time)
+        gpo_command = self.get_gpo_command(pin=pin, state=state, control=control, time=time)
         try:
             async with self._command_lock:
                 if self._session is not None and not self._session.is_closed:
@@ -306,6 +306,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 else:
                     async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
                         await self.post_to_reader(session, self.endpoint_gpo, payload=gpo_command, method="put")
+            self.emit_event("gpo", {"pin": pin, "state": state, "control": control, "time": time})
         except Exception as e:
             logging.warning(f"{self.name} - Failed to set GPO: {e}")
 
