@@ -12,6 +12,7 @@ from smartx_rfid.devices import (
     R700_IOT,
     X714,
     ACUPAD,
+    SIMULATOR,
     SatoPrinter,
     SatoWs4Printer,
 )
@@ -24,6 +25,7 @@ _DEVICE_MAP = {
     "TCP": TCP,
     "X714": X714,
     "R700_IOT": R700_IOT,
+    "SIMULATOR": SIMULATOR,
     "SATO": SatoPrinter,
     "SATO_WS4": SatoWs4Printer,
     "ACUPAD": ACUPAD,

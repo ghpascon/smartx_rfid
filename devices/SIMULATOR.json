@@ -1,0 +1,7 @@
+{
+    "reader": "SIMULATOR",
+    "start_reading": false,
+    "send_interval": 1.0,
+    "epc_start": "000000000000000000000001",
+    "tid_start": "e28000000000000000000001"
+}
