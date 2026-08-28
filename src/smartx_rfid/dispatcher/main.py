@@ -939,7 +939,7 @@ class EventDispatcher:
     # Public API — add events
     # ------------------------------------------------------------------
 
-    async def add_async(self, name: str, event_type: str, data: Any = None) -> bool:
+    async def add_async(self, name: str, event_type: str, data: Any = None, verbose: bool = False) -> bool:
         """
         Enqueue an event. Starts the dispatcher automatically if not running.
         Returns True if accepted, False if dropped.
@@ -964,7 +964,8 @@ class EventDispatcher:
             except asyncio.QueueFull:
                 await asyncio.wait_for(self._event_queue.put(event), timeout=0.2)
             self._stats["events_queued"] += 1
-            logger.info("Event enqueued | name=%s event_type=%s data=%s", name, event_type, data)
+            if verbose:
+                logger.info("Event enqueued | name=%s event_type=%s data=%s", name, event_type, data)
             return True
         except (asyncio.QueueFull, TimeoutError):
             self._stats["events_dropped"] += 1
@@ -975,7 +976,7 @@ class EventDispatcher:
             logger.exception("Event dropped (error) | name=%s event_type=%s", name, event_type)
             return False
 
-    def add(self, name: str, event_type: str, data: Any = None) -> bool:
+    def add(self, name: str, event_type: str, data: Any = None, verbose: bool = False) -> bool:
         """
         Fire-and-forget enqueue from within a running event loop.
         Use ``add_async`` when you need confirmation the event was accepted.
@@ -1008,6 +1009,8 @@ class EventDispatcher:
         try:
             self._event_queue.put_nowait(event)
             self._stats["events_queued"] += 1
+            if verbose:
+                logger.info("Event enqueued | name=%s event_type=%s data=%s", name, event_type, data)
             return True
         except asyncio.QueueFull:
             self._stats["events_dropped"] += 1
