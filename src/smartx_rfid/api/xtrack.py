@@ -885,15 +885,20 @@ class ApiXtrack:
         # Normalize incoming object keys to uppercase so they match expected fields
         objects = [{k.upper(): v for k, v in obj.items()} for obj in objects]
 
-        def _escape(value):
-            if value is None:
-                return ""
-            return str(value)
+        def _escape(field, value):
+            # Use the default from expected_fields when value is None or
+            # an empty string; preserve falsy but meaningful values like 0.
+            default = expected_fields.get(field, "")
+            if value is None or (isinstance(value, str) and value == ""):
+                val = default
+            else:
+                val = value
+            return "" if val is None else str(val)
 
         # Build XML by iterating the canonical expected_fields order for each object
         objects_xml = []
         for obj in objects:
-            field_elems = "".join(f"<{field}>{_escape(obj.get(field))}</{field}>" for field in expected_fields)
+            field_elems = "".join(f"<{field}>{_escape(field, obj.get(field))}</{field}>" for field in expected_fields)
             objects_xml.append(f"<object>{field_elems}</object>")
 
         xml_payload = f"""
