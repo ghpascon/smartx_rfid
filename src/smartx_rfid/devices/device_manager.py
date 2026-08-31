@@ -393,7 +393,8 @@ class DeviceManager:
         if name is not None:
             info = self._get_single_device_info(name)
             return [info] if info else []
-        return [info for d in self.devices if (info := self._get_single_device_info(d.name))]
+        devices = self.get_devices()
+        return [self._get_single_device_info(d) for d in devices if self._get_single_device_info(d) is not None]
 
     def _get_single_device_info(self, name: str) -> Optional[Dict]:
         device = self.get_device(name)
