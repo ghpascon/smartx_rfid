@@ -342,13 +342,15 @@ class ApiXtrack:
             logging.info(f"[ XTRACK ] get_objects response: {xml_response}")
         return success, data_list if success else response
 
-    async def get_object_by_idcode(self, idcode: str):
+    async def get_object_by_idcode(self, idcode: str | list):
+        if not isinstance(idcode, list):
+            idcode = [idcode]
         xml_payload = f"""
         <msg>
             <command>GetObject</command>
             <terminal>ERP</terminal>
             <data><object>
-                <IDCODE>{idcode.upper()}</IDCODE>
+                {"".join([f"<IDCODE>{ic}</IDCODE>" for ic in idcode])}
             </object></data>
         </msg>
         """
@@ -423,6 +425,7 @@ class ApiXtrack:
     async def get_object_by_epc(self, epc: str | list):
         if not isinstance(epc, list):
             epc = [epc]
+
         xml_payload = f"""
         <msg>
             <command>GetObjectByEPC</command>
@@ -435,24 +438,33 @@ class ApiXtrack:
         headers = {"Content-Type": "application/xml"}
         success, response = await self.post(data=xml_payload, headers=headers)
         xml_response = response.get("raw_response", None) if success else None
-        parsed = None
+        parsed = []
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
                 data_elem = root.find(".//data")
-                object_elem = data_elem.find("object") if data_elem is not None else None
-                # product_elem = data_elem.find("product") if data_elem is not None else None
 
                 def _elem_to_dict(elem):
                     if elem is None:
                         return None
                     d = {}
                     for child in elem:
-                        tag = child.tag.split("}")[-1]
+                        tag = child.tag.split("}")[-1].lower()
                         d[tag] = child.text.strip() if child.text and child.text.strip() else None
                     return d
 
-                parsed = _elem_to_dict(object_elem)
+                if data_elem is not None:
+                    # collect all <object> entries
+                    for obj_elem in data_elem.findall("object"):
+                        od = _elem_to_dict(obj_elem)
+                        if od is not None:
+                            parsed.append(od)
+                    # fallback to <product> elements if present
+                    if not parsed:
+                        for prod_elem in data_elem.findall("product"):
+                            pd = _elem_to_dict(prod_elem)
+                            if pd is not None:
+                                parsed.append(pd)
 
                 logging.info(f"[ XTRACK ] get_object_by_epc parsed data: {parsed}")
             except Exception as e:
@@ -469,7 +481,14 @@ class ApiXtrack:
         if not success:
             return success, data
 
-        idcode = data.get("idcode") if isinstance(data, dict) else None
+        idcode = None
+        if isinstance(data, list):
+            first = data[0] if data else None
+            if isinstance(first, dict):
+                idcode = first.get("idcode")
+        elif isinstance(data, dict):
+            idcode = data.get("idcode")
+
         logging.info(f"[ XTRACK ] get_idcode_from_epc resolved IDCODE: {idcode}")
         return True, idcode
 
@@ -824,44 +843,44 @@ class ApiXtrack:
             is the parsed JSON response when available or a dict containing
             a `raw_response` key with the raw response text.
         """
-        expected_fields = [
-            "ACTIVE",
-            "IDCODE",
-            "DESCRIPTION",
-            "SERIALNUMBER",
-            "QUANTITY",
-            "ITEMMODEL_IDCODE",
-            "DEPARTMENT_NAME",
-            "CONDITION_NAME",
-            "DISPOSITION_NAME",
-            "LOCATION_NAME",
-            "HOMELOCATION_NAME",
-            "GROUP_NAME",
-            "CUSTODIAN_NAME",
-            "DISPOSAL_NAME",
-            "COSTCENTER_NAME",
-            "CONTAINER_IDCODE",
-            "LATITUDE",
-            "LONGITUDE",
-            "USRDATA1",
-            "USRDATA2",
-            "USRDATA3",
-            "USRDATA4",
-            "USRDATA5",
-            "USRDATA6",
-            "USRDATA7",
-            "USRDATA8",
-            "USRDATA9",
-            "IDETYPE1",
-            "IDECODE1",
-            "IDETYPE2",
-            "IDECODE2",
-            "IDETYPE3",
-            "IDECODE3",
-            "IDETYPE4",
-            "IDECODE4",
-            "IMAGEFILE",
-        ]
+        expected_fields = {
+            "ACTIVE": 1,
+            "IDCODE": "",
+            "DESCRIPTION": "",
+            "SERIALNUMBER": "",
+            "QUANTITY": 1,
+            "ITEMMODEL_IDCODE": "",
+            "DEPARTMENT_NAME": "",
+            "CONDITION_NAME": "",
+            "DISPOSITION_NAME": "",
+            "LOCATION_NAME": "",
+            "HOMELOCATION_NAME": "",
+            "GROUP_NAME": "",
+            "CUSTODIAN_NAME": "",
+            "DISPOSAL_NAME": "",
+            "COSTCENTER_NAME": "",
+            "CONTAINER_IDCODE": "",
+            "LATITUDE": "",
+            "LONGITUDE": "",
+            "USRDATA1": "",
+            "USRDATA2": "",
+            "USRDATA3": "",
+            "USRDATA4": "",
+            "USRDATA5": "",
+            "USRDATA6": "",
+            "USRDATA7": "",
+            "USRDATA8": "",
+            "USRDATA9": "",
+            "IDETYPE1": "BARCODE",
+            "IDECODE1": "",
+            "IDETYPE2": "RFID",
+            "IDECODE2": "",
+            "IDETYPE3": "",
+            "IDECODE3": "",
+            "IDETYPE4": "",
+            "IDECODE4": "",
+            "IMAGEFILE": "",
+        }
 
         # Normalize incoming object keys to uppercase so they match expected fields
         objects = [{k.upper(): v for k, v in obj.items()} for obj in objects]

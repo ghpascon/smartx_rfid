@@ -151,6 +151,11 @@ ACTION_MAP = {
                 ("imagefile", str, ""),
             ],
         ),
+        (
+            "register_objects_bulk",
+            "Create objects in bulk (JSON list)",
+            [("objects_json", str, "[]")],
+        ),
     ],
     "DELETE": [
         ("delete_category", "Delete category", [("category_name", str, "")]),
@@ -178,6 +183,7 @@ ACTION_MAP = {
     ],
     "MOVE": [
         ("move_object", "Move object to location", [("idcode", str, ""), ("location_id", str, "")]),
+        ("move_objects_bulk", "Move objects in bulk (JSON list)", [("moves_json", str, "[]")]),
         ("move_condition", "Move object condition", [("idcode", str, ""), ("condition", str, "")]),
         ("move_disposition", "Move object disposition", [("idcode", str, ""), ("disposition", str, "")]),
         ("move_custodian", "Move object custodian", [("idcode", str, ""), ("custodian", str, "")]),
@@ -276,6 +282,43 @@ async def interactive_loop():
                 raw = input_with_default(f"{name}", default)
                 val = raw
             collected.append(val)
+
+        # Post-process special-cased inputs
+        if method_name == "get_object_by_epc":
+            # support JSON list or comma-separated EPCs
+            raw = collected[0] if collected else ""
+            try:
+                import json
+
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    collected = [parsed]
+                else:
+                    # not a list, fall back to comma-split or single string
+                    if isinstance(raw, str) and "," in raw:
+                        collected = [[s.strip() for s in raw.split(",") if s.strip()]]
+                    else:
+                        collected = [raw]
+            except Exception:
+                if isinstance(raw, str) and "," in raw:
+                    collected = [[s.strip() for s in raw.split(",") if s.strip()]]
+                else:
+                    collected = [raw]
+
+        if method_name in ("register_objects_bulk", "move_objects_bulk"):
+            # expect a JSON-encoded list as the single parameter
+            try:
+                import json
+
+                parsed = json.loads(collected[0])
+                if isinstance(parsed, list):
+                    collected = [parsed]
+                else:
+                    print("Expected a JSON list for bulk operation")
+                    continue
+            except Exception as e:
+                print("Invalid JSON for bulk operation:", e)
+                continue
 
         await run_action(api, method_name, collected)
 
