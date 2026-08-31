@@ -420,13 +420,15 @@ class ApiXtrack:
             logging.info(f"[ XTRACK ] get_users response: {xml_response}")
         return success, user_list if success else response
 
-    async def get_object_by_epc(self, epc: str):
+    async def get_object_by_epc(self, epc: str | list):
+        if not isinstance(epc, list):
+            epc = [epc]
         xml_payload = f"""
         <msg>
             <command>GetObjectByEPC</command>
             <terminal>SAPext</terminal>
             <data>
-                <epc>{epc.upper()}</epc>
+                {"".join([f"<epc>{e.upper()}</epc>" for e in epc])}
             </data>
         </msg>
         """
@@ -803,6 +805,39 @@ class ApiXtrack:
         logging.info(f"[ XTRACK ] register_object response: {response}")
         return success, response
 
+    async def register_objects_bulk(self, objects: list):
+        """
+        Register multiple objects in bulk.
+
+        This method constructs an XML payload that includes one or more
+        `<object>` entries and sends it to the Xtrack API using the
+        instance `post` helper.
+
+        Parameters:
+            objects (list): A list of dictionaries where each dictionary
+                represents an object to import. Each dictionary's keys are
+                used as XML tag names and values as the tag text.
+
+        Returns:
+            tuple[bool, dict]: A tuple `(success, response)` where `success`
+            is True when the HTTP request completed successfully. `response`
+            is the parsed JSON response when available or a dict containing
+            a `raw_response` key with the raw response text.
+        """
+        xml_payload = f"""
+        <msg>
+            <command>ImportObject</command>
+            <terminal>ERP</terminal>
+            <data>
+                {"".join([f"<object>{''.join([f'<{k}>{v}</{k}>' for k, v in obj.items()])}</object>" for obj in objects])}
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] register_objects_bulk response: {response}")
+        return success, response
+
     # DELETE METHODS
     async def delete_category(self, category_name: str):
         xml_payload = f"""
@@ -1139,6 +1174,37 @@ class ApiXtrack:
         headers = {"Content-Type": "application/xml"}
         success, response = await self.post(data=xml_payload, headers=headers)
         logging.info(f"[ XTRACK ] move_object response: {response}")
+        return success, response
+
+    async def move_objects_bulk(self, moves: list):
+        """
+        Move multiple objects to new locations in bulk.
+
+        Builds an XML payload containing pairs of `<object>` and
+        `<location>` tags for each move instruction and sends it via the
+        instance `post` helper.
+
+        Parameters:
+            moves (list): A list of dicts with keys `idcode` and
+                `location_id` describing each move.
+
+        Returns:
+            tuple[bool, dict]: A tuple `(success, response)` returned from
+            the underlying `post` call. `success` is True on HTTP success
+            and `response` contains the parsed response or raw text.
+        """
+        xml_payload = f"""
+        <msg>
+            <command>MoveLocation</command>
+            <terminal>SAPext</terminal>
+            <data>
+                {"".join([f"<object>{move.get('idcode')}</object><location>{move.get('location_id')}</location>" for move in moves])}
+            </data>
+        </msg>
+        """
+        headers = {"Content-Type": "application/xml"}
+        success, response = await self.post(data=xml_payload, headers=headers)
+        logging.info(f"[ XTRACK ] move_objects_bulk response: {response}")
         return success, response
 
     async def move_condition(self, idcode: str, condition: str):
