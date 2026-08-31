@@ -824,12 +824,65 @@ class ApiXtrack:
             is the parsed JSON response when available or a dict containing
             a `raw_response` key with the raw response text.
         """
+        expected_fields = [
+            "ACTIVE",
+            "IDCODE",
+            "DESCRIPTION",
+            "SERIALNUMBER",
+            "QUANTITY",
+            "ITEMMODEL_IDCODE",
+            "DEPARTMENT_NAME",
+            "CONDITION_NAME",
+            "DISPOSITION_NAME",
+            "LOCATION_NAME",
+            "HOMELOCATION_NAME",
+            "GROUP_NAME",
+            "CUSTODIAN_NAME",
+            "DISPOSAL_NAME",
+            "COSTCENTER_NAME",
+            "CONTAINER_IDCODE",
+            "LATITUDE",
+            "LONGITUDE",
+            "USRDATA1",
+            "USRDATA2",
+            "USRDATA3",
+            "USRDATA4",
+            "USRDATA5",
+            "USRDATA6",
+            "USRDATA7",
+            "USRDATA8",
+            "USRDATA9",
+            "IDETYPE1",
+            "IDECODE1",
+            "IDETYPE2",
+            "IDECODE2",
+            "IDETYPE3",
+            "IDECODE3",
+            "IDETYPE4",
+            "IDECODE4",
+            "IMAGEFILE",
+        ]
+
+        # Normalize incoming object keys to uppercase so they match expected fields
+        objects = [{k.upper(): v for k, v in obj.items()} for obj in objects]
+
+        def _escape(value):
+            if value is None:
+                return ""
+            return str(value)
+
+        # Build XML by iterating the canonical expected_fields order for each object
+        objects_xml = []
+        for obj in objects:
+            field_elems = "".join(f"<{field}>{_escape(obj.get(field))}</{field}>" for field in expected_fields)
+            objects_xml.append(f"<object>{field_elems}</object>")
+
         xml_payload = f"""
         <msg>
             <command>ImportObject</command>
             <terminal>ERP</terminal>
             <data>
-                {"".join([f"<object>{''.join([f'<{k}>{v}</{k}>' for k, v in obj.items()])}</object>" for obj in objects])}
+                {"".join(objects_xml)}
             </data>
         </msg>
         """

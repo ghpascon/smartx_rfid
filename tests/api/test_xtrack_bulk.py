@@ -24,8 +24,11 @@ async def test_register_objects_bulk_constructs_xml_and_posts():
 
     assert success is True
     assert "<command>ImportObject</command>" in captured["data"]
-    assert "<object><IDCODE>A1</IDCODE><DESCRIPTION>Obj A</DESCRIPTION></object>" in captured["data"]
-    assert "<object><IDCODE>B2</IDCODE><DESCRIPTION>Obj B</DESCRIPTION></object>" in captured["data"]
+    assert "<IDCODE>A1</IDCODE>" in captured["data"]
+    assert "<DESCRIPTION>Obj A</DESCRIPTION>" in captured["data"]
+    assert "<IDCODE>B2</IDCODE>" in captured["data"]
+    assert "<DESCRIPTION>Obj B</DESCRIPTION>" in captured["data"]
+    assert captured["data"].count("<object>") == 2
     assert captured["headers"] == {"Content-Type": "application/xml"}
 
 
