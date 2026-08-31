@@ -355,7 +355,7 @@ class DeviceManager:
         return len(self.devices)
 
     def get_devices(self) -> List[str]:
-        return [d.name for d in self.devices]
+        return sorted([d.name for d in self.devices])
 
     def get_device(self, name: str):
         return next((d for d in self.devices if d.name == name), None)
@@ -374,7 +374,7 @@ class DeviceManager:
     def get_device_types_example(self) -> List[str]:
         if not self._example_path or not os.path.exists(self._example_path):
             return []
-        return [f[: -len(".json")] for f in os.listdir(self._example_path) if f.endswith(".json")]
+        return sorted([f[: -len(".json")] for f in os.listdir(self._example_path) if f.endswith(".json")])
 
     def get_device_config_example(self, name: str) -> Optional[dict]:
         if not self._example_path:
