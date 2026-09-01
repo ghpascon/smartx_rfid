@@ -428,10 +428,10 @@ class ApiXtrack:
 
         xml_payload = f"""
         <msg>
-            <command>GetObjectByEPC</command>
-            <terminal>SAPext</terminal>
+            <command>GetObject</command>
+            <terminal>ERP</terminal>
             <data>
-                {"".join([f"<epc>{e.upper()}</epc>" for e in epc])}
+                {"".join([f"<object><EPC>{e.upper()}</EPC></object>" for e in epc])}
             </data>
         </msg>
         """
@@ -442,7 +442,6 @@ class ApiXtrack:
         if success and xml_response:
             try:
                 root = ET.fromstring(xml_response)
-                data_elem = root.find(".//data")
 
                 def _elem_to_dict(elem):
                     if elem is None:
@@ -450,21 +449,51 @@ class ApiXtrack:
                     d = {}
                     for child in elem:
                         tag = child.tag.split("}")[-1].lower()
-                        d[tag] = child.text.strip() if child.text and child.text.strip() else None
+                        # recurse for nested elements
+                        if list(child):
+                            sub = _elem_to_dict(child)
+                            if tag in d:
+                                if isinstance(d[tag], list):
+                                    d[tag].append(sub)
+                                else:
+                                    d[tag] = [d[tag], sub]
+                            else:
+                                d[tag] = sub
+                        else:
+                            text = child.text.strip() if child.text and child.text.strip() else None
+                            if tag in d:
+                                if isinstance(d[tag], list):
+                                    d[tag].append(text)
+                                else:
+                                    d[tag] = [d[tag], text]
+                            else:
+                                d[tag] = text
                     return d
 
-                if data_elem is not None:
-                    # collect all <object> entries
-                    for obj_elem in data_elem.findall("object"):
-                        od = _elem_to_dict(obj_elem)
-                        if od is not None:
-                            parsed.append(od)
-                    # fallback to <product> elements if present
-                    if not parsed:
-                        for prod_elem in data_elem.findall("product"):
-                            pd = _elem_to_dict(prod_elem)
+                # There can be multiple <data> elements; handle each one.
+                for data_elem in root.findall(".//data"):
+                    # prefer explicit <object> children
+                    objects = data_elem.findall("object")
+                    if objects:
+                        for obj in objects:
+                            od = _elem_to_dict(obj)
+                            if od is not None:
+                                parsed.append(od)
+                        continue
+
+                    # fallback to <product> children
+                    products = data_elem.findall("product")
+                    if products:
+                        for prod in products:
+                            pd = _elem_to_dict(prod)
                             if pd is not None:
                                 parsed.append(pd)
+                        continue
+
+                    # otherwise treat the <data> element itself as a record
+                    dd = _elem_to_dict(data_elem)
+                    if dd is not None:
+                        parsed.append(dd)
 
                 logging.info(f"[ XTRACK ] get_object_by_epc parsed data: {parsed}")
             except Exception as e:
