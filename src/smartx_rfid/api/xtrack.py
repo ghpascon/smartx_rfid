@@ -502,21 +502,35 @@ class ApiXtrack:
         else:
             logging.info(f"[ XTRACK ] get_object_by_epc response: {xml_response}")
 
-        return success, parsed if success else response
+        # Convert parsed list to a dict keyed by identification.idcode (fallbacks)
+        if success:
+            mapped = {}
+            for v in parsed:
+                if not isinstance(v, dict):
+                    continue
+                key = None
+                ident = v.get("identification")
+                if isinstance(ident, dict):
+                    key = ident.get("idcode") or ident.get("id")
+                if not key:
+                    key = v.get("idcode") or v.get("id") or v.get("product_id") or v.get("productid")
+                if key is None:
+                    logging.debug(f"[ XTRACK ] skipping object without idkey: {v}")
+                    continue
+                mapped[str(key)] = v
+
+            logging.info(f"[ XTRACK ] get_object_by_epc mapped keys: {list(mapped.keys())}")
+            return True, mapped
+
+        return success, response
 
     async def get_idcode_from_epc(self, epc: str):
-        # reutiliza get_object_by_epc e retorna apenas o idcode do <object> (fallback para <product>)
+        # reuse get_object_by_epc and return only the idcode (prefers identification.idcode)
         success, data = await self.get_object_by_epc(epc)
         if not success:
             return success, data
 
-        idcode = None
-        if isinstance(data, list):
-            first = data[0] if data else None
-            if isinstance(first, dict):
-                idcode = first.get("idcode")
-        elif isinstance(data, dict):
-            idcode = data.get("idcode")
+        idcode = data.get(epc, {}).get("idcode")
 
         logging.info(f"[ XTRACK ] get_idcode_from_epc resolved IDCODE: {idcode}")
         return True, idcode
