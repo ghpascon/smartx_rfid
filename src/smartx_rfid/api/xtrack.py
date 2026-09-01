@@ -1317,9 +1317,7 @@ class ApiXtrack:
         <msg>
             <command>MoveLocation</command>
             <terminal>SAPext</terminal>
-            <data>
-                {"".join([f"<object>{move.get('idcode')}</object><location>{move.get('location_id')}</location>" for move in moves])}
-            </data>
+                {"".join([f"<data><object>{move.get('idcode')}</object><location>{move.get('location_id')}</location></data>" for move in moves])}
         </msg>
         """
         headers = {"Content-Type": "application/xml"}
