@@ -157,6 +157,8 @@ class SmtxDb:
         serial_number: str | None = None,
         hostname: str | None = None,
         available: bool | None = None,
+        can_generate_license: bool | None = None,
+        test_info: str | None = None,
     ):
         logging.info(
             f"Updating reader id={reader_id}, reader_type_id={reader_type_id}, serial_number={serial_number}, hostname={hostname}, available={available}"
@@ -176,6 +178,10 @@ class SmtxDb:
                     reader.hostname = hostname
                 if available is not None:
                     reader.available = available
+                if can_generate_license is not None:
+                    reader.can_generate_license = can_generate_license
+                if test_info is not None:
+                    reader.test_info = test_info
         except Exception as e:
             logging.error(f"Error updating reader: {e}")
             return False, str(e)
@@ -193,6 +199,32 @@ class SmtxDb:
                 session.delete(reader)
         except Exception as e:
             logging.error(f"Error deleting reader: {e}")
+            return False, str(e)
+        return True, None
+
+    def set_reader_availability(self, reader_id: int, available: bool):
+        logging.info(f"Setting reader availability: reader_id={reader_id}, available={available}")
+        try:
+            with self.db_manager.get_session() as session:
+                reader = session.query(Readers).filter_by(id=reader_id).first()
+                if not reader:
+                    return False, f"Reader with id {reader_id} not found"
+                reader.available = available
+        except Exception as e:
+            logging.error(f"Error setting reader availability: {e}")
+            return False, str(e)
+        return True, None
+
+    def set_test_info_for_reader(self, reader_id: int, test_info: dict):
+        logging.info(f"Setting test info for reader: reader_id={reader_id}, test_info={test_info}")
+        try:
+            with self.db_manager.get_session() as session:
+                reader = session.query(Readers).filter_by(id=reader_id).first()
+                if not reader:
+                    return False, f"Reader with id {reader_id} not found"
+                reader.test_info = str(test_info)
+        except Exception as e:
+            logging.error(f"Error setting test info for reader: {e}")
             return False, str(e)
         return True, None
 

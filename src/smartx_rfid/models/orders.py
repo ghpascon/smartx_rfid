@@ -40,6 +40,7 @@ class Readers(Base, BaseMixin):
     hostname = Column(String(255), nullable=True, index=True)
     available = Column(Boolean, nullable=False, default=True, index=True)
     can_generate_license = Column(Boolean, nullable=True, default=False, index=False)
+    test_info = Column(Text, nullable=True, index=False)
 
 
 @event.listens_for(Readers, "before_insert")
