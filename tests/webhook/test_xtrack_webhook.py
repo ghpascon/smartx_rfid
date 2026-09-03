@@ -48,7 +48,8 @@ def test_add_to_queue_batch_size(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", Dummy)
 
     async def run():
-        w = WebhookXtrack("http://example.com", batch_size=3, batch_time=10, queue_limit=100)
+        # send when queue reaches 3 items by setting queue_limit=3
+        w = WebhookXtrack("http://example.com", batch_time=10, queue_limit=3)
         await w.add_to_queue({"device": "d1", "ant": "1", "epc": "E1"})
         await w.add_to_queue({"device": "d2", "ant": "2", "epc": "E2"})
         await w.add_to_queue({"device": "d3", "ant": "3", "epc": "E3"})
@@ -68,7 +69,8 @@ def test_add_to_queue_batch_time(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", Dummy)
 
     async def run():
-        w = WebhookXtrack("http://example.com", batch_size=1000, batch_time=0.05, queue_limit=1000)
+        # use a small batch_time so timer triggers send
+        w = WebhookXtrack("http://example.com", batch_time=0.05, queue_limit=1000)
         await w.add_to_queue({"device": "d1", "ant": "1", "epc": "E1"})
         await w.add_to_queue({"device": "d2", "ant": "2", "epc": "E2"})
         await asyncio.sleep(0.1)
@@ -86,7 +88,8 @@ def test_queue_limit_triggers_send(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", Dummy)
 
     async def run():
-        w = WebhookXtrack("http://example.com", batch_size=1000, batch_time=10, queue_limit=2)
+        # queue_limit=2 should trigger send immediately on second add
+        w = WebhookXtrack("http://example.com", batch_time=10, queue_limit=2)
         await w.add_to_queue({"device": "d1", "ant": "1", "epc": "E1"})
         await w.add_to_queue({"device": "d2", "ant": "2", "epc": "E2"})
 
@@ -101,7 +104,8 @@ def test_missing_epc_is_skipped(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", Dummy)
 
     async def run():
-        w = WebhookXtrack("http://example.com", batch_size=3, batch_time=10, queue_limit=100)
+        # missing epc should be skipped; send when queue reaches 3 items
+        w = WebhookXtrack("http://example.com", batch_time=10, queue_limit=3)
         await w.add_to_queue({"device": "d1", "ant": "1", "epc": "E1"})
         await w.add_to_queue({"device": "d2", "ant": "2"})  # missing epc
         await w.add_to_queue({"device": "d3", "ant": "3", "epc": "E3"})
