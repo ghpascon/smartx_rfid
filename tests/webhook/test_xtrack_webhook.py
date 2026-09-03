@@ -115,3 +115,26 @@ def test_missing_epc_is_skipped(monkeypatch):
     assert len(posts) == 1
     assert posts[0]["content"].count("<data>") == 2
     assert "TAGID=E1" in posts[0]["content"] and "TAGID=E3" in posts[0]["content"]
+
+
+def test_timer_batch_send_not_self_cancelled(monkeypatch):
+    posts = []
+    Dummy = _make_dummy(posts)
+    monkeypatch.setattr(httpx, "AsyncClient", Dummy)
+
+    async def run():
+        w = WebhookXtrack("http://example.com", batch_time=0.02, queue_limit=100)
+        await w.add_to_queue({"device": "d1", "ant": "1", "epc": "E1"})
+        await w.add_to_queue({"device": "d2", "ant": "2", "epc": "E2"})
+
+        # Wait enough for timer-triggered flush to run to completion.
+        await asyncio.sleep(0.08)
+
+        assert len(w._queue) == 0
+
+    asyncio.run(run())
+
+    assert len(posts) == 1
+    content = posts[0]["content"]
+    assert "<command>ReportReadEx</command>" in content
+    assert content.count("<data>") == 2
