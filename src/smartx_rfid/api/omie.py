@@ -134,8 +134,6 @@ class ApiOmie:
                 try:
                     cabecalho = order.get("cabecalho", {})
                     etapa = int(cabecalho.get("etapa", 0))
-                    if etapa < 20:
-                        continue
 
                     produtos = order.get("det", [])
                     numero_pedido = cabecalho.get("numero_pedido")
