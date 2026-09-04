@@ -194,8 +194,13 @@ class ApiOmie:
             if not product_code:
                 continue
             product_code = product_code.lower()
-            if not product_code.startswith("smtx") or product_code[4:5].isdigit():
+            if not product_code.startswith("smtx") or product_code[4:5].isdigit() or "vsix" not in product_code:
                 continue
+
+            # remove pre vsix part of the product code
+            if "vsix" in order.get("codigo_produto", "").lower():
+                idx = order.get("codigo_produto", "").lower().find("vsix")
+                order["codigo_produto"] = order["codigo_produto"][idx:]
 
             enriched_order = {
                 "numero_pedido": order.get("numero_pedido"),
