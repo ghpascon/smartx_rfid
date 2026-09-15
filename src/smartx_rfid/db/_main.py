@@ -1,13 +1,17 @@
 import logging
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 from contextlib import contextmanager
 from datetime import datetime, date
 from decimal import Decimal
+import zipfile
 from sqlalchemy import create_engine, text, MetaData, inspect, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, scoped_session
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.engine import Engine
 import threading
+import io
+import json
+import csv
 
 
 class DatabaseError(Exception):
@@ -628,6 +632,149 @@ class DatabaseManager:
             except Exception as e:
                 self.logger.error(f"Failed to clear table {model.__tablename__}: {str(e)}")
                 raise DatabaseOperationError(f"Failed to clear table {model.__tablename__}: {str(e)}", e)
+
+    def get_model_by_table_name(self, table_name: str) -> Optional[Type[DeclarativeBase]]:
+        for model in self._models_registry:
+            if hasattr(model, "__tablename__") and model.__tablename__ == table_name:
+                return model
+        return None
+
+    def get_models(self) -> List[Type[DeclarativeBase]]:
+        return self._models_registry
+
+    def generate_database_backup(
+        self,
+        return_type: Literal["dict", "csv", "sql", "json"] = "dict",
+        limit: int = 10000,
+        database_dialect: str | None = None,
+    ) -> Any:
+        """
+        Generate a backup of the database.
+
+        Args:
+            return_type (Literal["dict", "csv", "sql", "json"], optional): Format of the backup. Defaults to "dict".
+            database_dialect (str|None, optional): Database dialect to use for SQL backup. Defaults to None.
+                - "dict": Return the backup as a dictionary.
+                - "csv": Return the backup as CSV files.
+                - "sql": Return the backup as SQL statements. The `database_dialect` parameter specifies the SQL dialect to use.
+                - "json": Return the backup as JSON files.
+
+        Returns:
+            Any: The database backup in the specified format.
+        """
+        if return_type not in ["dict", "csv", "sql", "json"]:
+            return_type = "dict"
+
+        try:
+            page_size = int(limit)
+            if page_size <= 0:
+                page_size = 10000
+        except (TypeError, ValueError):
+            page_size = 10000
+
+        models = self.get_models()
+
+        backup_data: Dict[str, List[Dict[str, Any]]] = {}
+
+        for model in models:
+            table_name = getattr(model, "__tablename__", model.__name__.lower())
+            offset = 0
+            backup_data[table_name] = []
+            while True:
+                report = self.generate_table_report(model, limit=page_size, offset=offset)
+                data = report.get("data", [])
+                backup_data[table_name].extend(data)
+                if not report.get("has_more"):
+                    break
+                offset += page_size
+
+        if return_type == "dict":
+            # Return the backup data as a dictionary.
+            return backup_data
+        elif return_type == "csv":
+            # Return the backup data as zip of csv files
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                for table, rows in backup_data.items():
+                    csv_buffer = io.StringIO()
+                    if rows:
+                        writer = csv.DictWriter(csv_buffer, fieldnames=rows[0].keys())
+                        writer.writeheader()
+                        writer.writerows(rows)
+                    zip_file.writestr(f"{table}.csv", csv_buffer.getvalue())
+            zip_buffer.seek(0)
+            return zip_buffer.getvalue()
+        elif return_type == "json":
+            # Return the backup data as zip of JSON files
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                for table, rows in backup_data.items():
+                    zip_file.writestr(f"{table}.json", json.dumps(rows, indent=2))
+            zip_buffer.seek(0)
+            return zip_buffer.getvalue()
+        elif return_type == "sql":
+            # Return the backup data zip of as SQL statements to import to tables.
+            def to_sql_literal(value: Any) -> str:
+                if value is None:
+                    return "NULL"
+                if isinstance(value, bool):
+                    return "1" if value else "0"
+                if isinstance(value, (int, float, Decimal)):
+                    return str(value)
+                escaped = str(value).replace("'", "''")
+                return f"'{escaped}'"
+
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                # Try to detect dialect to produce more appropriate SQL (MySQL/Postgres/SQLite)
+                dialect = database_dialect
+                if not dialect:
+                    try:
+                        dialect = self._engine.dialect.name if self._engine else None
+                    except Exception:
+                        dialect = None
+
+                for table, rows in backup_data.items():
+                    sql_lines: List[str] = []
+
+                    # Disable foreign-key checks / prepare truncate/delete depending on dialect
+                    if dialect and "mysql" in dialect:
+                        sql_lines.append("SET FOREIGN_KEY_CHECKS=0;")
+                        sql_lines.append(f"TRUNCATE TABLE {table};")
+                    elif dialect and ("postgresql" in dialect or "postgres" in dialect):
+                        sql_lines.append(f"ALTER TABLE {table} DISABLE TRIGGER ALL;")
+                        sql_lines.append(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;")
+                    elif dialect and "sqlite" in dialect:
+                        sql_lines.append("PRAGMA foreign_keys=OFF;")
+                        sql_lines.append(f"DELETE FROM {table};")
+                        # reset sqlite autoincrement
+                        sql_lines.append(f"DELETE FROM sqlite_sequence WHERE name='{table}';")
+                    else:
+                        sql_lines.append(f"DELETE FROM {table};")
+
+                    # Single INSERT with multiple VALUES groups (more efficient)
+                    if rows:
+                        columns = list(rows[0].keys())
+                        column_list = ", ".join(columns)
+                        values_groups: List[str] = []
+                        for row in rows:
+                            values = ", ".join(to_sql_literal(row.get(column)) for column in columns)
+                            values_groups.append(f"({values})")
+                        sql_lines.append(
+                            f"INSERT INTO {table} ({column_list}) VALUES\n" + ",\n".join(values_groups) + ";"
+                        )
+
+                    # Re-enable constraints / triggers where applicable
+                    if dialect and "mysql" in dialect:
+                        sql_lines.append("SET FOREIGN_KEY_CHECKS=1;")
+                    elif dialect and ("postgresql" in dialect or "postgres" in dialect):
+                        sql_lines.append(f"ALTER TABLE {table} ENABLE TRIGGER ALL;")
+                    elif dialect and "sqlite" in dialect:
+                        sql_lines.append("PRAGMA foreign_keys=ON;")
+
+                    zip_file.writestr(f"{table}.sql", "\n".join(sql_lines) + "\n")
+            zip_buffer.seek(0)
+            return zip_buffer.getvalue()
 
     def __enter__(self):
         """Context manager entry."""

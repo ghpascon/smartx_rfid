@@ -1,4 +1,8 @@
 import pytest
+import io
+import csv
+import json
+import zipfile
 from datetime import date
 from decimal import Decimal
 from sqlalchemy import text, Column, Integer, String, Date, Numeric, LargeBinary
@@ -126,6 +130,75 @@ def test_generate_table_report(db_manager):
     assert report["offset"] == 0
     assert report["has_more"] is True
     assert len(report["data"]) == 2
+
+
+def test_generate_database_backup_dict_output(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+    db_manager.insert_record(DbModel, {"name": "Alpha", "value": Decimal("10.50"), "dt": date(2024, 1, 1)})
+    db_manager.insert_record(DbModel, {"name": "Beta", "value": Decimal("20.25"), "dt": date(2024, 1, 2)})
+
+    backup = db_manager.generate_database_backup(return_type="dict", limit=1)
+
+    assert "db_model" in backup
+    assert len(backup["db_model"]) == 2
+    names = [row["name"] for row in backup["db_model"]]
+    assert "Alpha" in names
+    assert "Beta" in names
+
+
+def test_generate_database_backup_csv_output(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+    db_manager.insert_record(DbModel, {"name": "CsvUser", "value": Decimal("1.11"), "dt": date(2024, 2, 2)})
+
+    backup_zip = db_manager.generate_database_backup(return_type="csv")
+
+    assert isinstance(backup_zip, bytes)
+    with zipfile.ZipFile(io.BytesIO(backup_zip), "r") as zf:
+        assert "db_model.csv" in zf.namelist()
+        csv_content = zf.read("db_model.csv").decode("utf-8")
+
+    rows = list(csv.DictReader(io.StringIO(csv_content)))
+    assert len(rows) == 1
+    assert rows[0]["name"] == "CsvUser"
+    assert rows[0]["dt"] == "2024-02-02"
+
+
+def test_generate_database_backup_json_output(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+    db_manager.insert_record(DbModel, {"name": "JsonUser", "value": Decimal("2.22"), "dt": date(2024, 3, 3)})
+
+    backup_zip = db_manager.generate_database_backup(return_type="json")
+
+    assert isinstance(backup_zip, bytes)
+    with zipfile.ZipFile(io.BytesIO(backup_zip), "r") as zf:
+        assert "db_model.json" in zf.namelist()
+        json_content = zf.read("db_model.json").decode("utf-8")
+
+    data = json.loads(json_content)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["name"] == "JsonUser"
+    assert data[0]["dt"] == "2024-03-03"
+
+
+def test_generate_database_backup_sql_output(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+    db_manager.insert_record(DbModel, {"name": "O'Reilly", "value": Decimal("3.33"), "dt": date(2024, 4, 4)})
+
+    backup_zip = db_manager.generate_database_backup(return_type="sql")
+
+    assert isinstance(backup_zip, bytes)
+    with zipfile.ZipFile(io.BytesIO(backup_zip), "r") as zf:
+        assert "db_model.sql" in zf.namelist()
+        sql_content = zf.read("db_model.sql").decode("utf-8")
+
+    assert "DELETE FROM db_model;" in sql_content
+    assert "INSERT INTO db_model" in sql_content
+    assert "O''Reilly" in sql_content
 
 
 def test_execute_query_and_non_select(db_manager):
