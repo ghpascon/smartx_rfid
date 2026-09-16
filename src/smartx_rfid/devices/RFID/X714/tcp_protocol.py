@@ -9,8 +9,31 @@ class TCPHelpers:
         writer = getattr(self, "writer", None)
         if writer:
             try:
+                # High-level check first
                 if writer.is_closing():
                     return True
+            except Exception:
+                return True
+
+            # Try to inspect the underlying socket for platform-level errors.
+            try:
+                sock = writer.get_extra_info("socket")
+                if sock is None:
+                    # If there's no socket attached, consider the transport closed.
+                    return True
+                try:
+                    fileno = sock.fileno()
+                    if fileno < 0:
+                        return True
+                except Exception:
+                    pass
+                try:
+                    err = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                    if err != 0:
+                        return True
+                except Exception:
+                    # If getsockopt fails, ignore and continue with other checks.
+                    pass
             except Exception:
                 return True
 
@@ -55,10 +78,6 @@ class TCPHelpers:
             await asyncio.sleep(self.reconnection_time)
             if self._is_tcp_transport_closed():
                 await self._mark_tcp_disconnected(f"{self.name} - [DISCONNECTED] Socket closed.")
-                break
-
-            ping_ok = await self.write_tcp("ping", verbose=False)
-            if not ping_ok:
                 break
 
     async def receive_data_tcp(self):
@@ -148,6 +167,7 @@ class TCPProtocol(TCPHelpers):
                 except Exception:
                     pass
                 # Cria tasks de leitura e monitoramento (usando tracking se disponível)
+                # Create background tasks: receiver, monitor and periodic pinger.
                 tasks = [
                     self.create_task(self.receive_data_tcp())
                     if hasattr(self, "create_task")
@@ -155,6 +175,9 @@ class TCPProtocol(TCPHelpers):
                     self.create_task(self.monitor_connection())
                     if hasattr(self, "create_task")
                     else asyncio.create_task(self.monitor_connection()),
+                    self.create_task(self.periodic_ping(5))
+                    if hasattr(self, "create_task")
+                    else asyncio.create_task(self.periodic_ping(5)),
                 ]
 
                 # Espera até que uma delas finalize
@@ -198,31 +221,45 @@ class TCPProtocol(TCPHelpers):
             logging.info(f"🔁 Retrying {self.name} in {self.reconnection_time}s...")
 
     async def write_tcp(self, data: str, verbose: bool = True):
-        if not (self.is_connected and self.writer):
+        if not (getattr(self, "is_connected", False) and getattr(self, "writer", None)):
             return False
 
+        writer = self.writer
         try:
-            data = data + "\n"
-            self.writer.write(data.encode())
-            # Wait for drain but guard with a timeout so a stalled TCP stack
-            # (e.g., due to unplugged cable) doesn't hang indefinitely.
+            data_line = data if data.endswith("\n") else data + "\n"
+            writer.write(data_line.encode())
+
+            # Run drain in a separate task so it can be cancelled if it hangs.
+            drain_coro = writer.drain()
+            drain_task = asyncio.create_task(drain_coro)
             try:
-                # choose a conservative timeout (at least 1s)
                 timeout = max(1.0, getattr(self, "reconnection_time", 1) * 2)
-                await asyncio.wait_for(self.writer.drain(), timeout=timeout)
+                await asyncio.wait_for(drain_task, timeout=timeout)
             except asyncio.TimeoutError:
                 logging.warning(f"{self.name} - [SEND TIMEOUT] drain() timed out")
+                # Best-effort cancel and cleanup.
+                try:
+                    drain_task.cancel()
+                    # Use gather with return_exceptions to avoid propagating
+                    # CancelledError out of this function in tests and runtime.
+                    await asyncio.gather(drain_task, return_exceptions=True)
+                except Exception:
+                    pass
                 raise
+
             if verbose:
-                logging.info(f"{self.name} - [SENT] {data.strip()}")
+                logging.info(f"{self.name} - [SENT] {data_line.strip()}")
             return True
         except Exception as e:
             logging.warning(f"{self.name} - [SEND ERROR] {e}")
-            if self.is_connected:
+            if getattr(self, "is_connected", False):
                 await self._mark_tcp_disconnected(f"{self.name} - [DISCONNECTED] Send failed.")
             return False
 
     async def periodic_ping(self, interval: int):
         while self.is_connected:
             await asyncio.sleep(interval)
-            await self.write_tcp("ping", verbose=False)
+            try:
+                await self.write_tcp("#ping", verbose=False)
+            except Exception as e:
+                logging.warning(f"{self.name} - [PERIODIC PING ERROR] {e}")

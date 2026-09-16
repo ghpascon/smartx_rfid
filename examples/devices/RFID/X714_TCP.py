@@ -32,7 +32,7 @@ async def main():
     x714_tcp = X714(
         name="X714",
         connection_type="TCP",
-        ip="192.168.1.101",
+        ip="smtx-7cbe799205d4.local",
         start_reading=True,
     )
     x714_tcp.on_event = on_x714_event
@@ -40,7 +40,7 @@ async def main():
 
     # Keep the main loop running
     while True:
-        await asyncio.sleep(1)
+        await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
