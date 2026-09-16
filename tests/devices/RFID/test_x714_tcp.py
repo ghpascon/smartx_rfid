@@ -118,3 +118,39 @@ async def test_write_tcp_send_error_cleans_writer_state():
     assert fake.closed is True
     assert device.writer is None
     assert device.reader is None
+
+
+@pytest.mark.asyncio
+async def test_connect_tcp_local_hostname_does_not_call_blocking_gethostbyname(monkeypatch):
+    device = X714(connection_type="TCP")
+    device.reconnection_time = 0
+    device._running = True
+    device.on_connected = lambda: None
+
+    def _fail_if_called(host):
+        raise AssertionError(f"socket.gethostbyname must not be called: {host}")
+
+    async def _fake_open_connection(host, port):
+        assert host == "smtx-7cbe799205d4.local"
+        assert port == 23
+        # stop after first loop iteration
+        device._running = False
+        return object(), FakeAsyncWriter()
+
+    async def _done(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "smartx_rfid.devices.RFID.X714.tcp_protocol.socket.gethostbyname",
+        _fail_if_called,
+    )
+    monkeypatch.setattr(
+        "smartx_rfid.devices.RFID.X714.tcp_protocol.asyncio.open_connection",
+        _fake_open_connection,
+    )
+
+    device.receive_data_tcp = _done
+    device.monitor_connection = _done
+    device.periodic_ping = _done
+
+    await device.connect_tcp("smtx-7cbe799205d4.local", 23)

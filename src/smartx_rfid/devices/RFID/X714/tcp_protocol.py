@@ -116,15 +116,17 @@ class TCPProtocol(TCPHelpers):
             try:
                 logging.info(f"Connecting: {self.name} - {ip}:{port}")
 
-                # Verifica IP antes (evita travar no DNS)
+                # Keep hostname resolution in asyncio internals to avoid blocking
+                # the event loop with synchronous socket.gethostbyname (notably
+                # problematic with mDNS hosts such as *.local).
+                connect_timeout = max(1.0, float(getattr(self, "connect_timeout", 3)))
+                connect_task = asyncio.create_task(asyncio.open_connection(ip, port))
                 try:
-                    resolved_ip = socket.gethostbyname(ip)
-                except OSError:
-                    raise ValueError(f"Invalid IP address: {ip}")
-
-                # Tenta abrir conexão com timeout real
-                connect_task = asyncio.open_connection(resolved_ip, port)
-                self.reader, self.writer = await asyncio.wait_for(connect_task, timeout=3)
+                    self.reader, self.writer = await asyncio.wait_for(connect_task, timeout=connect_timeout)
+                except asyncio.TimeoutError:
+                    connect_task.cancel()
+                    await asyncio.gather(connect_task, return_exceptions=True)
+                    raise
 
                 self.is_connected = True
                 self.on_connected()
