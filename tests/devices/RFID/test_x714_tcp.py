@@ -63,6 +63,14 @@ class FakeFailingWriter:
         await asyncio.sleep(0)
 
 
+class FakeNeverClosingWriter:
+    def close(self):
+        return None
+
+    async def wait_closed(self):
+        await asyncio.Event().wait()
+
+
 @pytest.mark.asyncio
 async def test_monitor_connection_detects_writer_closing():
     device = X714(connection_type="TCP")
@@ -154,3 +162,25 @@ async def test_connect_tcp_local_hostname_does_not_call_blocking_gethostbyname(m
     device.periodic_ping = _done
 
     await device.connect_tcp("smtx-7cbe799205d4.local", 23)
+
+
+@pytest.mark.asyncio
+async def test_mark_tcp_disconnected_does_not_hang_if_wait_closed_blocks():
+    device = X714(connection_type="TCP")
+    device.is_connected = True
+    device.writer = FakeNeverClosingWriter()
+    device.reader = object()
+    device.tcp_close_timeout = 0.05
+
+    await asyncio.wait_for(device._mark_tcp_disconnected("test close timeout"), timeout=0.3)
+
+    assert device.is_connected is False
+    assert device.writer is None
+    assert device.reader is None
+
+
+def test_reconnect_delay_has_minimum_floor():
+    device = X714(connection_type="TCP")
+    device.reconnection_time = 0
+
+    assert device._get_reconnect_delay() >= 0.2

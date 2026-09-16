@@ -4,6 +4,22 @@ import socket
 
 
 class TCPHelpers:
+    def _get_reconnect_delay(self) -> float:
+        """Return a safe reconnect delay to avoid tight loops when set to 0."""
+        try:
+            delay = float(getattr(self, "reconnection_time", 3))
+        except Exception:
+            delay = 3.0
+        return max(0.2, delay)
+
+    def _get_tcp_close_timeout(self) -> float:
+        """Bound writer close wait to prevent hangs on broken transports."""
+        try:
+            close_timeout = float(getattr(self, "tcp_close_timeout", 2.0))
+        except Exception:
+            close_timeout = 2.0
+        return max(0.1, close_timeout)
+
     def _is_tcp_transport_closed(self) -> bool:
         """Best-effort check for closed TCP transport state."""
         writer = getattr(self, "writer", None)
@@ -49,33 +65,41 @@ class TCPHelpers:
 
     async def _mark_tcp_disconnected(self, reason: str | None = None):
         """Atomically mark TCP link as disconnected and cleanup stream state."""
-        writer = getattr(self, "writer", None)
+        lock = getattr(self, "_tcp_disconnect_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._tcp_disconnect_lock = lock
 
-        self.is_connected = False
-        self.is_reading = False
-        self.serial_number = None
-        self.writer = None
-        self.reader = None
+        async with lock:
+            writer = getattr(self, "writer", None)
 
-        if writer:
-            try:
-                writer.close()
-            except Exception:
-                pass
+            self.is_connected = False
+            self.is_reading = False
+            self.serial_number = None
+            self.writer = None
+            self.reader = None
 
-            wait_closed = getattr(writer, "wait_closed", None)
-            if callable(wait_closed):
+            if writer:
                 try:
-                    await wait_closed()
+                    writer.close()
                 except Exception:
                     pass
 
-        if reason:
-            logging.info(reason)
+                wait_closed = getattr(writer, "wait_closed", None)
+                if callable(wait_closed):
+                    try:
+                        await asyncio.wait_for(wait_closed(), timeout=self._get_tcp_close_timeout())
+                    except asyncio.TimeoutError:
+                        logging.warning(f"{self.name} - [CLOSE TIMEOUT] writer.wait_closed() timed out")
+                    except Exception:
+                        pass
+
+            if reason:
+                logging.info(reason)
 
     async def monitor_connection(self):
         while self.is_connected:
-            await asyncio.sleep(self.reconnection_time)
+            await asyncio.sleep(self._get_reconnect_delay())
             if self._is_tcp_transport_closed():
                 await self._mark_tcp_disconnected(f"{self.name} - [DISCONNECTED] Socket closed.")
                 break
@@ -112,7 +136,8 @@ class TCPProtocol(TCPHelpers):
     async def connect_tcp(self, ip, port):
         # respeita self._running para permitir parada limpa
         while getattr(self, "_running", True):
-            await asyncio.sleep(self.reconnection_time)
+            reconnect_delay = self._get_reconnect_delay()
+            await asyncio.sleep(reconnect_delay)
             try:
                 logging.info(f"Connecting: {self.name} - {ip}:{port}")
 
@@ -125,7 +150,10 @@ class TCPProtocol(TCPHelpers):
                     self.reader, self.writer = await asyncio.wait_for(connect_task, timeout=connect_timeout)
                 except asyncio.TimeoutError:
                     connect_task.cancel()
-                    await asyncio.gather(connect_task, return_exceptions=True)
+                    try:
+                        await asyncio.wait_for(asyncio.gather(connect_task, return_exceptions=True), timeout=0.5)
+                    except Exception:
+                        pass
                     raise
 
                 self.is_connected = True
@@ -217,11 +245,6 @@ class TCPProtocol(TCPHelpers):
                 logging.warning(f"❌ [UNEXPECTED ERROR] {self.name}: {e}")
                 continue
 
-            # Garante desconexão limpa
-            await self._mark_tcp_disconnected()
-
-            logging.info(f"🔁 Retrying {self.name} in {self.reconnection_time}s...")
-
     async def write_tcp(self, data: str, verbose: bool = True):
         if not (getattr(self, "is_connected", False) and getattr(self, "writer", None)):
             return False
@@ -259,6 +282,7 @@ class TCPProtocol(TCPHelpers):
             return False
 
     async def periodic_ping(self, interval: int):
+        interval = max(0.2, float(interval))
         while self.is_connected:
             await asyncio.sleep(interval)
             try:

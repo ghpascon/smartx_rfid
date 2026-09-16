@@ -266,14 +266,8 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
                     except Exception:
                         pass
             elif self.connection_type == "TCP":
-                if getattr(self, "writer", None):
-                    try:
-                        self.writer.close()
-                        await self.writer.wait_closed()
-                    except Exception:
-                        pass
-                    self.writer = None
-                    self.reader = None
+                if getattr(self, "writer", None) or getattr(self, "reader", None):
+                    await self._mark_tcp_disconnected(f"{self.name} - [DISCONNECTED] Close requested.")
             elif self.connection_type == "BLE":
                 # BLE specific cleanup if available
                 try:
