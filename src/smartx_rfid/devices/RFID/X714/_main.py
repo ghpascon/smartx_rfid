@@ -140,6 +140,7 @@ class X714(DeviceBase, SerialProtocol, OnReceive, RfidCommands, BLEProtocol, Wri
             session = 1
             logging.warning(f"[{self.name}] Invalid session '{session}' set to '1'")
         self.session = session
+        self.gpo_qtd = 4
 
         # Modes
         if not isinstance(start_reading, bool):

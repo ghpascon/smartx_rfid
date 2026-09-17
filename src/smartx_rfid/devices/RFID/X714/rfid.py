@@ -71,6 +71,10 @@ class RfidCommands:
         # PREFIX
         cmds.append(f"#prefix:{self.prefix}")
 
+        # TURN OFF BUZZERS
+        for gpo in range(self.gpo_qtd):
+            cmds.append(f"#gpo:{gpo},off")
+
         # setup
         cmds.append("#setup_reader")
 
