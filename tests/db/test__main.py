@@ -88,6 +88,53 @@ def test_bulk_insert_and_bulk_update(db_manager):
     assert 8.88 in values
 
 
+def test_upsert_insert_and_update(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+
+    db_manager.upsert(DbModel, {"name": "UpsertUser", "value": Decimal("1.00")}, "name")
+    first = db_manager.get_where(DbModel, {"name": "UpsertUser"})
+    assert len(first) == 1
+    assert float(first[0].value) == 1.0
+
+    db_manager.upsert(DbModel, {"name": "UpsertUser", "value": Decimal("7.50")}, "name")
+    second = db_manager.get_where(DbModel, {"name": "UpsertUser"})
+    assert len(second) == 1
+    assert float(second[0].value) == 7.5
+
+
+def test_bulk_upsert_insert_and_update(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+
+    db_manager.bulk_upsert(
+        DbModel,
+        [
+            {"name": "BulkA", "value": Decimal("1.00")},
+            {"name": "BulkB", "value": Decimal("2.00")},
+        ],
+        "name",
+    )
+
+    db_manager.bulk_upsert(
+        DbModel,
+        [
+            {"name": "BulkA", "value": Decimal("3.25")},
+            {"name": "BulkC", "value": Decimal("4.50")},
+            {"name": "BulkA", "value": Decimal("9.99")},
+        ],
+        "name",
+    )
+
+    all_records = db_manager.get_all(DbModel)
+    assert len(all_records) == 3
+
+    by_name = {record.name: float(record.value) if record.value is not None else None for record in all_records}
+    assert by_name["BulkA"] == 9.99
+    assert by_name["BulkB"] == 2.0
+    assert by_name["BulkC"] == 4.5
+
+
 def test_update_where(db_manager):
     db_manager.register_models(DbModel)
     db_manager.create_tables()

@@ -570,6 +570,100 @@ class DatabaseManager:
                 self.logger.error(f"Bulk update failed: {str(e)}")
                 raise DatabaseOperationError(f"Bulk update failed: {str(e)}", e)
 
+    # UPSERT
+    def upsert(self, model: Type[DeclarativeBase], data: Dict[str, Any], field_name: str) -> None:
+        """
+        Perform an upsert (insert or update) operation based on a specific field.
+
+        Args:
+            model (Type[DeclarativeBase]): Model class representing the table
+            data (Dict[str, Any]): Data to insert or update
+            field_name (str): Field name to check for existing records
+        """
+        with self.get_session() as session:
+            try:
+                field = getattr(model, field_name, None)
+                if field is None:
+                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+
+                lookup_value = data.get(field_name)
+                query = session.query(model)
+                if lookup_value is None:
+                    query = query.filter(field.is_(None))
+                else:
+                    query = query.filter(field == lookup_value)
+
+                # UPDATE first avoids loading ORM objects when the row already exists.
+                updated_count = query.update(data, synchronize_session=False)
+                if updated_count == 0:
+                    session.add(model(**data))
+            except Exception as e:
+                self.logger.error(f"Upsert failed for table {model.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Upsert failed for table {model.__tablename__}: {str(e)}", e)
+
+    def bulk_upsert(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]], field_name: str) -> None:
+        """
+        Perform a bulk upsert (insert or update) operation based on a specific field.
+
+        Args:
+            model_class (Type[DeclarativeBase]): Model class representing the table
+            data (List[Dict[str, Any]]): List of data dictionaries to insert or update
+            field_name (str): Field name to check for existing records
+        """
+        with self.get_session() as session:
+            try:
+                if not data:
+                    return
+
+                field = getattr(model_class, field_name, None)
+                if field is None:
+                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model_class.__name__}'")
+
+                pk_columns = list(model_class.__mapper__.primary_key)
+                pk_names = [pk.name for pk in pk_columns]
+
+                lookup_values = [record.get(field_name) for record in data if record.get(field_name) is not None]
+                existing_by_lookup: Dict[Any, Dict[str, Any]] = {}
+
+                if lookup_values:
+                    existing_rows = session.query(field, *pk_columns).filter(field.in_(lookup_values)).all()
+                    for row in existing_rows:
+                        lookup_value = row[0]
+                        if lookup_value in existing_by_lookup:
+                            continue
+                        existing_by_lookup[lookup_value] = {pk_names[idx]: row[idx + 1] for idx in range(len(pk_names))}
+
+                if any(record.get(field_name) is None for record in data):
+                    existing_none_row = session.query(field, *pk_columns).filter(field.is_(None)).first()
+                    if existing_none_row:
+                        existing_by_lookup[None] = {
+                            pk_names[idx]: existing_none_row[idx + 1] for idx in range(len(pk_names))
+                        }
+
+                update_mappings_by_lookup: Dict[Any, Dict[str, Any]] = {}
+                insert_mappings_by_lookup: Dict[Any, Dict[str, Any]] = {}
+
+                for record in data:
+                    lookup_value = record.get(field_name)
+                    existing_pk = existing_by_lookup.get(lookup_value)
+
+                    if existing_pk is not None:
+                        update_mappings_by_lookup[lookup_value] = {**record, **existing_pk}
+                    elif lookup_value in insert_mappings_by_lookup:
+                        # Keep the latest values when payload has duplicate lookup keys.
+                        insert_mappings_by_lookup[lookup_value].update(record)
+                    else:
+                        insert_mappings_by_lookup[lookup_value] = dict(record)
+
+                if update_mappings_by_lookup:
+                    session.bulk_update_mappings(model_class, list(update_mappings_by_lookup.values()))
+
+                if insert_mappings_by_lookup:
+                    session.bulk_insert_mappings(model_class, list(insert_mappings_by_lookup.values()))
+            except Exception as e:
+                self.logger.error(f"Bulk upsert failed for table {model_class.__tablename__}: {str(e)}")
+                raise DatabaseOperationError(f"Bulk upsert failed for table {model_class.__tablename__}: {str(e)}", e)
+
     # DELETE
     def delete_where(self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any]) -> int:
         """

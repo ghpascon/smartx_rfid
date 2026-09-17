@@ -10,10 +10,8 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Type, TypeVar
 
 try:
-    from sqlalchemy import func
     from sqlalchemy.orm import DeclarativeBase
 except ImportError:
-    from sqlalchemy import func
     from sqlalchemy.ext.declarative import declarative_base
 
     DeclarativeBase = declarative_base()
@@ -33,6 +31,7 @@ class Base(DeclarativeBase):
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
+        default=lambda: datetime.now().astimezone(),
         nullable=False,
         index=True,
     )
@@ -41,6 +40,7 @@ class Base(DeclarativeBase):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        default=lambda: datetime.now().astimezone(),
         nullable=False,
     )
 
