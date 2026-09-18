@@ -7,20 +7,22 @@ class AlertsManager:
         self.alerts.clear()  # Clear after fetching
         return alerts
 
-    def add_alert(self, message: str, level: str = "info", style: str = "toast"):
+    def add_alert(self, message: str, level: str = "info", style: str = "toast", duration: int = 3000):
         if style not in ["toast", "modal"]:
             style = "toast"
-        alert = {"message": message, "level": level, "style": style}
+        if not isinstance(duration, int) or duration <= 0:
+            duration = 3000
+        alert = {"message": message, "level": level, "style": style, "duration": duration}
         self.alerts.append(alert)
 
-    def add_info(self, message: str, style: str = "toast"):
-        self.add_alert(message, "info", style)
+    def add_info(self, message: str, style: str = "toast", duration: int = 3000):
+        self.add_alert(message, "info", style, duration)
 
-    def add_warning(self, message: str, style: str = "toast"):
-        self.add_alert(message, "warning", style)
+    def add_warning(self, message: str, style: str = "toast", duration: int = 3000):
+        self.add_alert(message, "warning", style, duration)
 
-    def add_error(self, message: str, style: str = "toast"):
-        self.add_alert(message, "error", style)
+    def add_error(self, message: str, style: str = "toast", duration: int = 3000):
+        self.add_alert(message, "error", style, duration)
 
-    def add_success(self, message: str, style: str = "toast"):
-        self.add_alert(message, "success", style)
+    def add_success(self, message: str, style: str = "toast", duration: int = 3000):
+        self.add_alert(message, "success", style, duration)
