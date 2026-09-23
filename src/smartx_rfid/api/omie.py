@@ -194,7 +194,7 @@ class ApiOmie:
             if not product_code:
                 continue
             product_code = product_code.lower()
-            if not product_code.startswith("smtx") or product_code[4:5].isdigit() or "vsix" not in product_code:
+            if not product_code.startswith("smtx") or product_code[4:5].isdigit():
                 continue
 
             # remove pre vsix part of the product code
