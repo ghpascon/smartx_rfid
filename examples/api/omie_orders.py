@@ -11,7 +11,7 @@ omie = ApiOmie(
 
 
 async def main():
-    omie_orders = await omie.get_all_orders()
+    omie_orders = await omie.get_all_orders(start_date="01/09/2026")
     orders = omie_orders.get("orders", [])
     logging.info(f"Total orders fetched: {len(orders)}")
     logging.info("Sample order data:")

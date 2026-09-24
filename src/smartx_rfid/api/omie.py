@@ -179,6 +179,19 @@ class ApiOmie:
         logging.info(f"[OMIE] Total raw orders: {len(all_orders)}, has_errors: {has_errors}")
         return all_orders
 
+    def validate_product_code(self, product_code: str) -> bool:
+        """Validate product code"""
+        need_word = ["smtx", "vsix"]
+        return any(word in product_code for word in need_word)
+
+    def validate_description(self, description: str) -> bool:
+        """Validate product description"""
+        if not description:
+            return False
+        # forbidden descriptions
+        FORBIDDEN_KEYWORDS = ["tag", "estrutura", "etiqueta", "estrutura", "mini pc", "cabo", "26 uhf"]
+        return not any(keyword in description for keyword in FORBIDDEN_KEYWORDS)
+
     def _enrich_orders(
         self, raw_orders: List[dict], clients_dict: Dict[str, dict], products_dict: Dict[str, dict]
     ) -> List[dict]:
@@ -190,17 +203,12 @@ class ApiOmie:
             client = clients_dict.get(order["codigo_cliente"], {})
             # Get product info
             product = products_dict.get(order["codigo_produto"], {})
-            product_code = order.get("codigo_produto")
-            if not product_code:
+            product_code = order.get("codigo_produto").lower()
+            if not self.validate_product_code(product_code):
                 continue
-            product_code = product_code.lower()
-            if not product_code.startswith("smtx") or product_code[4:5].isdigit():
+            description = product.get("descricao", "").lower()
+            if not self.validate_description(description):
                 continue
-
-            # remove pre vsix part of the product code
-            if "vsix" in order.get("codigo_produto", "").lower():
-                idx = order.get("codigo_produto", "").lower().find("vsix")
-                order["codigo_produto"] = order["codigo_produto"][idx:]
 
             enriched_order = {
                 "numero_pedido": order.get("numero_pedido"),
@@ -208,7 +216,7 @@ class ApiOmie:
                 "nome_cliente": client.get("nome"),
                 "cnpj_cliente": client.get("cnpj"),
                 "codigo_produto": order.get("codigo_produto"),
-                "descricao_produto": product.get("descricao"),
+                "descricao_produto": description,
                 "familia_produto": product.get("familia", ""),
             }
             enriched_orders.append(enriched_order)
