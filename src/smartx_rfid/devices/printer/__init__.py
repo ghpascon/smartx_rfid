@@ -1,5 +1,6 @@
 from .SATO._main import SatoPrinter
 from .SATO_WS4._main import SatoWs4Printer
+from .PRINTRONIX._main import PrintronixPrinter
 
 simple_zpl_example = """
 ^XA

@@ -7,11 +7,11 @@ from .helpers import Helpers
 from smartx_rfid.utils import get_hash
 
 
-class SatoPrinter(DeviceBase, Helpers):
+class PrintronixPrinter(DeviceBase, Helpers):
     def __init__(
         self,
         ip: str,
-        name: str = "Sato",
+        name: str = "Printronix",
         port: int = 9100,
         reconnection_time: int = 3,
         **kwargs,
@@ -36,8 +36,10 @@ class SatoPrinter(DeviceBase, Helpers):
         self.reader = None
         self.writer = None
 
+        self.is_connected = False
         self.can_print = False
         self.last_status = None
+        self.last_can_print = False
 
         self._to_print: list[str] = []
 

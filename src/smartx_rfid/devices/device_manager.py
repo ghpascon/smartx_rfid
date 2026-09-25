@@ -15,6 +15,7 @@ from smartx_rfid.devices import (
     SIMULATOR,
     SatoPrinter,
     SatoWs4Printer,
+    PrintronixPrinter,
 )
 from smartx_rfid.schemas.tag import WriteTagValidator
 from smartx_rfid.schemas.devices import GpoSchema
@@ -29,6 +30,7 @@ _DEVICE_MAP = {
     "SATO": SatoPrinter,
     "SATO_WS4": SatoWs4Printer,
     "ACUPAD": ACUPAD,
+    "PRINTRONIX": PrintronixPrinter,
 }
 
 

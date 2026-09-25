@@ -12,6 +12,8 @@ from .RFID.SIMULATOR._main import SIMULATOR
 # PRINTER DEVICES
 from .printer.SATO._main import SatoPrinter
 from .printer.SATO_WS4._main import SatoWs4Printer
+from .printer.PRINTRONIX._main import PrintronixPrinter
+
 
 # Device Manager
 from .device_manager import DeviceManager
