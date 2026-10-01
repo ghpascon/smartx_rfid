@@ -1,11 +1,11 @@
 import logging
-from typing import Any, Dict, List, Literal, Optional, Type, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union, Generator
 from contextlib import contextmanager
 from datetime import datetime, date
 from decimal import Decimal
 import zipfile
 from sqlalchemy import create_engine, text, MetaData, inspect, event
-from sqlalchemy.orm import sessionmaker, DeclarativeBase, scoped_session
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, scoped_session, Session
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.engine import Engine
 import threading
@@ -265,7 +265,7 @@ class DatabaseManager:
             raise DatabaseOperationError(f"Failed to get table names: {str(e)}", e)
 
     @contextmanager
-    def get_session(self):
+    def get_session(self) -> Generator[Session, None, None]:
         """
         Get a database session with automatic cleanup.
 
@@ -351,25 +351,39 @@ class DatabaseManager:
             self._scoped_session = None
             self._metadata = None
 
-    def generate_table_report(self, model: Type[DeclarativeBase], limit: int = 10000, offset: int = 0) -> dict:
-        with self.get_session() as session:
-            # Get total count (more efficient than loading all records)
-            total = session.query(model).count()
+    def generate_table_report(
+        self,
+        model: Type[DeclarativeBase],
+        limit: int = 10000,
+        offset: int = 0,
+        session: Optional[Session] = None,
+    ) -> dict:
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.generate_table_report(model, limit=limit, offset=offset, session=managed_session)
 
-            # Get paginated records using yield_per for memory efficiency
-            query = session.query(model).limit(limit).offset(offset)
-            records = [record.to_dict() for record in query]
+        # Get total count (more efficient than loading all records)
+        total = session.query(model).count()
 
-            return {
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-                "has_more": (offset + limit) < total,
-                "data": records,
-            }
+        # Get paginated records using yield_per for memory efficiency
+        query = session.query(model).limit(limit).offset(offset)
+        records = [record.to_dict() for record in query]
+
+        return {
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + limit) < total,
+            "data": records,
+        }
 
     # QUERY
-    def execute_query(self, query: Union[str, text], params: Optional[Dict[str, Any]] = None) -> Any:
+    def execute_query(
+        self,
+        query: Union[str, text],
+        params: Optional[Dict[str, Any]] = None,
+        session: Optional[Session] = None,
+    ) -> Any:
         """
         Execute a raw SQL query and return results as a list of dicts.
 
@@ -380,23 +394,31 @@ class DatabaseManager:
         Returns:
             Any: List of dicts for SELECT queries, None for queries that do not return rows
         """
-        with self.get_session() as session:
-            try:
-                if isinstance(query, str):
-                    query = text(query)
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.execute_query(query, params=params, session=managed_session)
 
-                result = session.execute(query, params or {})
+        try:
+            if isinstance(query, str):
+                query = text(query)
 
-                if result.returns_rows:
-                    return [{k: self._normalize(v) for k, v in row.items()} for row in result.mappings()]
-                return None
+            result = session.execute(query, params or {})
 
-            except Exception as e:
-                self.logger.error(f"Query execution failed: {str(e)}")
-                raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
+            if result.returns_rows:
+                return [{k: self._normalize(v) for k, v in row.items()} for row in result.mappings()]
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Query execution failed: {str(e)}")
+            raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
 
     # GET
-    def get_where(self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any]) -> List[DeclarativeBase]:
+    def get_where(
+        self,
+        model: Type[DeclarativeBase],
+        filter_conditions: Dict[str, Any],
+        session: Optional[Session] = None,
+    ) -> List[DeclarativeBase]:
         """
         Retrieve records from a table based on filter conditions.
 
@@ -407,25 +429,34 @@ class DatabaseManager:
         Returns:
             List[DeclarativeBase]: List of matching records
         """
-        with self.get_session() as session:
-            try:
-                query = session.query(model)
-                for field_name, value in filter_conditions.items():
-                    field = getattr(model, field_name)
-                    if field is None:
-                        raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
-                    query = query.filter(field == value)
-                return query.all()
-            except Exception as e:
-                self.logger.error(
-                    f"Failed to retrieve records from table {model.__tablename__} with conditions {filter_conditions}: {str(e)}"
-                )
-                raise DatabaseOperationError(
-                    f"Failed to retrieve records from table {model.__tablename__} with conditions {filter_conditions}: {str(e)}",
-                    e,
-                )
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.get_where(model, filter_conditions, session=managed_session)
 
-    def get_by_field(self, model: Type[DeclarativeBase], field_name: str, value: Any) -> Optional[DeclarativeBase]:
+        try:
+            query = session.query(model)
+            for field_name, value in filter_conditions.items():
+                field = getattr(model, field_name)
+                if field is None:
+                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+                query = query.filter(field == value)
+            return query.all()
+        except Exception as e:
+            self.logger.error(
+                f"Failed to retrieve records from table {model.__tablename__} with conditions {filter_conditions}: {str(e)}"
+            )
+            raise DatabaseOperationError(
+                f"Failed to retrieve records from table {model.__tablename__} with conditions {filter_conditions}: {str(e)}",
+                e,
+            )
+
+    def get_by_field(
+        self,
+        model: Type[DeclarativeBase],
+        field_name: str,
+        value: Any,
+        session: Optional[Session] = None,
+    ) -> Optional[DeclarativeBase]:
         """
         Retrieve a single record by a specific field.
 
@@ -437,21 +468,30 @@ class DatabaseManager:
         Returns:
             Optional[DeclarativeBase]: The matching record, or None if not found
         """
-        with self.get_session() as session:
-            try:
-                field = getattr(model, field_name)
-                if field is None:
-                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
-                return session.query(model).filter(field == value).first()
-            except Exception as e:
-                self.logger.error(
-                    f"Failed to retrieve record from table {model.__tablename__} by field {field_name}: {str(e)}"
-                )
-                raise DatabaseOperationError(
-                    f"Failed to retrieve record from table {model.__tablename__} by field {field_name}: {str(e)}", e
-                )
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.get_by_field(model, field_name, value, session=managed_session)
 
-    def get_all(self, model: Type[DeclarativeBase], limit: int = 10000, offset: int = 0) -> List[DeclarativeBase]:
+        try:
+            field = getattr(model, field_name)
+            if field is None:
+                raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+            return session.query(model).filter(field == value).first()
+        except Exception as e:
+            self.logger.error(
+                f"Failed to retrieve record from table {model.__tablename__} by field {field_name}: {str(e)}"
+            )
+            raise DatabaseOperationError(
+                f"Failed to retrieve record from table {model.__tablename__} by field {field_name}: {str(e)}", e
+            )
+
+    def get_all(
+        self,
+        model: Type[DeclarativeBase],
+        limit: int = 10000,
+        offset: int = 0,
+        session: Optional[Session] = None,
+    ) -> List[DeclarativeBase]:
         """
         Retrieve all records from a table with optional pagination.
 
@@ -463,16 +503,17 @@ class DatabaseManager:
         Returns:
             List[DeclarativeBase]: List of records
         """
-        with self.get_session() as session:
-            try:
-                return session.query(model).limit(limit).offset(offset).all()
-            except Exception as e:
-                self.logger.error(f"Failed to retrieve records from table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(
-                    f"Failed to retrieve records from table {model.__tablename__}: {str(e)}", e
-                )
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.get_all(model, limit=limit, offset=offset, session=managed_session)
 
-    def get_table_summary(self, model: Type[DeclarativeBase]) -> dict:
+        try:
+            return session.query(model).limit(limit).offset(offset).all()
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve records from table {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Failed to retrieve records from table {model.__tablename__}: {str(e)}", e)
+
+    def get_table_summary(self, model: Type[DeclarativeBase], session: Optional[Session] = None) -> dict:
         """
         Get a summary of the table including total records and column information.
 
@@ -482,17 +523,25 @@ class DatabaseManager:
         Returns:
             dict: Summary of the table including total records and column information
         """
-        with self.get_session() as session:
-            try:
-                total_records = session.query(model).count()
-                columns = {column.name: str(column.type) for column in model.__table__.columns}
-                return {"total_records": total_records, "columns": columns}
-            except Exception as e:
-                self.logger.error(f"Failed to get table summary for {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Failed to get table summary for {model.__tablename__}: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.get_table_summary(model, session=managed_session)
+
+        try:
+            total_records = session.query(model).count()
+            columns = {column.name: str(column.type) for column in model.__table__.columns}
+            return {"total_records": total_records, "columns": columns}
+        except Exception as e:
+            self.logger.error(f"Failed to get table summary for {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Failed to get table summary for {model.__tablename__}: {str(e)}", e)
 
     # INSERT
-    def insert_record(self, model: Type[DeclarativeBase], data: Dict[str, Any]) -> DeclarativeBase:
+    def insert_record(
+        self,
+        model: Type[DeclarativeBase],
+        data: Dict[str, Any],
+        session: Optional[Session] = None,
+    ) -> DeclarativeBase:
         """
         Insert a single record into the database.
 
@@ -502,18 +551,26 @@ class DatabaseManager:
         Returns:
             DeclarativeBase: The inserted record
         """
-        with self.get_session() as session:
-            try:
-                record = model(**data)
-                session.add(record)
-                session.commit()
-                session.refresh(record)
-                return record
-            except Exception as e:
-                self.logger.error(f"Failed to insert record into table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Failed to insert record into table {model.__tablename__}: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.insert_record(model, data, session=managed_session)
 
-    def bulk_insert(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
+        try:
+            record = model(**data)
+            session.add(record)
+            session.flush()
+            session.refresh(record)
+            return record
+        except Exception as e:
+            self.logger.error(f"Failed to insert record into table {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Failed to insert record into table {model.__tablename__}: {str(e)}", e)
+
+    def bulk_insert(
+        self,
+        model_class: Type[DeclarativeBase],
+        data: List[Dict[str, Any]],
+        session: Optional[Session] = None,
+    ) -> None:
         """
         Perform bulk insert operation.
 
@@ -521,17 +578,25 @@ class DatabaseManager:
             model_class (Type[DeclarativeBase]): Model class
             data (List[Dict[str, Any]]): List of data dictionaries
         """
-        with self.get_session() as session:
-            try:
-                session.bulk_insert_mappings(model_class, data)
-                self.logger.info(f"Bulk inserted {len(data)} records into {model_class.__name__}")
-            except Exception as e:
-                self.logger.error(f"Bulk insert failed: {str(e)}")
-                raise DatabaseOperationError(f"Bulk insert failed: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                self.bulk_insert(model_class, data, session=managed_session)
+                return
+
+        try:
+            session.bulk_insert_mappings(model_class, data)
+            self.logger.info(f"Bulk inserted {len(data)} records into {model_class.__name__}")
+        except Exception as e:
+            self.logger.error(f"Bulk insert failed: {str(e)}")
+            raise DatabaseOperationError(f"Bulk insert failed: {str(e)}", e)
 
     # UPDATE
     def update_where(
-        self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any], update_data: Dict[str, Any]
+        self,
+        model: Type[DeclarativeBase],
+        filter_conditions: Dict[str, Any],
+        update_data: Dict[str, Any],
+        session: Optional[Session] = None,
     ) -> int:
         """
         Update records in a table based on filter conditions.
@@ -543,18 +608,26 @@ class DatabaseManager:
         Returns:
             int: Number of records updated
         """
-        with self.get_session() as session:
-            try:
-                query = session.query(model)
-                for attr, value in filter_conditions.items():
-                    query = query.filter(getattr(model, attr) == value)
-                updated_count = query.update(update_data)
-                return updated_count
-            except Exception as e:
-                self.logger.error(f"Failed to update records in table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Failed to update records in table {model.__tablename__}: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.update_where(model, filter_conditions, update_data, session=managed_session)
 
-    def bulk_update(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]]) -> None:
+        try:
+            query = session.query(model)
+            for attr, value in filter_conditions.items():
+                query = query.filter(getattr(model, attr) == value)
+            updated_count = query.update(update_data)
+            return updated_count
+        except Exception as e:
+            self.logger.error(f"Failed to update records in table {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Failed to update records in table {model.__tablename__}: {str(e)}", e)
+
+    def bulk_update(
+        self,
+        model_class: Type[DeclarativeBase],
+        data: List[Dict[str, Any]],
+        session: Optional[Session] = None,
+    ) -> None:
         """
         Perform bulk update operation.
 
@@ -562,16 +635,26 @@ class DatabaseManager:
             model_class (Type[DeclarativeBase]): Model class
             data (List[Dict[str, Any]]): List of data dictionaries
         """
-        with self.get_session() as session:
-            try:
-                session.bulk_update_mappings(model_class, data)
-                self.logger.info(f"Bulk updated {len(data)} records in {model_class.__name__}")
-            except Exception as e:
-                self.logger.error(f"Bulk update failed: {str(e)}")
-                raise DatabaseOperationError(f"Bulk update failed: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                self.bulk_update(model_class, data, session=managed_session)
+                return
+
+        try:
+            session.bulk_update_mappings(model_class, data)
+            self.logger.info(f"Bulk updated {len(data)} records in {model_class.__name__}")
+        except Exception as e:
+            self.logger.error(f"Bulk update failed: {str(e)}")
+            raise DatabaseOperationError(f"Bulk update failed: {str(e)}", e)
 
     # UPSERT
-    def upsert(self, model: Type[DeclarativeBase], data: Dict[str, Any], field_name: str) -> None:
+    def upsert(
+        self,
+        model: Type[DeclarativeBase],
+        data: Dict[str, Any],
+        field_name: str,
+        session: Optional[Session] = None,
+    ) -> None:
         """
         Perform an upsert (insert or update) operation based on a specific field.
 
@@ -580,28 +663,38 @@ class DatabaseManager:
             data (Dict[str, Any]): Data to insert or update
             field_name (str): Field name to check for existing records
         """
-        with self.get_session() as session:
-            try:
-                field = getattr(model, field_name, None)
-                if field is None:
-                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+        if session is None:
+            with self.get_session() as managed_session:
+                self.upsert(model, data, field_name, session=managed_session)
+                return
 
-                lookup_value = data.get(field_name)
-                query = session.query(model)
-                if lookup_value is None:
-                    query = query.filter(field.is_(None))
-                else:
-                    query = query.filter(field == lookup_value)
+        try:
+            field = getattr(model, field_name, None)
+            if field is None:
+                raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
 
-                # UPDATE first avoids loading ORM objects when the row already exists.
-                updated_count = query.update(data, synchronize_session=False)
-                if updated_count == 0:
-                    session.add(model(**data))
-            except Exception as e:
-                self.logger.error(f"Upsert failed for table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Upsert failed for table {model.__tablename__}: {str(e)}", e)
+            lookup_value = data.get(field_name)
+            query = session.query(model)
+            if lookup_value is None:
+                query = query.filter(field.is_(None))
+            else:
+                query = query.filter(field == lookup_value)
 
-    def bulk_upsert(self, model_class: Type[DeclarativeBase], data: List[Dict[str, Any]], field_name: str) -> None:
+            # UPDATE first avoids loading ORM objects when the row already exists.
+            updated_count = query.update(data, synchronize_session=False)
+            if updated_count == 0:
+                session.add(model(**data))
+        except Exception as e:
+            self.logger.error(f"Upsert failed for table {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Upsert failed for table {model.__tablename__}: {str(e)}", e)
+
+    def bulk_upsert(
+        self,
+        model_class: Type[DeclarativeBase],
+        data: List[Dict[str, Any]],
+        field_name: str,
+        session: Optional[Session] = None,
+    ) -> None:
         """
         Perform a bulk upsert (insert or update) operation based on a specific field.
 
@@ -610,62 +703,71 @@ class DatabaseManager:
             data (List[Dict[str, Any]]): List of data dictionaries to insert or update
             field_name (str): Field name to check for existing records
         """
-        with self.get_session() as session:
-            try:
-                if not data:
-                    return
+        if session is None:
+            with self.get_session() as managed_session:
+                self.bulk_upsert(model_class, data, field_name, session=managed_session)
+                return
 
-                field = getattr(model_class, field_name, None)
-                if field is None:
-                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model_class.__name__}'")
+        try:
+            if not data:
+                return
 
-                pk_columns = list(model_class.__mapper__.primary_key)
-                pk_names = [pk.name for pk in pk_columns]
+            field = getattr(model_class, field_name, None)
+            if field is None:
+                raise AttributeError(f"Field '{field_name}' does not exist in model '{model_class.__name__}'")
 
-                lookup_values = [record.get(field_name) for record in data if record.get(field_name) is not None]
-                existing_by_lookup: Dict[Any, Dict[str, Any]] = {}
+            pk_columns = list(model_class.__mapper__.primary_key)
+            pk_names = [pk.name for pk in pk_columns]
 
-                if lookup_values:
-                    existing_rows = session.query(field, *pk_columns).filter(field.in_(lookup_values)).all()
-                    for row in existing_rows:
-                        lookup_value = row[0]
-                        if lookup_value in existing_by_lookup:
-                            continue
-                        existing_by_lookup[lookup_value] = {pk_names[idx]: row[idx + 1] for idx in range(len(pk_names))}
+            lookup_values = [record.get(field_name) for record in data if record.get(field_name) is not None]
+            existing_by_lookup: Dict[Any, Dict[str, Any]] = {}
 
-                if any(record.get(field_name) is None for record in data):
-                    existing_none_row = session.query(field, *pk_columns).filter(field.is_(None)).first()
-                    if existing_none_row:
-                        existing_by_lookup[None] = {
-                            pk_names[idx]: existing_none_row[idx + 1] for idx in range(len(pk_names))
-                        }
+            if lookup_values:
+                existing_rows = session.query(field, *pk_columns).filter(field.in_(lookup_values)).all()
+                for row in existing_rows:
+                    lookup_value = row[0]
+                    if lookup_value in existing_by_lookup:
+                        continue
+                    existing_by_lookup[lookup_value] = {pk_names[idx]: row[idx + 1] for idx in range(len(pk_names))}
 
-                update_mappings_by_lookup: Dict[Any, Dict[str, Any]] = {}
-                insert_mappings_by_lookup: Dict[Any, Dict[str, Any]] = {}
+            if any(record.get(field_name) is None for record in data):
+                existing_none_row = session.query(field, *pk_columns).filter(field.is_(None)).first()
+                if existing_none_row:
+                    existing_by_lookup[None] = {
+                        pk_names[idx]: existing_none_row[idx + 1] for idx in range(len(pk_names))
+                    }
 
-                for record in data:
-                    lookup_value = record.get(field_name)
-                    existing_pk = existing_by_lookup.get(lookup_value)
+            update_mappings_by_lookup: Dict[Any, Dict[str, Any]] = {}
+            insert_mappings_by_lookup: Dict[Any, Dict[str, Any]] = {}
 
-                    if existing_pk is not None:
-                        update_mappings_by_lookup[lookup_value] = {**record, **existing_pk}
-                    elif lookup_value in insert_mappings_by_lookup:
-                        # Keep the latest values when payload has duplicate lookup keys.
-                        insert_mappings_by_lookup[lookup_value].update(record)
-                    else:
-                        insert_mappings_by_lookup[lookup_value] = dict(record)
+            for record in data:
+                lookup_value = record.get(field_name)
+                existing_pk = existing_by_lookup.get(lookup_value)
 
-                if update_mappings_by_lookup:
-                    session.bulk_update_mappings(model_class, list(update_mappings_by_lookup.values()))
+                if existing_pk is not None:
+                    update_mappings_by_lookup[lookup_value] = {**record, **existing_pk}
+                elif lookup_value in insert_mappings_by_lookup:
+                    # Keep the latest values when payload has duplicate lookup keys.
+                    insert_mappings_by_lookup[lookup_value].update(record)
+                else:
+                    insert_mappings_by_lookup[lookup_value] = dict(record)
 
-                if insert_mappings_by_lookup:
-                    session.bulk_insert_mappings(model_class, list(insert_mappings_by_lookup.values()))
-            except Exception as e:
-                self.logger.error(f"Bulk upsert failed for table {model_class.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Bulk upsert failed for table {model_class.__tablename__}: {str(e)}", e)
+            if update_mappings_by_lookup:
+                session.bulk_update_mappings(model_class, list(update_mappings_by_lookup.values()))
+
+            if insert_mappings_by_lookup:
+                session.bulk_insert_mappings(model_class, list(insert_mappings_by_lookup.values()))
+        except Exception as e:
+            self.logger.error(f"Bulk upsert failed for table {model_class.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Bulk upsert failed for table {model_class.__tablename__}: {str(e)}", e)
 
     # DELETE
-    def delete_where(self, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any]) -> int:
+    def delete_where(
+        self,
+        model: Type[DeclarativeBase],
+        filter_conditions: Dict[str, Any],
+        session: Optional[Session] = None,
+    ) -> int:
         """
         Delete records from a table based on filter conditions.
 
@@ -675,18 +777,27 @@ class DatabaseManager:
         Returns:
             int: Number of records deleted
         """
-        with self.get_session() as session:
-            try:
-                query = session.query(model)
-                for attr, value in filter_conditions.items():
-                    query = query.filter(getattr(model, attr) == value)
-                deleted_count = query.delete()
-                return deleted_count
-            except Exception as e:
-                self.logger.error(f"Failed to delete records from table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Failed to delete records from table {model.__tablename__}: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.delete_where(model, filter_conditions, session=managed_session)
 
-    def delete_by_field(self, model: Type[DeclarativeBase], field_name: str, value: Any) -> int:
+        try:
+            query = session.query(model)
+            for attr, value in filter_conditions.items():
+                query = query.filter(getattr(model, attr) == value)
+            deleted_count = query.delete()
+            return deleted_count
+        except Exception as e:
+            self.logger.error(f"Failed to delete records from table {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Failed to delete records from table {model.__tablename__}: {str(e)}", e)
+
+    def delete_by_field(
+        self,
+        model: Type[DeclarativeBase],
+        field_name: str,
+        value: Any,
+        session: Optional[Session] = None,
+    ) -> int:
         """
         Delete records from a table based on a specific field.
 
@@ -697,35 +808,42 @@ class DatabaseManager:
         Returns:
             int: Number of records deleted
         """
-        with self.get_session() as session:
-            try:
-                field = getattr(model, field_name)
-                if field is None:
-                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
-                deleted_count = session.query(model).filter(field == value).delete()
-                return deleted_count
-            except Exception as e:
-                self.logger.error(
-                    f"Failed to delete records from table {model.__tablename__} by field {field_name}: {str(e)}"
-                )
-                raise DatabaseOperationError(
-                    f"Failed to delete records from table {model.__tablename__} by field {field_name}: {str(e)}", e
-                )
+        if session is None:
+            with self.get_session() as managed_session:
+                return self.delete_by_field(model, field_name, value, session=managed_session)
 
-    def clear_table(self, model: Type[DeclarativeBase]) -> None:
+        try:
+            field = getattr(model, field_name)
+            if field is None:
+                raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+            deleted_count = session.query(model).filter(field == value).delete()
+            return deleted_count
+        except Exception as e:
+            self.logger.error(
+                f"Failed to delete records from table {model.__tablename__} by field {field_name}: {str(e)}"
+            )
+            raise DatabaseOperationError(
+                f"Failed to delete records from table {model.__tablename__} by field {field_name}: {str(e)}", e
+            )
+
+    def clear_table(self, model: Type[DeclarativeBase], session: Optional[Session] = None) -> None:
         """
         Clear all data from a table.
 
         Args:
             model (Type[DeclarativeBase]): Model class representing the table to clear
         """
-        with self.get_session() as session:
-            try:
-                session.query(model).delete()
-                self.logger.info(f"Cleared all data from table {model.__tablename__}")
-            except Exception as e:
-                self.logger.error(f"Failed to clear table {model.__tablename__}: {str(e)}")
-                raise DatabaseOperationError(f"Failed to clear table {model.__tablename__}: {str(e)}", e)
+        if session is None:
+            with self.get_session() as managed_session:
+                self.clear_table(model, session=managed_session)
+                return
+
+        try:
+            session.query(model).delete()
+            self.logger.info(f"Cleared all data from table {model.__tablename__}")
+        except Exception as e:
+            self.logger.error(f"Failed to clear table {model.__tablename__}: {str(e)}")
+            raise DatabaseOperationError(f"Failed to clear table {model.__tablename__}: {str(e)}", e)
 
     def get_model_by_table_name(self, table_name: str) -> Optional[Type[DeclarativeBase]]:
         for model in self._models_registry:

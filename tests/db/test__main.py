@@ -285,3 +285,103 @@ def test_scoped_session_and_context_manager(tmp_path):
         s = mgr.get_scoped_session()
         assert hasattr(s, "remove")
     assert "not_initialized" in repr(mgr)
+
+
+def test_crud_methods_with_external_session(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+
+    with db_manager.get_session() as session:
+        rec = db_manager.insert_record(DbModel, {"name": "SessionUser", "value": Decimal("1.00")}, session=session)
+        assert rec.id is not None
+
+        updated_count = db_manager.update_where(
+            DbModel,
+            {"name": "SessionUser"},
+            {"value": Decimal("5.00")},
+            session=session,
+        )
+        assert updated_count == 1
+
+        filtered = db_manager.get_where(DbModel, {"name": "SessionUser"}, session=session)
+        assert len(filtered) == 1
+        assert float(filtered[0].value) == 5.0
+
+        summary = db_manager.get_table_summary(DbModel, session=session)
+        assert summary["total_records"] == 1
+
+        deleted_count = db_manager.delete_by_field(DbModel, "name", "SessionUser", session=session)
+        assert deleted_count == 1
+        assert db_manager.get_all(DbModel, session=session) == []
+
+    assert db_manager.get_all(DbModel) == []
+
+
+def test_execute_query_with_external_session_and_manual_rollback(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+    assert db_manager._session_factory is not None
+
+    session = db_manager._session_factory()
+    try:
+        db_manager.execute_query(
+            text("INSERT INTO db_model (name, value) VALUES (:name, :value)"),
+            {"name": "Transient", "value": 3.14},
+            session=session,
+        )
+
+        in_tx = db_manager.execute_query(
+            text("SELECT name FROM db_model WHERE name = :name"),
+            {"name": "Transient"},
+            session=session,
+        )
+        assert len(in_tx) == 1
+
+        session.rollback()
+    finally:
+        session.close()
+
+    out_tx = db_manager.execute_query(text("SELECT name FROM db_model WHERE name = :name"), {"name": "Transient"})
+    assert out_tx == []
+
+
+def test_bulk_operations_with_external_session(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+
+    with db_manager.get_session() as session:
+        db_manager.bulk_insert(
+            DbModel,
+            [
+                {"name": "BulkSessionA", "value": Decimal("1.00")},
+                {"name": "BulkSessionB", "value": Decimal("2.00")},
+            ],
+            session=session,
+        )
+
+        current = db_manager.get_all(DbModel, session=session)
+        ids_by_name = {record.name: record.id for record in current}
+        db_manager.bulk_update(
+            DbModel,
+            [
+                {"id": ids_by_name["BulkSessionA"], "value": Decimal("7.00")},
+                {"id": ids_by_name["BulkSessionB"], "value": Decimal("8.00")},
+            ],
+            session=session,
+        )
+
+        db_manager.bulk_upsert(
+            DbModel,
+            [
+                {"name": "BulkSessionA", "value": Decimal("9.50")},
+                {"name": "BulkSessionC", "value": Decimal("3.00")},
+            ],
+            "name",
+            session=session,
+        )
+
+    all_records = db_manager.get_all(DbModel)
+    values_by_name = {record.name: float(record.value) for record in all_records}
+    assert values_by_name["BulkSessionA"] == 9.5
+    assert values_by_name["BulkSessionB"] == 8.0
+    assert values_by_name["BulkSessionC"] == 3.0
