@@ -288,7 +288,6 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         control: str = "static",
         time: int = 1000,
         retry: int = 3,
-        retry_delay: float = 0.2,
         raise_on_fail: bool = True,
         *args,
         **kwargs,
@@ -313,9 +312,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                     self.endpoint_gpo,
                     payload=gpo_command,
                     method="put",
-                    timeout=5,
                     retries=retry,
-                    retry_delay=retry_delay,
                 )
             else:
                 async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
@@ -324,9 +321,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                         self.endpoint_gpo,
                         payload=gpo_command,
                         method="put",
-                        timeout=5,
                         retries=retry,
-                        retry_delay=retry_delay,
                     )
             if not success:
                 error_msg = f"ERROR POSTING GPO COMMAND pin={pin} control={control}"
