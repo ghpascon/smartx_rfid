@@ -47,6 +47,8 @@ class ReaderHelpers:
             self.endpoint_interface,
             payload=self.interface_config,
             method="put",
+            retries=2,
+            retry_delay=0.25,
         )
 
     async def start_inventory(self, check_gpi=True):
@@ -108,32 +110,95 @@ class ReaderHelpers:
         results = await self.get_reader_status(session=session)
         if results is not None and results.get("status") == "idle":
             return True
-        return await self.post_to_reader(session, self.endpoint_stop, timeout=5)
+        return await self.post_to_reader(session, self.endpoint_stop, timeout=5, retries=2, retry_delay=0.25)
 
     async def _start_inventory(self, session=None):
-        return await self.post_to_reader(session, self.endpoint_start, payload=self.reading_config)
+        return await self.post_to_reader(
+            session, self.endpoint_start, payload=self.reading_config, retries=2, retry_delay=0.25
+        )
 
-    async def post_to_reader(self, session, endpoint, payload=None, method="post", timeout=3):
-        try:
-            if session is None:
-                async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=timeout) as client:
-                    return await self.post_to_reader(client, endpoint, payload, method, timeout)
+    async def post_to_reader(
+        self,
+        session,
+        endpoint,
+        payload=None,
+        method="post",
+        timeout=3,
+        retries: int = 0,
+        retry_delay: float = 0.2,
+        retry_backoff: float = 2.0,
+        retry_on_status: tuple[int, ...] = (409, 429, 500, 502, 503, 504),
+    ):
+        if session is None:
+            async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=timeout) as client:
+                return await self.post_to_reader(
+                    client,
+                    endpoint,
+                    payload,
+                    method,
+                    timeout,
+                    retries=retries,
+                    retry_delay=retry_delay,
+                    retry_backoff=retry_backoff,
+                    retry_on_status=retry_on_status,
+                )
 
-            if method == "post":
-                response = await session.post(endpoint, json=payload, timeout=timeout)
-                if response.status_code != 204:
-                    logging.warning(f"{self.name} - POST {endpoint} failed: {response.status_code}")
-
-            elif method == "put":
-                response = await session.put(endpoint, json=payload, timeout=timeout)
-                if response.status_code != 204:
-                    logging.warning(f"{self.name} - PUT {endpoint} failed: {response.status_code}")
-
-            return response.status_code == 204
-
-        except Exception as e:
-            logging.warning(f"{self.name} - Error posting to {endpoint}: {e}")
+        method = method.lower()
+        if method not in {"post", "put"}:
+            logging.warning(f"{self.name} - Unsupported HTTP method for endpoint {endpoint}: {method}")
             return False
+
+        attempts = max(1, retries + 1)
+        delay = max(0.0, retry_delay)
+
+        for attempt in range(1, attempts + 1):
+            try:
+                if method == "post":
+                    response = await session.post(endpoint, json=payload, timeout=timeout)
+                else:
+                    response = await session.put(endpoint, json=payload, timeout=timeout)
+
+                if 200 <= response.status_code < 300:
+                    return True
+
+                response_preview = (response.text or "")[:200]
+                will_retry = attempt < attempts and response.status_code in retry_on_status
+                logging.warning(
+                    f"{self.name} - {method.upper()} {endpoint} failed: "
+                    f"status={response.status_code}, attempt={attempt}/{attempts}, "
+                    f"retry={will_retry}, response={response_preview}"
+                )
+
+                if will_retry:
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                        delay *= retry_backoff
+                    continue
+
+                return False
+
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+                will_retry = attempt < attempts
+                logging.warning(
+                    f"{self.name} - {method.upper()} {endpoint} transport error "
+                    f"attempt={attempt}/{attempts}, retry={will_retry}: {exc}"
+                )
+
+                if will_retry:
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                        delay *= retry_backoff
+                    continue
+
+                return False
+
+            except Exception as exc:
+                logging.warning(
+                    f"{self.name} - {method.upper()} {endpoint} unexpected error attempt={attempt}/{attempts}: {exc}"
+                )
+                return False
+
+        return False
 
     async def get_tag_list(self, session):
         """Stream tag data from reader. Blocks until connection is lost or stopped."""
@@ -213,22 +278,26 @@ class ReaderHelpers:
             gpo_cmd = self.get_gpo_command(pin=2, state=True, control="pulsed", time=500)
         """
         # Normaliza o estado
-        state = "high" if state is True else "low" if state is False else str(state)
+        if state is True:
+            state = "high"
+        elif state is False:
+            state = "low"
+        else:
+            state = str(state).strip().lower()
+            if state not in {"high", "low"}:
+                raise ValueError(f"Invalid GPO state '{state}'. Use True/False or 'high'/'low'.")
 
-        if control == "static":
-            gpo_command = {"gpoConfigurations": [{"gpo": pin, "state": state, "control": control}]}
-        elif control == "pulsed":
-            gpo_command = {
-                "gpoConfigurations": [
-                    {
-                        "gpo": pin,
-                        "state": state,
-                        "pulseDurationMilliseconds": time,
-                        "control": control,
-                    }
-                ]
-            }
-        return gpo_command
+        control = str(control).strip().lower()
+        if control == "pulse":
+            control = "pulsed"
+        if control not in {"static", "pulsed"}:
+            raise ValueError(f"Invalid GPO control '{control}'. Use 'static' or 'pulsed'.")
+
+        gpo_config: dict = {"gpo": pin, "state": state, "control": control}
+        if control == "pulsed":
+            gpo_config["pulseDurationMilliseconds"] = int(time)
+
+        return {"gpoConfigurations": [gpo_config]}
 
     async def get_reader_info(self, session=None):
         """Request reader information like firmware version, serial number, etc."""

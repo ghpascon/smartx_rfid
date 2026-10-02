@@ -59,12 +59,39 @@ class WriteCommands:
             ],
         }
 
-    async def send_write_command(self, write_command):
+    async def send_write_command(
+        self,
+        write_command,
+        retry: int = 2,
+        retry_delay: float = 0.2,
+    ):
         if not isinstance(write_command, list):
             write_command = [write_command]
         payload = {"accessConfigurations": write_command}
         try:
-            async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
-                await self.post_to_reader(session, self.endpoint_write, payload=payload)
+            async with self._command_lock:
+                if self._session is not None and not self._session.is_closed:
+                    success = await self.post_to_reader(
+                        self._session,
+                        self.endpoint_write,
+                        payload=payload,
+                        timeout=8,
+                        retries=retry,
+                        retry_delay=retry_delay,
+                    )
+                else:
+                    async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
+                        success = await self.post_to_reader(
+                            session,
+                            self.endpoint_write,
+                            payload=payload,
+                            timeout=8,
+                            retries=retry,
+                            retry_delay=retry_delay,
+                        )
+                if not success:
+                    raise RuntimeError("ERROR POSTING WRITE COMMAND")
+            return True
         except Exception as e:
             logging.warning(f"{self.name} - Failed to Write: {e}")
+            return False

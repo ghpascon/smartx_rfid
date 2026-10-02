@@ -242,6 +242,7 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                         await self._session.aclose()
                         self._session = None
                         await asyncio.sleep(1)
+                        continue
 
                 # Get reader info to retrieve serial number
                 await self.get_reader_info()
@@ -260,9 +261,9 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
                 # Clear GPO states
                 for i in range(1, 4):
                     if hasattr(self, "create_task"):
-                        self.create_task(self.write_gpo(pin=i, state=False))
+                        self.create_task(self.write_gpo(pin=i, state=False, raise_on_fail=False, retry=2))
                     else:
-                        asyncio.create_task(self.write_gpo(pin=i, state=False))
+                        asyncio.create_task(self.write_gpo(pin=i, state=False, raise_on_fail=False, retry=2))
 
                 self.is_connected = True
                 if self.start_reading:
@@ -286,6 +287,9 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
         state: bool | str = True,
         control: str = "static",
         time: int = 1000,
+        retry: int = 3,
+        retry_delay: float = 0.2,
+        raise_on_fail: bool = True,
         *args,
         **kwargs,
     ):
@@ -297,18 +301,41 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             state: Turn pin on (True) or off (False)
             control: Control type (static or pulse)
             time: Pulse duration in milliseconds
+            retry: Number of retries for transient HTTP failures
+            retry_delay: Initial retry delay in seconds
+            raise_on_fail: Raise exception when command fails
         """
         gpo_command = self.get_gpo_command(pin=pin, state=state, control=control, time=time)
-        try:
-            async with self._command_lock:
-                if self._session is not None and not self._session.is_closed:
-                    await self.post_to_reader(self._session, self.endpoint_gpo, payload=gpo_command, method="put")
-                else:
-                    async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
-                        await self.post_to_reader(session, self.endpoint_gpo, payload=gpo_command, method="put")
-            self.emit_event("gpo", {"pin": pin, "state": state, "control": control, "time": time})
-        except Exception as e:
-            logging.warning(f"{self.name} - Failed to set GPO: {e}")
+        async with self._command_lock:
+            if self._session is not None and not self._session.is_closed:
+                success = await self.post_to_reader(
+                    self._session,
+                    self.endpoint_gpo,
+                    payload=gpo_command,
+                    method="put",
+                    timeout=5,
+                    retries=retry,
+                    retry_delay=retry_delay,
+                )
+            else:
+                async with httpx.AsyncClient(auth=self.auth, verify=False, timeout=10.0) as session:
+                    success = await self.post_to_reader(
+                        session,
+                        self.endpoint_gpo,
+                        payload=gpo_command,
+                        method="put",
+                        timeout=5,
+                        retries=retry,
+                        retry_delay=retry_delay,
+                    )
+            if not success:
+                error_msg = f"ERROR POSTING GPO COMMAND pin={pin} control={control}"
+                if raise_on_fail:
+                    raise RuntimeError(error_msg)
+                logging.warning(f"{self.name} - {error_msg}")
+                return False
+        self.emit_event("gpo", {"pin": pin, "state": state, "control": control, "time": time})
+        return True
 
     async def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
         """
@@ -320,20 +347,19 @@ class R700_IOT(DeviceBase, OnEvent, ReaderHelpers, WriteCommands):
             new_epc: New EPC code to write
             password: Tag access password
         """
-        try:
-            validated_tag = WriteTagValidator(
-                target_identifier=target_identifier,
-                target_value=target_value,
-                new_epc=new_epc,
-                password=password,
-            )
-            logging.info(
-                f"{self.name} - Writing EPC: {validated_tag.new_epc} (Current: {validated_tag.target_identifier}={validated_tag.target_value})"
-            )
-            cmd = self.get_write_cmd(validated_tag)
-            await self.send_write_command(cmd)
-        except Exception as e:
-            logging.warning(f"{self.name} - Write validation error: {e}")
+        validated_tag = WriteTagValidator(
+            target_identifier=target_identifier,
+            target_value=target_value,
+            new_epc=new_epc,
+            password=password,
+        )
+        logging.info(
+            f"{self.name} - Writing EPC: {validated_tag.new_epc} (Current: {validated_tag.target_identifier}={validated_tag.target_value})"
+        )
+        cmd = self.get_write_cmd(validated_tag)
+        success = await self.send_write_command(cmd)
+        if not success:
+            raise RuntimeError("ERROR POSTING WRITE COMMAND")
 
     async def protected_inventory(self, active: bool, password: str = None, restart_inventory: bool = True):
         if password is None:

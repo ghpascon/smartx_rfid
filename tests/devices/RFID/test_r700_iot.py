@@ -70,6 +70,63 @@ class TestR700_IOT:
             result = await r700_device.start_inventory()
             assert result is True
 
+    @pytest.mark.asyncio
+    async def test_post_to_reader_retries_on_retryable_status(self):
+        """POST/PUT helper should retry transient status codes and succeed later."""
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
+            r700_device = R700_IOT(reading_config=R700_IOT_config_example)
+
+            session = AsyncMock()
+            first = Mock(status_code=409)
+            first.text = "busy"
+            second = Mock(status_code=204)
+            second.text = ""
+            session.put = AsyncMock(side_effect=[first, second])
+
+            ok = await r700_device.post_to_reader(
+                session=session,
+                endpoint=r700_device.endpoint_gpo,
+                payload={"gpoConfigurations": [{"gpo": 1, "state": "low", "control": "static"}]},
+                method="put",
+                retries=1,
+                retry_delay=0,
+            )
+
+            assert ok is True
+            assert session.put.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_write_gpo_no_raise_when_disabled(self):
+        """write_gpo should optionally return False instead of raising."""
+        with patch("smartx_rfid.devices._base.on_event", Mock()):
+            r700_device = R700_IOT(reading_config=R700_IOT_config_example)
+            r700_device.post_to_reader = AsyncMock(return_value=False)
+
+            result = await r700_device.write_gpo(pin=1, state=False, raise_on_fail=False, retry=0)
+
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_write_gpo_retries_and_emits_event(self):
+        """write_gpo should retry transient failures and emit GPO event on success."""
+        with patch("smartx_rfid.devices._base.on_event", Mock()) as on_event_mock:
+            r700_device = R700_IOT(reading_config=R700_IOT_config_example)
+
+            session = AsyncMock()
+            session.is_closed = False
+            first = Mock(status_code=503)
+            first.text = "temporary unavailable"
+            second = Mock(status_code=204)
+            second.text = ""
+            session.put = AsyncMock(side_effect=[first, second])
+            r700_device._session = session
+
+            result = await r700_device.write_gpo(pin=2, state=True, retry=1, retry_delay=0)
+
+            assert result is True
+            assert session.put.await_count == 2
+            on_event_mock.assert_called()
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
