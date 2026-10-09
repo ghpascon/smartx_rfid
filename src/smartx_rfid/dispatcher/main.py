@@ -1,7 +1,7 @@
 """
 event_dispatcher.py
 -------------------
-Async event dispatcher that routes named events to HTTP POST or SQL destinations
+Async event dispatcher that routes named events to HTTP POST, SQL, MQTT, or MongoDB destinations
 based on JSON configuration files stored on disk.
 
 Usage
@@ -42,6 +42,39 @@ SQL:
         "retry_backoff_seconds": 0.25
     }
 
+MQTT:
+    {
+        "dispatch_type": "mqtt",
+        "on_event": "user.created",
+        "host": "localhost",
+        "port": 1883,
+        "topic": "smartx/events/{event_type}",
+        "qos": 1,
+        "retain": false,
+        "payload": {"name": "{name}", "data": "{data}"},
+        "allow_batches": true,
+        "batch_size": 500,
+        "flush_interval_seconds": 0.1,
+        "retry_attempts": 3,
+        "retry_backoff_seconds": 0.25
+    }
+
+MONGODB:
+    {
+        "dispatch_type": "mongodb",
+        "on_event": "user.created",
+        "connection_string": "mongodb://localhost:27017",
+        "database": "smartx",
+        "collection": "events",
+        "ordered": true,
+        "document": {"name": "{name}", "event_type": "{event_type}", "data": "{data}"},
+        "allow_batches": true,
+        "batch_size": 500,
+        "flush_interval_seconds": 0.1,
+        "retry_attempts": 3,
+        "retry_backoff_seconds": 0.25
+    }
+
 Template placeholders: {name}, {event_type}, {data}, {data[key]}
 """
 
@@ -62,21 +95,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
-import httpx
-import orjson
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-import oracledb
+from .http_dispatcher import HttpDispatcher, _PostItem
+from .mongo_dispatcher import MongoDispatcher, _MongoBatchKey, _MongoItem
+from .mqtt_dispatcher import MqttDispatcher, _MqttBatchKey, _MqttItem
+from .sql_dispatcher import SqlDispatcher, _SqlBatchKey, _SqlItem
 
 
 logger = logging.getLogger(__name__)
-
-
-try:
-    oracledb.init_oracle_client()
-    logger.info("Oracle client initialized successfully")
-except Exception as e:
-    logger.warning(f"Failed to initialize Oracle client: {e}")
 
 # ---------------------------------------------------------------------------
 # Sentinels and patterns
@@ -98,57 +123,6 @@ class _Event:
     name: str
     event_type: str
     data: Any
-    queued_at: float
-
-
-@dataclass(slots=True, frozen=True)
-class _SqlBatchKey:
-    connection_string: str
-    query: str
-    batch_size: int
-    allow_batches: bool
-    flush_interval_seconds: float
-    retry_attempts: int
-    backoff_seconds: float
-
-
-@dataclass(slots=True)
-class _SqlItem:
-    key: _SqlBatchKey
-    params: dict[str, Any]
-    queued_at: float
-
-
-@dataclass(slots=True)
-class _PostItem:
-    source: str
-    batch_size: int
-    allow_batches: bool
-    retry_attempts: int
-    backoff_seconds: float
-    flush_interval_seconds: float
-    url: str
-    headers: dict[str, Any] | None
-    body: Any
-    queued_at: float
-
-
-@dataclass(slots=True, frozen=True)
-class _PostBatchKey:
-    source: str
-    url: str
-    headers_json: str
-    batch_size: int
-    allow_batches: bool
-    flush_interval_seconds: float
-    retry_attempts: int
-    backoff_seconds: float
-
-
-@dataclass(slots=True)
-class _PostEnvelope:
-    key: _PostBatchKey
-    items: list[_PostItem]
     queued_at: float
 
 
@@ -178,609 +152,20 @@ class _CompiledDispatch:
     query_fn: Callable[[dict[str, Any]], Any] | None
     params_fn: Callable[[dict[str, Any]], Any] | None
     sql_key_static: _SqlBatchKey | None
+    mqtt_key_fn: Callable[[dict[str, Any]], _MqttBatchKey] | None
+    mqtt_payload_fn: Callable[[dict[str, Any]], Any] | None
+    mqtt_key_static: _MqttBatchKey | None
+    mongo_key_fn: Callable[[dict[str, Any]], _MongoBatchKey] | None
+    mongo_doc_fn: Callable[[dict[str, Any]], Any] | None
+    mongo_key_static: _MongoBatchKey | None
 
 
 @dataclass
 class _RouteBucket:
     post: list[_CompiledDispatch] = field(default_factory=list)
     sql: list[_CompiledDispatch] = field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# SqlDispatcher — always batched
-# ---------------------------------------------------------------------------
-
-
-class SqlDispatcher:
-    """
-    Manages all SQL dispatch operations using mandatory batching.
-
-    Parameters
-    ----------
-    batch_size : int
-        Maximum number of rows flushed per execution (default 1000).
-    flush_interval_seconds : float
-        How often to flush pending batches when not full (default 0.1).
-    queue_max_size : int
-        Max items in the internal queue before back-pressure (default 10_000).
-    """
-
-    def __init__(
-        self,
-        batch_size: int = 1000,
-        flush_interval_seconds: float = 0.1,
-        queue_max_size: int = 10_000,
-    ) -> None:
-        self.batch_size = max(1, batch_size)
-        self.flush_interval_seconds = max(0.001, flush_interval_seconds)
-        self.queue_max_size = max(1, queue_max_size)
-
-        self._queue: asyncio.Queue[_SqlItem | object] = asyncio.Queue(maxsize=self.queue_max_size)
-        self._batches: dict[_SqlBatchKey, list[_SqlItem]] = {}
-        self._engines: dict[str, AsyncEngine] = {}
-        self._stmt_cache: dict[str, Any] = {}
-        self._task: asyncio.Task | None = None
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
-    def start(self) -> None:
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._loop(), name="sql-dispatcher-batcher")
-            logger.debug(
-                "SqlDispatcher started | batch_size=%d flush_interval=%.3fs",
-                self.batch_size,
-                self.flush_interval_seconds,
-            )
-
-    async def stop(self, drain: bool = True) -> None:
-        if self._task is None:
-            return
-        if drain:
-            await self._queue.join()
-            await self._flush_all()
-        await self._queue.put(_STOP)
-        await asyncio.gather(self._task, return_exceptions=True)
-        self._task = None
-        logger.debug("SqlDispatcher stopped")
-
-    async def flush(self) -> None:
-        await self._queue.join()
-        await self._flush_all()
-
-    # ------------------------------------------------------------------
-    # Engine management (called by EventDispatcher.reload_dispatches)
-    # ------------------------------------------------------------------
-
-    def ensure_engine(self, connection_string: str) -> None:
-        if connection_string not in self._engines:
-            self._create_engine(connection_string)
-            logger.debug("SQL engine created: %s", connection_string)
-
-    def remove_stale_engines(self, active_connections: set[str]) -> None:
-        for key in set(self._engines) - active_connections:
-            try:
-                engine = self._engines.pop(key)
-                asyncio.create_task(engine.dispose())
-                logger.debug("SQL engine disposed: %s", key)
-            except Exception:
-                logger.debug("Error disposing SQL engine: %s", key, exc_info=True)
-
-    async def dispose_all(self) -> None:
-        for engine in self._engines.values():
-            try:
-                await engine.dispose()
-            except Exception:
-                logger.debug("Error disposing SQL engine during shutdown", exc_info=True)
-        self._engines.clear()
-
-    def clear_stmt_cache(self) -> None:
-        self._stmt_cache.clear()
-
-    # ------------------------------------------------------------------
-    # Enqueue
-    # ------------------------------------------------------------------
-
-    async def enqueue(self, item: _SqlItem, add_timeout: float = 0.2) -> None:
-        try:
-            self._queue.put_nowait(item)
-        except asyncio.QueueFull:
-            if add_timeout <= 0:
-                raise
-            await asyncio.wait_for(self._queue.put(item), timeout=add_timeout)
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    async def _loop(self) -> None:
-        while True:
-            try:
-                item = await asyncio.wait_for(self._queue.get(), timeout=self._next_timeout())
-            except TimeoutError:
-                await self._flush_due()
-                continue
-
-            if item is _STOP:
-                self._queue.task_done()
-                await self._flush_all()
-                return
-
-            assert isinstance(item, _SqlItem)
-            batch = self._batches.setdefault(item.key, [])
-            batch.append(item)
-            if not item.key.allow_batches or len(batch) >= item.key.batch_size:
-                await self._flush(item.key)
-            else:
-                await self._flush_due()
-
-    async def _flush_due(self) -> None:
-        if not self._batches:
-            return
-        now = time.monotonic()
-        for key, batch in list(self._batches.items()):
-            if not batch:
-                continue
-            oldest = batch[0].queued_at
-            if now - oldest >= key.flush_interval_seconds:
-                await self._flush(key)
-
-    def _next_timeout(self) -> float:
-        if not self._batches:
-            return self.flush_interval_seconds
-        now = time.monotonic()
-        remaining_times = [
-            max(0.0, key.flush_interval_seconds - (now - batch[0].queued_at))
-            for key, batch in self._batches.items()
-            if batch
-        ]
-        if not remaining_times:
-            return self.flush_interval_seconds
-        return max(0.001, min(self.flush_interval_seconds, min(remaining_times)))
-
-    async def _flush_all(self) -> None:
-        for key in list(self._batches):
-            await self._flush(key)
-
-    async def _flush(self, key: _SqlBatchKey) -> None:
-        batch = self._batches.pop(key, None)
-        if not batch:
-            return
-
-        params_list = [item.params for item in batch]
-        start = time.monotonic()
-
-        try:
-            await self._run_with_retry(
-                lambda: self._execute_many(key.connection_string, key.query, params_list),
-                retry_attempts=key.retry_attempts,
-                backoff_seconds=key.backoff_seconds,
-            )
-            logger.info(
-                "SQL batch dispatched | query=%r rows=%d sample_params=%s latency=%.4fs",
-                key.query,
-                len(params_list),
-                params_list[0] if params_list else {},
-                time.monotonic() - start,
-            )
-        except Exception:
-            logger.exception(
-                "SQL batch failed | query=%r rows=%d sample_params=%s latency=%.4fs",
-                key.query,
-                len(params_list),
-                params_list[0] if params_list else {},
-                time.monotonic() - start,
-            )
-        finally:
-            for _ in batch:
-                self._queue.task_done()
-
-    async def _execute_many(self, connection_string: str, query: str, params_list: list[dict[str, Any]]) -> None:
-        engine = self._engines.get(connection_string) or self._create_engine(connection_string)
-        stmt = self._stmt_cache.get(query)
-        if stmt is None:
-            stmt = text(query)
-            self._stmt_cache[query] = stmt
-        async with engine.connect() as conn:
-            await conn.execute(stmt, params_list)
-            await conn.commit()
-
-    def _create_engine(self, connection_string: str):
-        kwargs = {
-            "pool_pre_ping": True,
-        }
-
-        # detecta sqlite
-        is_sqlite = connection_string.startswith("sqlite")
-
-        if not is_sqlite:
-            kwargs.update(
-                {
-                    "pool_size": 20,
-                    "max_overflow": 30,
-                    "pool_recycle": 1800,
-                    "future": True,
-                }
-            )
-
-        engine = create_async_engine(connection_string, **kwargs)
-
-        self._engines[connection_string] = engine
-        return engine
-
-    @staticmethod
-    async def _run_with_retry(operation: Any, retry_attempts: int, backoff_seconds: float) -> None:
-        last_exc: Exception | None = None
-        for attempt in range(1, retry_attempts + 1):
-            try:
-                await operation()
-                return
-            except Exception as exc:
-                last_exc = exc
-                if attempt >= retry_attempts:
-                    break
-                await asyncio.sleep(max(0.0, backoff_seconds) * attempt)
-        if last_exc is not None:
-            raise last_exc
-
-
-# ---------------------------------------------------------------------------
-# HttpDispatcher — optional batching per dispatch config
-# ---------------------------------------------------------------------------
-
-
-class HttpDispatcher:
-    """
-    Manages all HTTP POST dispatch operations.
-    Batching is opt-in per dispatch (``allow_batches`` field in JSON config).
-
-    Parameters
-    ----------
-    batch_size : int
-        Max items per batched request (default 1000).
-    flush_interval_seconds : float
-        How often to flush pending batches (default 0.1).
-    sender_workers : int
-        Concurrent HTTP sender coroutines (default 64).
-    queue_max_size : int
-        Max items in internal queues (default 10_000).
-    connect_timeout_seconds : float
-        TCP connection timeout (default 2.0).
-    read_timeout_seconds : float
-        HTTP read/write timeout (default 5.0).
-    pool_timeout_seconds : float
-        Connection pool acquisition timeout (default 2.0).
-    max_connections : int
-        Max total HTTP connections in the pool (default 500).
-    max_keepalive_connections : int
-        Max keepalive connections (default 500).
-    http2_enabled : bool
-        Enable HTTP/2 (default True).
-    """
-
-    def __init__(
-        self,
-        batch_size: int = 1000,
-        flush_interval_seconds: float = 0.1,
-        sender_workers: int = 64,
-        queue_max_size: int = 10_000,
-        connect_timeout_seconds: float = 2.0,
-        read_timeout_seconds: float = 5.0,
-        pool_timeout_seconds: float = 2.0,
-        max_connections: int = 500,
-        max_keepalive_connections: int = 500,
-        http2_enabled: bool = True,
-    ) -> None:
-        self.batch_size = max(1, batch_size)
-        self.flush_interval_seconds = max(0.001, flush_interval_seconds)
-        self.sender_workers = max(1, sender_workers)
-        self.queue_max_size = max(1, queue_max_size)
-        self.connect_timeout_seconds = max(0.1, connect_timeout_seconds)
-        self.read_timeout_seconds = max(0.1, read_timeout_seconds)
-        self.pool_timeout_seconds = max(0.1, pool_timeout_seconds)
-        self.max_connections = max(1, max_connections)
-        self.max_keepalive_connections = max(1, max_keepalive_connections)
-        self.http2_enabled = http2_enabled
-
-        self._batch_queue: asyncio.Queue[_PostItem | object] = asyncio.Queue(maxsize=self.queue_max_size)
-        self._send_queue: asyncio.Queue[_PostEnvelope | object] = asyncio.Queue(maxsize=self.queue_max_size)
-        self._batches: dict[_PostBatchKey, list[_PostItem]] = {}
-        self._batch_task: asyncio.Task | None = None
-        self._worker_tasks: list[asyncio.Task] = []
-        self._client: httpx.AsyncClient | None = None
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
-    def start(self) -> None:
-        if self._client is None:
-            self._client = self._make_client()
-        if self._batch_task is None or self._batch_task.done():
-            self._batch_task = asyncio.create_task(self._batch_loop(), name="http-dispatcher-batcher")
-        if not self._worker_tasks:
-            self._worker_tasks = [
-                asyncio.create_task(self._sender_loop(i + 1), name=f"http-dispatcher-sender-{i + 1}")
-                for i in range(self.sender_workers)
-            ]
-        logger.debug(
-            "HttpDispatcher started | batch_size=%d flush_interval=%.3fs sender_workers=%d",
-            self.batch_size,
-            self.flush_interval_seconds,
-            self.sender_workers,
-        )
-
-    async def stop(self, drain: bool = True) -> None:
-        if drain:
-            await self._batch_queue.join()
-            await self._flush_all()
-            await self._send_queue.join()
-
-        if self._batch_task:
-            await self._batch_queue.put(_STOP)
-            await asyncio.gather(self._batch_task, return_exceptions=True)
-            self._batch_task = None
-
-        for _ in self._worker_tasks:
-            await self._send_queue.put(_STOP)
-        await asyncio.gather(*self._worker_tasks, return_exceptions=True)
-        self._worker_tasks = []
-
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-
-        logger.debug("HttpDispatcher stopped")
-
-    async def flush(self) -> None:
-        await self._batch_queue.join()
-        await self._flush_all()
-        await self._send_queue.join()
-
-    # ------------------------------------------------------------------
-    # Enqueue
-    # ------------------------------------------------------------------
-
-    async def enqueue(self, item: _PostItem) -> None:
-        try:
-            self._batch_queue.put_nowait(item)
-        except asyncio.QueueFull:
-            await asyncio.wait_for(self._batch_queue.put(item), timeout=0.2)
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _make_client(self) -> httpx.AsyncClient:
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
-        return httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=self.connect_timeout_seconds,
-                read=self.read_timeout_seconds,
-                write=self.read_timeout_seconds,
-                pool=self.pool_timeout_seconds,
-            ),
-            limits=httpx.Limits(
-                max_keepalive_connections=self.max_keepalive_connections,
-                max_connections=self.max_connections,
-                keepalive_expiry=60.0,
-            ),
-            http2=self.http2_enabled,
-        )
-
-    def _make_key(self, item: _PostItem) -> _PostBatchKey:
-        return _PostBatchKey(
-            source=item.source,
-            url=item.url,
-            headers_json=orjson.dumps(item.headers or {}, option=orjson.OPT_SORT_KEYS).decode(),
-            batch_size=item.batch_size,
-            allow_batches=item.allow_batches,
-            flush_interval_seconds=item.flush_interval_seconds,
-            retry_attempts=item.retry_attempts,
-            backoff_seconds=item.backoff_seconds,
-        )
-
-    async def _batch_loop(self) -> None:
-        while True:
-            try:
-                item = await asyncio.wait_for(self._batch_queue.get(), timeout=self._next_timeout())
-            except TimeoutError:
-                await self._flush_due()
-                continue
-
-            if item is _STOP:
-                self._batch_queue.task_done()
-                await self._flush_all()
-                return
-
-            assert isinstance(item, _PostItem)
-            key = self._make_key(item)
-            batch = self._batches.setdefault(key, [])
-            batch.append(item)
-            self._batch_queue.task_done()
-
-            # flush immediately if batching disabled for this item or batch is full
-            if not item.allow_batches or len(batch) >= item.batch_size:
-                await self._flush_batch(key)
-            else:
-                await self._flush_due()
-
-    async def _flush_due(self) -> None:
-        if not self._batches:
-            return
-        now = time.monotonic()
-        for key, batch in list(self._batches.items()):
-            if not batch:
-                continue
-            oldest = batch[0].queued_at
-            if now - oldest >= key.flush_interval_seconds:
-                await self._flush_batch(key)
-
-    def _next_timeout(self) -> float:
-        if not self._batches:
-            return self.flush_interval_seconds
-        now = time.monotonic()
-        remaining_times = [
-            max(0.0, key.flush_interval_seconds - (now - batch[0].queued_at))
-            for key, batch in self._batches.items()
-            if batch
-        ]
-        if not remaining_times:
-            return self.flush_interval_seconds
-        return max(0.001, min(self.flush_interval_seconds, min(remaining_times)))
-
-    async def _flush_all(self) -> None:
-        for key in list(self._batches):
-            await self._flush_batch(key)
-
-    async def _flush_batch(self, key: _PostBatchKey) -> None:
-        batch = self._batches.pop(key, None)
-        if not batch:
-            return
-        envelope = _PostEnvelope(key=key, items=batch, queued_at=batch[0].queued_at)
-        await self._send_queue.put(envelope)
-
-    async def _sender_loop(self, worker_id: int) -> None:
-        logger.debug("HTTP sender worker %d started", worker_id)
-        while True:
-            envelope = await self._send_queue.get()
-            try:
-                if envelope is _STOP:
-                    return
-                assert isinstance(envelope, _PostEnvelope)
-                await self._run_with_retry(
-                    lambda env=envelope: self._send_envelope(env),
-                    retry_attempts=envelope.key.retry_attempts,
-                    backoff_seconds=envelope.key.backoff_seconds,
-                )
-            except (httpx.ConnectTimeout, httpx.PoolTimeout):
-                logger.warning(
-                    "POST timeout | source=%s url=%s batch_size=%d",
-                    envelope.key.source,
-                    envelope.key.url,
-                    len(envelope.items) if isinstance(envelope, _PostEnvelope) else 0,
-                )
-            except Exception:
-                logger.exception(
-                    "POST failed | source=%s url=%s",
-                    envelope.key.source if isinstance(envelope, _PostEnvelope) else "?",
-                    envelope.key.url if isinstance(envelope, _PostEnvelope) else "?",
-                )
-            finally:
-                self._send_queue.task_done()
-
-    async def _send_envelope(self, envelope: _PostEnvelope) -> None:
-        if self._client is None:
-            raise RuntimeError("HttpDispatcher not started — call start() first")
-        if not envelope.items:
-            return
-
-        allow_batch = all(item.allow_batches for item in envelope.items)
-        queued_for = max(0.0, time.monotonic() - envelope.queued_at)
-
-        if allow_batch:
-            # Sempre envia como lista se allow_batches for True, mesmo que só tenha um item
-            payload: Any = [item.body for item in envelope.items]
-            await self._post_once(
-                url=envelope.key.url,
-                headers=envelope.items[0].headers or {},
-                payload=payload,
-                log_ctx={
-                    "source": envelope.key.source,
-                    "url": envelope.key.url,
-                    "batch_size": len(envelope.items),
-                    "queued_for_seconds": round(queued_for, 4),
-                },
-            )
-        else:
-            # send each body individually — never wrapped in a list
-            for item in envelope.items:
-                await self._post_once(
-                    url=envelope.key.url,
-                    headers=item.headers or {},
-                    payload=item.body,
-                    log_ctx={
-                        "source": envelope.key.source,
-                        "url": envelope.key.url,
-                        "batch_size": 1,
-                        "queued_for_seconds": round(queued_for, 4),
-                    },
-                )
-
-    async def _post_once(
-        self,
-        url: str,
-        headers: dict[str, Any],
-        payload: Any,
-        log_ctx: dict[str, Any],
-    ) -> None:
-        norm_headers: dict[str, str] = {str(k): str(v) for k, v in headers.items()}
-        norm_headers.setdefault("Content-Type", "application/json")
-        body_bytes = orjson.dumps(payload)
-        start = time.monotonic()
-
-        try:
-            response = await self._client.post(url, headers=norm_headers, content=body_bytes)  # type: ignore[union-attr]
-            response.raise_for_status()
-            logger.info(
-                "POST dispatched | %s",
-                json.dumps(
-                    {
-                        **log_ctx,
-                        "status": response.status_code,
-                        "latency_seconds": round(time.monotonic() - start, 4),
-                        "response_preview": response.text[:300],
-                    }
-                ),
-            )
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "POST HTTP error | %s",
-                json.dumps(
-                    {
-                        **log_ctx,
-                        "status": exc.response.status_code,
-                        "latency_seconds": round(time.monotonic() - start, 4),
-                        "response": exc.response.text[:300],
-                    }
-                ),
-            )
-            raise
-        except httpx.TimeoutException:
-            logger.error(
-                "POST timeout | %s",
-                json.dumps({**log_ctx, "latency_seconds": round(time.monotonic() - start, 4)}),
-            )
-            raise
-        except Exception as exc:
-            logger.error(
-                "POST failed | %s",
-                json.dumps(
-                    {
-                        **log_ctx,
-                        "error": str(exc),
-                        "latency_seconds": round(time.monotonic() - start, 4),
-                    }
-                ),
-            )
-            raise
-
-    @staticmethod
-    async def _run_with_retry(operation: Any, retry_attempts: int, backoff_seconds: float) -> None:
-        last_exc: Exception | None = None
-        for attempt in range(1, retry_attempts + 1):
-            try:
-                await operation()
-                return
-            except Exception as exc:
-                last_exc = exc
-                if attempt >= retry_attempts:
-                    break
-                await asyncio.sleep(max(0.0, backoff_seconds) * attempt)
-        if last_exc is not None:
-            raise last_exc
+    mqtt: list[_CompiledDispatch] = field(default_factory=list)
+    mongo: list[_CompiledDispatch] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +175,7 @@ class HttpDispatcher:
 
 class EventDispatcher:
     """
-    Async event dispatcher. Routes events to HTTP POST or SQL targets based on
+    Async event dispatcher. Routes events to HTTP POST, SQL, MQTT, or MongoDB targets based on
     JSON dispatch config files loaded from ``dispatches_path``.
 
     Auto-starts on the first call to ``add`` or ``add_async`` if not started
@@ -811,6 +196,10 @@ class EventDispatcher:
         Optional pre-configured SqlDispatcher. Creates a default one if omitted.
     http : HttpDispatcher | None
         Optional pre-configured HttpDispatcher. Creates a default one if omitted.
+    mqtt : MqttDispatcher | None
+        Optional pre-configured MqttDispatcher. Creates a default one if omitted.
+    mongo : MongoDispatcher | None
+        Optional pre-configured MongoDispatcher. Creates a default one if omitted.
 
     Custom tuning example
     ---------------------
@@ -818,6 +207,8 @@ class EventDispatcher:
             dispatches_path="dispatches/",
             sql=SqlDispatcher(batch_size=200, flush_interval_seconds=0.1),
             http=HttpDispatcher(batch_size=100, sender_workers=32),
+            mqtt=MqttDispatcher(batch_size=100, sender_workers=16),
+            mongo=MongoDispatcher(batch_size=200, sender_workers=16),
         )
     """
 
@@ -829,6 +220,8 @@ class EventDispatcher:
         max_queue_size: int = 10_000,
         sql: "SqlDispatcher | None" = None,
         http: "HttpDispatcher | None" = None,
+        mqtt: "MqttDispatcher | None" = None,
+        mongo: "MongoDispatcher | None" = None,
     ) -> None:
         self.dispatches_path = dispatches_path
         self.example_path = example_path
@@ -841,6 +234,8 @@ class EventDispatcher:
 
         self._sql = sql or SqlDispatcher()
         self._http = http or HttpDispatcher()
+        self._mqtt = mqtt or MqttDispatcher()
+        self._mongo = mongo or MongoDispatcher()
 
         self._event_queue: asyncio.Queue[_Event | object] = asyncio.Queue(maxsize=self.max_queue_size)
         self._workers: list[asyncio.Task] = []
@@ -889,6 +284,8 @@ class EventDispatcher:
             self.reload_dispatches()
             self._http.start()
             self._sql.start()
+            self._mqtt.start()
+            self._mongo.start()
             self._workers = [
                 asyncio.create_task(self._worker_loop(i + 1), name=f"event-dispatcher-worker-{i + 1}")
                 for i in range(self.max_workers)
@@ -916,6 +313,8 @@ class EventDispatcher:
         # Stop sub-dispatchers (they drain internally if drain=True)
         await self._http.stop(drain=drain)
         await self._sql.stop(drain=drain)
+        await self._mqtt.stop(drain=drain)
+        await self._mongo.stop(drain=drain)
         await self._sql.dispose_all()
 
         self._started = False
@@ -929,6 +328,8 @@ class EventDispatcher:
             await self._event_queue.join()
             await self._http.flush()
             await self._sql.flush()
+            await self._mqtt.flush()
+            await self._mongo.flush()
 
         if timeout is None:
             await _flush_all()
@@ -1034,6 +435,10 @@ class EventDispatcher:
         stats["sql_batch_size"] = self._sql.batch_size
         stats["http_batch_size"] = self._http.batch_size
         stats["http_sender_workers"] = self._http.sender_workers
+        stats["mqtt_batch_size"] = self._mqtt.batch_size
+        stats["mqtt_sender_workers"] = self._mqtt.sender_workers
+        stats["mongo_batch_size"] = self._mongo.batch_size
+        stats["mongo_sender_workers"] = self._mongo.sender_workers
         return stats
 
     # ------------------------------------------------------------------
@@ -1200,7 +605,14 @@ class EventDispatcher:
                     if plan.event_type_static
                     else routes_any
                 )
-                (bucket.sql if plan.dispatch_type == "sql" else bucket.post).append(plan)
+                if plan.dispatch_type == "sql":
+                    bucket.sql.append(plan)
+                elif plan.dispatch_type == "post":
+                    bucket.post.append(plan)
+                elif plan.dispatch_type == "mqtt":
+                    bucket.mqtt.append(plan)
+                elif plan.dispatch_type == "mongodb":
+                    bucket.mongo.append(plan)
             except Exception:
                 logger.exception("Failed to parse dispatch file: %s", path.name)
 
@@ -1216,11 +628,15 @@ class EventDispatcher:
 
         post_count = sum(len(b.post) for b in routes_by_event.values()) + len(routes_any.post)
         sql_count = sum(len(b.sql) for b in routes_by_event.values()) + len(routes_any.sql)
+        mqtt_count = sum(len(b.mqtt) for b in routes_by_event.values()) + len(routes_any.mqtt)
+        mongo_count = sum(len(b.mongo) for b in routes_by_event.values()) + len(routes_any.mongo)
         logger.info(
-            "Dispatches reloaded | files=%d post_routes=%d sql_routes=%d sql_pools=%d",
+            "Dispatches reloaded | files=%d post_routes=%d sql_routes=%d mqtt_routes=%d mongo_routes=%d sql_pools=%d",
             len(compiled),
             post_count,
             sql_count,
+            mqtt_count,
+            mongo_count,
             len(sql_connections),
         )
 
@@ -1255,9 +671,17 @@ class EventDispatcher:
             await self._dispatch_one(plan, ctx)
         for plan in bucket.sql if bucket else []:
             await self._dispatch_one(plan, ctx)
+        for plan in bucket.mqtt if bucket else []:
+            await self._dispatch_one(plan, ctx)
+        for plan in bucket.mongo if bucket else []:
+            await self._dispatch_one(plan, ctx)
         for plan in self._routes_any.post:
             await self._dispatch_one(plan, ctx)
         for plan in self._routes_any.sql:
+            await self._dispatch_one(plan, ctx)
+        for plan in self._routes_any.mqtt:
+            await self._dispatch_one(plan, ctx)
+        for plan in self._routes_any.mongo:
             await self._dispatch_one(plan, ctx)
 
     async def _dispatch_one(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
@@ -1267,8 +691,14 @@ class EventDispatcher:
             self._stats["dispatches_attempted"] += 1
             if plan.dispatch_type == "post":
                 await self._enqueue_post(plan, ctx)
-            else:
+            elif plan.dispatch_type == "sql":
                 await self._enqueue_sql(plan, ctx)
+            elif plan.dispatch_type == "mqtt":
+                await self._enqueue_mqtt(plan, ctx)
+            elif plan.dispatch_type == "mongodb":
+                await self._enqueue_mongo(plan, ctx)
+            else:
+                raise ValueError(f"Unsupported dispatch_type: {plan.dispatch_type}")
             self._stats["dispatches_succeeded"] += 1
         except Exception:
             self._stats["dispatches_failed"] += 1
@@ -1311,6 +741,113 @@ class EventDispatcher:
             )
         await self._sql.enqueue(_SqlItem(key=key, params=params, queued_at=time.monotonic()))
 
+    async def _enqueue_mqtt(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
+        payload = plan.mqtt_payload_fn(ctx) if plan.mqtt_payload_fn else {}
+        key = plan.mqtt_key_static or (plan.mqtt_key_fn(ctx) if plan.mqtt_key_fn else None)
+        if key is None:
+            raise ValueError("MQTT dispatch key was not compiled")
+        await self._mqtt.enqueue(_MqttItem(key=key, payload=payload, queued_at=time.monotonic()))
+
+    async def _enqueue_mongo(self, plan: _CompiledDispatch, ctx: dict[str, Any]) -> None:
+        document = plan.mongo_doc_fn(ctx) if plan.mongo_doc_fn else {}
+        key = plan.mongo_key_static or (plan.mongo_key_fn(ctx) if plan.mongo_key_fn else None)
+        if key is None:
+            raise ValueError("MongoDB dispatch key was not compiled")
+        await self._mongo.enqueue(_MongoItem(key=key, document=document, queued_at=time.monotonic()))
+
+    def _build_mqtt_key(
+        self,
+        *,
+        source: str,
+        host_value: Any,
+        port_value: Any,
+        topic_value: Any,
+        username_value: Any,
+        password_value: Any,
+        client_id_value: Any,
+        keepalive_value: Any,
+        qos_value: Any,
+        retain_value: Any,
+        batch_size: int,
+        allow_batches: bool,
+        flush_interval_seconds: float,
+        retry_attempts: int,
+        backoff_seconds: float,
+    ) -> _MqttBatchKey:
+        host = str(host_value).strip() if host_value is not None else ""
+        topic = str(topic_value).strip() if topic_value is not None else ""
+        if not host:
+            raise ValueError("MQTT dispatch requires host")
+        if not topic:
+            raise ValueError("MQTT dispatch requires topic")
+
+        port = self._coerce_positive_int(port_value, default=1883)
+        keepalive = self._coerce_positive_int(keepalive_value, default=60)
+        qos = self._coerce_int_in_range(qos_value, default=0, minimum=0, maximum=2)
+        retain = self._coerce_bool(retain_value, default=False)
+
+        username = None if username_value in (None, "") else str(username_value)
+        password = None if password_value in (None, "") else str(password_value)
+        client_id = None if client_id_value in (None, "") else str(client_id_value)
+
+        return _MqttBatchKey(
+            source=source,
+            host=host,
+            port=port,
+            topic=topic,
+            username=username,
+            password=password,
+            client_id=client_id,
+            keepalive_seconds=keepalive,
+            qos=qos,
+            retain=retain,
+            batch_size=batch_size,
+            allow_batches=allow_batches,
+            flush_interval_seconds=flush_interval_seconds,
+            retry_attempts=retry_attempts,
+            backoff_seconds=backoff_seconds,
+        )
+
+    @staticmethod
+    def _build_mongo_key(
+        *,
+        source: str,
+        connection_string_value: Any,
+        database_value: Any,
+        collection_value: Any,
+        ordered_value: Any,
+        batch_size: int,
+        allow_batches: bool,
+        flush_interval_seconds: float,
+        retry_attempts: int,
+        backoff_seconds: float,
+    ) -> _MongoBatchKey:
+        connection_string = str(connection_string_value).strip() if connection_string_value is not None else ""
+        database = str(database_value).strip() if database_value is not None else ""
+        collection = str(collection_value).strip() if collection_value is not None else ""
+
+        if not connection_string:
+            raise ValueError("MongoDB dispatch requires connection_string")
+        if not database:
+            raise ValueError("MongoDB dispatch requires database")
+        if not collection:
+            raise ValueError("MongoDB dispatch requires collection")
+
+        ordered = ordered_value if isinstance(ordered_value, bool) else True
+
+        return _MongoBatchKey(
+            source=source,
+            connection_string=connection_string,
+            database=database,
+            collection=collection,
+            ordered=ordered,
+            batch_size=batch_size,
+            allow_batches=allow_batches,
+            flush_interval_seconds=flush_interval_seconds,
+            retry_attempts=retry_attempts,
+            backoff_seconds=backoff_seconds,
+        )
+
     # ------------------------------------------------------------------
     # Dispatch compilation
     # ------------------------------------------------------------------
@@ -1323,8 +860,24 @@ class EventDispatcher:
             return None
 
         dtype = str(content.get("dispatch_type", "")).lower()
-        default_batch_size = self._http.batch_size if dtype == "post" else self._sql.batch_size
-        default_flush = self._http.flush_interval_seconds if dtype == "post" else self._sql.flush_interval_seconds
+        default_batch_size = (
+            self._http.batch_size
+            if dtype == "post"
+            else self._sql.batch_size
+            if dtype == "sql"
+            else self._mqtt.batch_size
+            if dtype == "mqtt"
+            else self._mongo.batch_size
+        )
+        default_flush = (
+            self._http.flush_interval_seconds
+            if dtype == "post"
+            else self._sql.flush_interval_seconds
+            if dtype == "sql"
+            else self._mqtt.flush_interval_seconds
+            if dtype == "mqtt"
+            else self._mongo.flush_interval_seconds
+        )
 
         allow_batches = self._coerce_bool(content.get("allow_batches"), default=True)
         batch_size = self._coerce_positive_int(content.get("batch_size"), default=default_batch_size)
@@ -1363,6 +916,12 @@ class EventDispatcher:
             query_fn=None,
             params_fn=None,
             sql_key_static=None,
+            mqtt_key_fn=None,
+            mqtt_payload_fn=None,
+            mqtt_key_static=None,
+            mongo_key_fn=None,
+            mongo_doc_fn=None,
+            mongo_key_static=None,
         )
 
         if dtype == "post":
@@ -1386,6 +945,125 @@ class EventDispatcher:
                     retry_attempts=retry,
                     backoff_seconds=backoff,
                 )
+        elif dtype == "mqtt":
+            host_fn, host_static, host_val = self._build_renderer(content.get("host"))
+            port_fn, port_static, port_val = self._build_renderer(content.get("port", 1883))
+            topic_fn, topic_static, topic_val = self._build_renderer(content.get("topic"))
+            username_fn, username_static, username_val = self._build_renderer(content.get("username"))
+            password_fn, password_static, password_val = self._build_renderer(content.get("password"))
+            client_id_fn, client_id_static, client_id_val = self._build_renderer(content.get("client_id"))
+            keepalive_fn, keepalive_static, keepalive_val = self._build_renderer(content.get("keepalive_seconds", 60))
+            qos_fn, qos_static, qos_val = self._build_renderer(content.get("qos", 0))
+            retain_fn, retain_static, retain_val = self._build_renderer(content.get("retain", False))
+            plan.mqtt_payload_fn = self._build_renderer(content.get("payload", {}))[0]
+
+            if all(
+                (
+                    host_static,
+                    port_static,
+                    topic_static,
+                    username_static,
+                    password_static,
+                    client_id_static,
+                    keepalive_static,
+                    qos_static,
+                    retain_static,
+                )
+            ):
+                plan.mqtt_key_static = self._build_mqtt_key(
+                    source=source,
+                    host_value=host_val,
+                    port_value=port_val,
+                    topic_value=topic_val,
+                    username_value=username_val,
+                    password_value=password_val,
+                    client_id_value=client_id_val,
+                    keepalive_value=keepalive_val,
+                    qos_value=qos_val,
+                    retain_value=retain_val,
+                    batch_size=batch_size,
+                    allow_batches=allow_batches,
+                    flush_interval_seconds=dispatch_flush,
+                    retry_attempts=retry,
+                    backoff_seconds=backoff,
+                )
+            else:
+
+                def _mqtt_key_builder(
+                    ctx: dict[str, Any],
+                    _host_fn: Callable[[dict[str, Any]], Any] = host_fn,
+                    _port_fn: Callable[[dict[str, Any]], Any] = port_fn,
+                    _topic_fn: Callable[[dict[str, Any]], Any] = topic_fn,
+                    _username_fn: Callable[[dict[str, Any]], Any] = username_fn,
+                    _password_fn: Callable[[dict[str, Any]], Any] = password_fn,
+                    _client_id_fn: Callable[[dict[str, Any]], Any] = client_id_fn,
+                    _keepalive_fn: Callable[[dict[str, Any]], Any] = keepalive_fn,
+                    _qos_fn: Callable[[dict[str, Any]], Any] = qos_fn,
+                    _retain_fn: Callable[[dict[str, Any]], Any] = retain_fn,
+                ) -> _MqttBatchKey:
+                    return self._build_mqtt_key(
+                        source=source,
+                        host_value=_host_fn(ctx),
+                        port_value=_port_fn(ctx),
+                        topic_value=_topic_fn(ctx),
+                        username_value=_username_fn(ctx),
+                        password_value=_password_fn(ctx),
+                        client_id_value=_client_id_fn(ctx),
+                        keepalive_value=_keepalive_fn(ctx),
+                        qos_value=_qos_fn(ctx),
+                        retain_value=_retain_fn(ctx),
+                        batch_size=batch_size,
+                        allow_batches=allow_batches,
+                        flush_interval_seconds=dispatch_flush,
+                        retry_attempts=retry,
+                        backoff_seconds=backoff,
+                    )
+
+                plan.mqtt_key_fn = _mqtt_key_builder
+        elif dtype == "mongodb":
+            conn_fn, conn_static, conn_val = self._build_renderer(content.get("connection_string"))
+            db_fn, db_static, db_val = self._build_renderer(content.get("database"))
+            coll_fn, coll_static, coll_val = self._build_renderer(content.get("collection"))
+            ordered_fn, ordered_static, ordered_val = self._build_renderer(content.get("ordered", True))
+
+            plan.mongo_doc_fn = self._build_renderer(content.get("document", {}))[0]
+
+            if conn_static and db_static and coll_static and ordered_static:
+                plan.mongo_key_static = self._build_mongo_key(
+                    source=source,
+                    connection_string_value=conn_val,
+                    database_value=db_val,
+                    collection_value=coll_val,
+                    ordered_value=ordered_val,
+                    batch_size=batch_size,
+                    allow_batches=allow_batches,
+                    flush_interval_seconds=dispatch_flush,
+                    retry_attempts=retry,
+                    backoff_seconds=backoff,
+                )
+            else:
+
+                def _mongo_key_builder(
+                    ctx: dict[str, Any],
+                    _conn_fn: Callable[[dict[str, Any]], Any] = conn_fn,
+                    _db_fn: Callable[[dict[str, Any]], Any] = db_fn,
+                    _coll_fn: Callable[[dict[str, Any]], Any] = coll_fn,
+                    _ordered_fn: Callable[[dict[str, Any]], Any] = ordered_fn,
+                ) -> _MongoBatchKey:
+                    return EventDispatcher._build_mongo_key(
+                        source=source,
+                        connection_string_value=_conn_fn(ctx),
+                        database_value=_db_fn(ctx),
+                        collection_value=_coll_fn(ctx),
+                        ordered_value=_ordered_fn(ctx),
+                        batch_size=batch_size,
+                        allow_batches=allow_batches,
+                        flush_interval_seconds=dispatch_flush,
+                        retry_attempts=retry,
+                        backoff_seconds=backoff,
+                    )
+
+                plan.mongo_key_fn = _mongo_key_builder
         else:
             logger.warning("Unsupported dispatch_type=%r in %s", dtype, source)
             return None
@@ -1568,8 +1246,8 @@ class EventDispatcher:
         if not isinstance(content, dict):
             raise ValueError("Dispatch root must be a JSON object")
         dtype = content.get("dispatch_type")
-        if dtype not in ("post", "sql"):
-            raise ValueError("dispatch_type must be 'post' or 'sql'")
+        if dtype not in ("post", "sql", "mqtt", "mongodb"):
+            raise ValueError("dispatch_type must be 'post', 'sql', 'mqtt', or 'mongodb'")
         on_event = content.get("on_event")
         if not isinstance(on_event, str) or not on_event.strip():
             raise ValueError("on_event must be a non-empty string")
@@ -1631,6 +1309,53 @@ class EventDispatcher:
             params = content.get("params", {})
             if not isinstance(params, dict):
                 raise ValueError("sql dispatch params must be a JSON object")
+        if dtype == "mqtt":
+            host = content.get("host")
+            topic = content.get("topic")
+            if not isinstance(host, str) or not host.strip():
+                raise ValueError("mqtt dispatch requires a non-empty host")
+            if not isinstance(topic, str) or not topic.strip():
+                raise ValueError("mqtt dispatch requires a non-empty topic")
+
+            if "port" in content:
+                try:
+                    port = int(content["port"])
+                except (TypeError, ValueError):
+                    raise ValueError("mqtt port must be an integer") from None
+                if port <= 0:
+                    raise ValueError("mqtt port must be greater than zero")
+
+            if "qos" in content:
+                try:
+                    qos = int(content["qos"])
+                except (TypeError, ValueError):
+                    raise ValueError("mqtt qos must be an integer") from None
+                if qos not in (0, 1, 2):
+                    raise ValueError("mqtt qos must be 0, 1, or 2")
+
+            if "retain" in content and not isinstance(content["retain"], bool):
+                raise ValueError("mqtt retain must be a boolean")
+
+            for key in ("username", "password", "client_id"):
+                if key in content and content[key] is not None and not isinstance(content[key], str):
+                    raise ValueError(f"mqtt {key} must be a string when provided")
+
+            if "keepalive_seconds" in content:
+                try:
+                    keepalive = int(content["keepalive_seconds"])
+                except (TypeError, ValueError):
+                    raise ValueError("mqtt keepalive_seconds must be an integer") from None
+                if keepalive <= 0:
+                    raise ValueError("mqtt keepalive_seconds must be greater than zero")
+
+        if dtype == "mongodb":
+            for fname in ("connection_string", "database", "collection"):
+                value = content.get(fname)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"mongodb dispatch requires non-empty {fname}")
+
+            if "ordered" in content and not isinstance(content["ordered"], bool):
+                raise ValueError("mongodb ordered must be a boolean")
 
     @staticmethod
     def _coerce_positive_float(value: Any, default: float, minimum: float = 0.001) -> float:
@@ -1655,6 +1380,14 @@ class EventDispatcher:
         except (TypeError, ValueError):
             parsed = int(default)
         return max(minimum, parsed)
+
+    @staticmethod
+    def _coerce_int_in_range(value: Any, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = int(default)
+        return max(minimum, min(maximum, parsed))
 
     @staticmethod
     def _coerce_bool(value: Any, default: bool) -> bool:

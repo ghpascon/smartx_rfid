@@ -1,0 +1,73 @@
+{
+    "_usage": {
+        "description": "MQTT publish dispatch template. String values wrapped in {} are placeholders replaced at dispatch time.",
+        "available_placeholders": {
+            "{name}": "Device name passed to the dispatch function.",
+            "{event_type}": "Event type string passed to the dispatch function.",
+            "{data}": "Raw event_data value passed to the dispatch function. This can be any type, including bool, string, number, list, or dict.",
+            "{data[key]}": "Access a field only when event_data is dict-like (e.g. {data[epc]}, {data[rssi]})."
+        },
+        "notes": [
+            "Use {data[key]} only when event_data is a mapping/dict.",
+            "If event_data is a scalar value such as bool, string, int, or list, use {data} instead of nested field access.",
+            "The dispatcher publishes JSON bytes generated from the payload template.",
+            "QoS must be 0, 1, or 2."
+        ],
+        "filter_operators": [
+            "eq",
+            "ne",
+            "in",
+            "not_in",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "contains"
+        ],
+        "possible_vars": {
+            "dispatch_type": "string — 'mqtt' (required)",
+            "on_event": "string — event name to match (required)",
+            "host": "string — MQTT broker hostname or IP (required)",
+            "port": "int — MQTT broker port (default 1883)",
+            "topic": "string — destination topic; supports placeholders {name}, {event_type}, {data[key]} (required)",
+            "username": "string|null — optional username",
+            "password": "string|null — optional password",
+            "client_id": "string|null — optional client identifier",
+            "keepalive_seconds": "int — keepalive in seconds (default 60)",
+            "qos": "int — MQTT QoS level: 0, 1, or 2 (default 0)",
+            "retain": "boolean — retain published message on broker (default false)",
+            "payload": "object|array|value — message template; supports placeholders {name}, {event_type}, {data}, {data[key]}",
+            "allow_batches": "boolean — whether this dispatch should be batched (default true)",
+            "batch_size": "int — max messages per batch before immediate flush (default from dispatcher constructor)",
+            "flush_interval_seconds": "number — max wait time before flushing pending batch (seconds; default from dispatcher constructor)",
+            "retry_attempts": "int — number of retries on failure (default 3)",
+            "retry_backoff_seconds": "number — seconds between retries (default 0.25)",
+            "filters": "list — list of filter objects with keys 'key','value','operator' to restrict dispatch"
+        }
+    },
+    "dispatch_type": "mqtt",
+    "host": "localhost",
+    "port": 1883,
+    "topic": "smartx/rfid/{name}/{event_type}",
+    "username": "",
+    "password": "",
+    "client_id": "smartx-dispatcher",
+    "keepalive_seconds": 60,
+    "qos": 1,
+    "retain": false,
+    "on_event": "tag",
+    "allow_batches": true,
+    "batch_size": 500,
+    "flush_interval_seconds": 0.1,
+    "retry_attempts": 3,
+    "retry_backoff_seconds": 0.25,
+    "filters": [],
+    "payload": {
+        "device": "{name}",
+        "epc": "{data[epc]}",
+        "tid": "{data[tid]}",
+        "ant": "{data[ant]}",
+        "rssi": "{data[rssi]}",
+        "timestamp": "{data[timestamp]}"
+    }
+}

@@ -1,0 +1,64 @@
+{
+    "_usage": {
+        "description": "MongoDB async dispatch template using Async PyMongo. String values wrapped in {} are placeholders replaced at dispatch time.",
+        "available_placeholders": {
+            "{name}": "Device name passed to the dispatch function.",
+            "{event_type}": "Event type string passed to the dispatch function.",
+            "{data}": "Raw event_data value passed to the dispatch function. This can be any type, including bool, string, number, list, or dict.",
+            "{data[key]}": "Access a field only when event_data is dict-like (e.g. {data[epc]}, {data[rssi]})."
+        },
+        "notes": [
+            "Use {data[key]} only when event_data is a mapping/dict.",
+            "If event_data is a scalar value such as bool, string, int, or list, use {data} instead of nested field access.",
+            "Each dispatch generates one MongoDB document; batching groups multiple documents in insert_many.",
+            "connection_string must point to MongoDB and include credentials when required."
+        ],
+        "filter_operators": [
+            "eq",
+            "ne",
+            "in",
+            "not_in",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "contains"
+        ],
+        "possible_vars": {
+            "dispatch_type": "string — 'mongodb' (required)",
+            "on_event": "string — event name to match (required)",
+            "connection_string": "string — MongoDB URI (required)",
+            "database": "string — target database name (required)",
+            "collection": "string — target collection name (required)",
+            "ordered": "boolean — ordered insert_many behavior (default true)",
+            "document": "object|value — document template; supports placeholders {name}, {event_type}, {data}, {data[key]}",
+            "allow_batches": "boolean — whether this dispatch should be batched (default true)",
+            "batch_size": "int — max docs per batch before immediate flush (default from dispatcher constructor)",
+            "flush_interval_seconds": "number — max wait time before flushing pending batch (seconds; default from dispatcher constructor)",
+            "retry_attempts": "int — number of retries on failure (default 3)",
+            "retry_backoff_seconds": "number — seconds between retries (default 0.25)",
+            "filters": "list — list of filter objects with keys 'key','value','operator' to restrict dispatch"
+        }
+    },
+    "dispatch_type": "mongodb",
+    "connection_string": "mongodb://localhost:27017",
+    "database": "smartx_rfid",
+    "collection": "events",
+    "ordered": true,
+    "on_event": "tag",
+    "allow_batches": true,
+    "batch_size": 500,
+    "flush_interval_seconds": 0.1,
+    "retry_attempts": 3,
+    "retry_backoff_seconds": 0.25,
+    "filters": [],
+    "document": {
+        "device": "{name}",
+        "event_type": "{event_type}",
+        "epc": "{data[epc]}",
+        "tid": "{data[tid]}",
+        "ant": "{data[ant]}",
+        "rssi": "{data[rssi]}",
+        "timestamp": "{data[timestamp]}"
+    }
+}
