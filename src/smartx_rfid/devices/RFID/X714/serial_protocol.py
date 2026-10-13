@@ -8,7 +8,7 @@ import serial_asyncio
 class SerialProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         self.transport = transport
-        self.is_connected = True
+        # self.is_connected = True
         logging.info(f"{self.name} - ✅ Serial connection successfully established.")
         self.on_connected()
 

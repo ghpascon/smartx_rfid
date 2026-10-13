@@ -156,7 +156,7 @@ class TCPProtocol(TCPHelpers):
                         pass
                     raise
 
-                self.is_connected = True
+                # self.is_connected = True
                 self.on_connected()
                 logging.info(f"✅ [CONNECTED] {self.name} - {ip}:{port}")
 

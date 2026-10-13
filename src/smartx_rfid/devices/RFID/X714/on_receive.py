@@ -104,6 +104,7 @@ class OnReceive:
 
         elif lower == "#setup_done":
             try:
+                self.is_connected = True
                 self.emit_event("setup_done", True)
             except Exception:
                 pass

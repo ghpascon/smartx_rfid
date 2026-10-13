@@ -141,7 +141,7 @@ class BLEProtocol:
                             await asyncio.sleep(self.reconnection_time)
                             continue
 
-                        self.is_connected = True
+                        # self.is_connected = True
                         if hasattr(self, "on_connected"):
                             self.on_connected()
                         logging.info(f"{self.name} - ✅ BLE connection successfully established.")
