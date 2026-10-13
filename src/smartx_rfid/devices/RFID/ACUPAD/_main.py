@@ -1,29 +1,223 @@
 import asyncio
+import ctypes
 import logging
-import time
+from pathlib import Path
+import shutil
+import subprocess
 from smartx_rfid.schemas import TagSchema
 import serial.tools.list_ports
-import serial_asyncio
 
 
 from smartx_rfid.devices._base import DeviceBase
 
 
-class ACUPAD(DeviceBase, asyncio.Protocol):
-    """
-    Asynchronous Serial Communication Protocol Handler
+class _TMR_Reader(ctypes.Structure):
+    pass
 
-    This class implements an asyncio-based serial communication protocol
-    that supports automatic port detection, connection management, and
-    data handling with timeout mechanisms.
+
+class _TMR_uint8List(ctypes.Structure):
+    _fields_ = [
+        ("list", ctypes.POINTER(ctypes.c_uint8)),
+        ("max", ctypes.c_uint16),
+        ("len", ctypes.c_uint16),
+    ]
+
+
+class _TMR_GpioPin(ctypes.Structure):
+    _fields_ = [
+        ("id", ctypes.c_uint8),
+        ("high", ctypes.c_bool),
+        ("bGPIStsTagRdMeta", ctypes.c_bool),
+        ("output", ctypes.c_bool),
+    ]
+
+
+class _TMR_GEN2_TagData(ctypes.Structure):
+    _fields_ = [
+        ("pcByteCount", ctypes.c_uint8),
+        ("pc", ctypes.c_uint8 * 6),
+    ]
+
+
+class _TMR_SR_GEN2_QStatic(ctypes.Structure):
+    _fields_ = [("initialQ", ctypes.c_uint8)]
+
+
+class _TMR_SR_GEN2_QU(ctypes.Union):
+    _fields_ = [("staticQ", _TMR_SR_GEN2_QStatic)]
+
+
+class _TMR_SR_GEN2_Q(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("u", _TMR_SR_GEN2_QU),
+    ]
+
+
+class _TMR_GEN2_TagReadData(ctypes.Structure):
+    _fields_ = [
+        ("q", _TMR_SR_GEN2_Q),
+        ("lf", ctypes.c_int),
+        ("target", ctypes.c_int),
+    ]
+
+
+class _TMR_TagDataU(ctypes.Union):
+    _fields_ = [("gen2", _TMR_GEN2_TagData)]
+
+
+class _TMR_TagData(ctypes.Structure):
+    _fields_ = [
+        ("epc", ctypes.c_uint8 * 62),
+        ("protocol", ctypes.c_int),
+        ("epcByteCount", ctypes.c_uint8),
+        ("xepc", ctypes.c_uint8 * 2),
+        ("crc", ctypes.c_uint16),
+        ("u", _TMR_TagDataU),
+    ]
+
+
+class _TMR_TagReadDataU(ctypes.Union):
+    _fields_ = [("gen2", _TMR_GEN2_TagReadData)]
+
+
+class _TMR_TagReadData(ctypes.Structure):
+    _fields_ = [
+        ("tag", _TMR_TagData),
+        ("u", _TMR_TagReadDataU),
+        ("metadataFlags", ctypes.c_uint16),
+        ("phase", ctypes.c_uint16),
+        ("antenna", ctypes.c_uint8),
+        ("gpio", _TMR_GpioPin * 16),
+        ("gpioCount", ctypes.c_uint8),
+        ("readCount", ctypes.c_uint32),
+        ("rssi", ctypes.c_int32),
+        ("frequency", ctypes.c_uint32),
+        ("brandIdentifier", ctypes.c_uint8 * 2),
+        ("identify_impinj_tag_chip_on", ctypes.c_bool),
+        ("impinj_tag_chip_id", ctypes.c_uint8),
+        ("timestampLow", ctypes.c_uint32),
+        ("timestampHigh", ctypes.c_uint32),
+        ("data", _TMR_uint8List),
+        ("epcMemData", _TMR_uint8List),
+        ("tidMemData", _TMR_uint8List),
+        ("userMemData", _TMR_uint8List),
+        ("reservedMemData", _TMR_uint8List),
+        ("epcMemError", ctypes.c_int8),
+        ("tidMemError", ctypes.c_int8),
+        ("userMemError", ctypes.c_int8),
+        ("reservedMemError", ctypes.c_int8),
+        ("dspMicros", ctypes.c_uint32),
+        ("tagType", ctypes.c_uint64),
+        ("_dataList", ctypes.c_uint8 * 128),
+        ("_epcMemDataList", ctypes.c_uint8 * 128),
+        ("_tidMemDataList", ctypes.c_uint8 * 128),
+        ("_userMemDataList", ctypes.c_uint8 * 128),
+        ("_reservedMemDataList", ctypes.c_uint8 * 128),
+        ("reader", ctypes.POINTER(_TMR_Reader)),
+    ]
+
+
+class _TMR_StopOnTagCount(ctypes.Structure):
+    _fields_ = [
+        ("stopNTriggerStatus", ctypes.c_bool),
+        ("noOfTags", ctypes.c_uint32),
+    ]
+
+
+class _TMR_GPITriggerRead(ctypes.Structure):
+    _fields_ = [
+        ("enable", ctypes.c_bool),
+        ("gpiList", _TMR_uint8List),
+    ]
+
+
+class _TMR_SimpleReadPlan(ctypes.Structure):
+    _fields_ = [
+        ("antennas", _TMR_uint8List),
+        ("protocol", ctypes.c_int),
+        ("filter", ctypes.c_void_p),
+        ("tagop", ctypes.c_void_p),
+        ("useFastSearch", ctypes.c_bool),
+        ("stopOnCount", _TMR_StopOnTagCount),
+        ("triggerRead", _TMR_GPITriggerRead),
+    ]
+
+
+class _TMR_ReadPlan(ctypes.Structure):
+    pass
+
+
+class _TMR_MultiReadPlan(ctypes.Structure):
+    _fields_ = [
+        ("plans", ctypes.POINTER(ctypes.POINTER(_TMR_ReadPlan))),
+        ("totalWeight", ctypes.c_uint32),
+        ("planCount", ctypes.c_uint8),
+    ]
+
+
+class _TMR_ReadPlanU(ctypes.Union):
+    _fields_ = [
+        ("simple", _TMR_SimpleReadPlan),
+        ("multi", _TMR_MultiReadPlan),
+    ]
+
+
+_TMR_ReadPlan._fields_ = [
+    ("type", ctypes.c_int),
+    ("weight", ctypes.c_uint32),
+    ("enableAutonomousRead", ctypes.c_bool),
+    ("u", _TMR_ReadPlanU),
+]
+
+
+class _TMR_RegionList(ctypes.Structure):
+    _fields_ = [
+        ("list", ctypes.POINTER(ctypes.c_int)),
+        ("max", ctypes.c_uint8),
+        ("len", ctypes.c_uint8),
+    ]
+
+
+class ACUPAD(DeviceBase):
+    """
+    RFID handler based on local Mercury C API (ctypes).
 
     Features:
-    - Automatic port detection by VID/PID
-    - Automatic reconnection on connection loss
-    - Message buffering with timeout handling
-    - CRC16 checksum calculation
-    - Event-driven architecture
+    - Automatic port detection by VID/PID (AUTO mode)
+    - Automatic reconnection
+    - Inventory loop using Mercury C API read calls
+    - Local Mercury C API backend from ./mercury_api
     """
+
+    TMR_SUCCESS = 0
+    TMR_ERROR_NO_TAGS_FOUND = (2 << 24) | 0x400
+    TMR_ERROR_NO_TAGS = (3 << 24) | 8
+    TMR_ERROR_INVALID_ANTENNA_CONFIG = (2 << 24) | 0x507
+    TMR_GEN2_BANK_TID = 0x2
+
+    TMR_PARAM_ANTENNA_CHECKPORT = 7
+    TMR_PARAM_ANTENNA_PORTLIST = 8
+    TMR_PARAM_ANTENNA_CONNECTEDPORTLIST = 9
+    TMR_PARAM_GEN2_TAGENCODING = 19
+    TMR_PARAM_READ_PLAN = 40
+    TMR_PARAM_GEN2_SESSION = 20
+    TMR_PARAM_RADIO_READPOWER = 43
+    TMR_PARAM_TAGOP_PROTOCOL = 53
+    TMR_PARAM_REGION_ID = 61
+    TMR_PARAM_REGION_SUPPORTEDREGIONS = 62
+    TMR_PARAM_METADATAFLAG = 93
+
+    TMR_REGION_NONE = 0
+    TMR_TAG_PROTOCOL_GEN2 = 0x05
+    TMR_GEN2_MILLER_M_4 = 2
+
+    TMR_TRD_METADATA_FLAG_READCOUNT = 0x0001
+    TMR_TRD_METADATA_FLAG_RSSI = 0x0002
+    TMR_TRD_METADATA_FLAG_ANTENNAID = 0x0004
+    TMR_TRD_METADATA_FLAG_TIMESTAMP = 0x0010
+    TMR_TRD_METADATA_FLAG_PROTOCOL = 0x0040
+    TMR_TRD_METADATA_FLAG_DATA = 0x0080
 
     def __init__(
         self,
@@ -38,20 +232,13 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
         read_power: int = 22,
         read_rssi: int = 0,
         active_ant: list[int] = [1],
+        read_tid: bool = True,
+        tid_byte_count: int = 12,
         beep: bool = False,
+        gen2_tag_encoding: int = TMR_GEN2_MILLER_M_4,
+        auto_build_mercury: bool = True,
         **kwargs,
     ):
-        """
-        Initialize the SERIAL protocol handler.
-
-        Args:
-                name: Device name identifier
-                port: Serial port ('AUTO' for automatic detection)
-                baudrate: Communication baudrate
-                vid: USB Vendor ID for auto-detection
-                pid: USB Product ID for auto-detection
-                reconnection_time: Delay between reconnection attempts
-        """
         DeviceBase.__init__(self)
         self.name = name
         self.device_type = "rfid"
@@ -62,14 +249,17 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
         self.pid = pid
         self.reconnection_time = reconnection_time
 
-        self.transport = None
-        self.on_con_lost = None
-        self.rx_buffer = bytearray()
-        self.last_byte_time = None
         self.is_auto = self.port == "AUTO"
 
         self.is_connected = False
         self.is_reading = False
+        self.serial_number = None
+        self.effective_antennas: list[int] = []
+
+        self._read_timeout_ms = 50
+        self._idle_sleep = 0.05
+        self._reader = None
+        self._active_port = None
 
         if not isinstance(start_reading, bool):
             start_reading = True
@@ -92,273 +282,573 @@ class ACUPAD(DeviceBase, asyncio.Protocol):
 
         self.read_rssi = read_rssi
 
-        if not isinstance(active_ant, list):
-            active_ant = [1]
-        self.active_ant = active_ant
+        if not isinstance(read_tid, bool):
+            read_tid = True
+        self.read_tid = read_tid
+
+        if not isinstance(tid_byte_count, int):
+            tid_byte_count = 12
+        if tid_byte_count < 2:
+            tid_byte_count = 2
+        if tid_byte_count > 32:
+            tid_byte_count = 32
+        self.tid_byte_count = tid_byte_count
+
+        self.active_ant = self._normalize_antennas(active_ant)
 
         if not isinstance(beep, bool):
             beep = False
         self.beep = beep
 
-    def connection_made(self, transport):
-        """
-        Callback invoked when a connection is established.
+        if not isinstance(gen2_tag_encoding, int):
+            gen2_tag_encoding = self.TMR_GEN2_MILLER_M_4
+        if gen2_tag_encoding < 0 or gen2_tag_encoding > 3:
+            gen2_tag_encoding = self.TMR_GEN2_MILLER_M_4
+        self.gen2_tag_encoding = gen2_tag_encoding
 
-        Args:
-                transport: The transport object for communication
-        """
-        self.transport = transport
-        self.is_connected = True
-        self.config_reader()
+        self.backend = "mercury_c_api"
+        self._mercury_lib = None
+        self._configure_mercury_backend(auto_build_mercury=auto_build_mercury)
+        self._configure_mercury_symbols()
 
-    def data_received(self, data):
-        """
-        Callback invoked when data is received from the serial port.
+    def _configure_mercury_backend(
+        self,
+        auto_build_mercury: bool,
+    ):
+        sdk_dir = Path(__file__).resolve().parent / "mercury_api"
+        loaded = self._load_mercury_library(sdk_dir=sdk_dir)
 
-        Handles incoming data with automatic message parsing and timeout management.
-        Messages are delimited by '\n' or '\r' characters.
+        if loaded is None and auto_build_mercury:
+            if self._build_mercury_library(sdk_dir):
+                loaded = self._load_mercury_library(sdk_dir=sdk_dir)
 
-        Args:
-                data: Raw bytes received from the serial port
-        """
-        now = time.time()
-        self.rx_buffer += data
-        self.last_byte_time = now
+        if loaded is None:
+            raise RuntimeError(
+                "Mercury C API not available in ./mercury_api. Build failed or library file was not generated."
+            )
 
-        # Cancela tarefa anterior de timeout
-        if hasattr(self, "_timeout_task") and self._timeout_task and not self._timeout_task.done():
-            self._timeout_task.cancel()
+        self._mercury_lib = loaded
+        self.backend = "mercury_c_api"
+        logging.info("Mercury C API loaded from local SDK path: %s", sdk_dir)
 
-        # Cria nova tarefa de timeout
-        async def timeout_clear():
-            await asyncio.sleep(0.3)  # 300 ms
-            if self.last_byte_time and (time.time() - self.last_byte_time) >= 0.3:
-                if self.rx_buffer:
-                    self.rx_buffer.clear()
-                    logging.warning("⚠️ Buffer cleared due to 300ms timeout without receiving data.")
+    def _configure_mercury_symbols(self):
+        lib = self._mercury_lib
 
-        self._timeout_task = self.create_task(timeout_clear())
+        def _resolve_symbol(*names: str):
+            for name in names:
+                symbol = getattr(lib, name, None)
+                if symbol is not None:
+                    return symbol
+            raise AttributeError(f"Missing Mercury symbol. Tried: {', '.join(names)}")
 
-        # Processa mensagens completas
-        while b"\n" in self.rx_buffer or b"\r" in self.rx_buffer:
-            # Encontra posição do primeiro delimitador
-            positions = [p for p in [self.rx_buffer.find(b"\n"), self.rx_buffer.find(b"\r")] if p != -1]
-            pos = min(positions)
+        self._TMR_create_alloc = lib.TMR_create_alloc
+        self._TMR_create_alloc.argtypes = [
+            ctypes.POINTER(ctypes.POINTER(_TMR_Reader)),
+            ctypes.c_char_p,
+        ]
+        self._TMR_create_alloc.restype = ctypes.c_uint32
 
-            # Extrai mensagem em bytes e converte para string
-            message_bytes = self.rx_buffer[:pos]
-            message = message_bytes.decode(errors="ignore").strip("\r\n")
+        self._TMR_connect = _resolve_symbol("TMR_connect", "TMR_SR_connect")
+        self._TMR_connect.argtypes = [ctypes.POINTER(_TMR_Reader)]
+        self._TMR_connect.restype = ctypes.c_uint32
 
-            # Remove mensagem do buffer
-            self.rx_buffer = self.rx_buffer[pos + 1 :]
+        self._TMR_destroy = _resolve_symbol("TMR_destroy", "TMR_SR_destroy")
+        self._TMR_destroy.argtypes = [ctypes.POINTER(_TMR_Reader)]
+        self._TMR_destroy.restype = ctypes.c_uint32
 
-            if message:
-                message = message.replace(">", "")
-                self.on_receive(message)
+        self._TMR_read = _resolve_symbol("TMR_read", "TMR_SR_read")
+        self._TMR_read.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_uint32, ctypes.POINTER(ctypes.c_int32)]
+        self._TMR_read.restype = ctypes.c_uint32
 
-    def connection_lost(self, exc):
-        """
-        Callback invoked when the connection is lost.
+        self._TMR_hasMoreTags = _resolve_symbol("TMR_hasMoreTags", "TMR_SR_hasMoreTags")
+        self._TMR_hasMoreTags.argtypes = [ctypes.POINTER(_TMR_Reader)]
+        self._TMR_hasMoreTags.restype = ctypes.c_uint32
 
-        Args:
-                exc: Exception that caused the disconnection (if any)
-        """
-        logging.warning("⚠️ Serial connection lost.")
-        self.transport = None
-        self.is_connected = False
-        self.step = 0
+        self._TMR_getNextTag = _resolve_symbol("TMR_getNextTag", "TMR_SR_getNextTag")
+        self._TMR_getNextTag.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.POINTER(_TMR_TagReadData)]
+        self._TMR_getNextTag.restype = ctypes.c_uint32
 
-        if self.on_con_lost:
-            self.on_con_lost.set()
+        self._TMR_readTagMemBytes = _resolve_symbol("TMR_readTagMemBytes", "TMR_SR_readTagMemBytes")
+        self._TMR_readTagMemBytes.argtypes = [
+            ctypes.POINTER(_TMR_Reader),
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_uint16,
+            ctypes.POINTER(ctypes.c_uint8),
+        ]
+        self._TMR_readTagMemBytes.restype = ctypes.c_uint32
 
-    def write(self, to_send, verbose=False):
-        """
-        Send data through serial port.
+        self._TMR_paramSet = lib.TMR_paramSet
+        self._TMR_paramSet.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_int, ctypes.c_void_p]
+        self._TMR_paramSet.restype = ctypes.c_uint32
 
-        Args:
-            to_send: Data to send (string or bytes)
-            verbose: Show sent data in logs
-        """
-        if self.transport:
-            if isinstance(to_send, str):
-                to_send += "\r"
-                if verbose:
-                    logging.info(f"📤 Sending: {to_send}")
+        self._TMR_paramGet = lib.TMR_paramGet
+        self._TMR_paramGet.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_int, ctypes.c_void_p]
+        self._TMR_paramGet.restype = ctypes.c_uint32
 
-                to_send = to_send.encode()
-                self.transport.write(to_send)
-                return
+        self._TMR_RP_init_simple = lib.TMR_RP_init_simple
+        self._TMR_RP_init_simple.argtypes = [
+            ctypes.POINTER(_TMR_ReadPlan),
+            ctypes.c_uint8,
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.c_int,
+            ctypes.c_uint32,
+        ]
+        self._TMR_RP_init_simple.restype = ctypes.c_uint32
 
-            # If it's bytes, calculate CRC and replace last two bytes
-            if isinstance(to_send, bytes) and len(to_send) >= 2:
-                crc = self.crc16(to_send)
-                to_send = to_send[:-2] + bytes([crc & 0xFF, crc >> 8])
+        self._TMR_TRD_init = getattr(lib, "TMR_TRD_init", None)
+        if self._TMR_TRD_init is not None:
+            self._TMR_TRD_init.argtypes = [ctypes.POINTER(_TMR_TagReadData)]
+            self._TMR_TRD_init.restype = ctypes.c_uint32
 
-                if verbose:
-                    hex_list = [f"0x{b:02X}" for b in to_send]
-                    logging.info(f"📤 Sending: {hex_list}")
+        self._TMR_strerror = getattr(lib, "TMR_strerror", None)
+        if self._TMR_strerror is not None:
+            self._TMR_strerror.argtypes = [ctypes.c_uint32]
+            self._TMR_strerror.restype = ctypes.c_char_p
 
-            self.transport.write(to_send)
+    def _library_candidates(self, sdk_dir: Path) -> list[Path]:
+        candidates: list[Path] = []
+
+        candidates.extend(
+            [
+                sdk_dir / "libmercuryapi.so.1",
+                sdk_dir / "libmercuryapi.so",
+                sdk_dir / "build" / "libmercuryapi.so.1",
+                sdk_dir / "build" / "libmercuryapi.so",
+            ]
+        )
+        return candidates
+
+    def _load_mercury_library(self, sdk_dir: Path):
+        for path in self._library_candidates(sdk_dir=sdk_dir):
+            if not path.exists():
+                continue
+            try:
+                return ctypes.CDLL(str(path))
+            except OSError as exc:
+                logging.warning("Failed to load Mercury library %s: %s", path, exc)
+        return None
+
+    def _build_mercury_library(self, sdk_dir: Path) -> bool:
+        make_bin = shutil.which("make")
+        if make_bin is None:
+            logging.warning("Cannot build Mercury C API: 'make' not found.")
+            return False
+
+        if not sdk_dir.exists():
+            logging.warning("Cannot build Mercury C API: SDK path does not exist: %s", sdk_dir)
+            return False
+
+        cmd = [make_bin, "TMR_ENABLE_SERIAL_READER_ONLY=1", "SKIP_SAMPLES=1"]
+        proc = subprocess.run(cmd, cwd=sdk_dir, capture_output=True, text=True, check=False)
+        if proc.returncode == 0:
+            logging.info("Local Mercury C API build finished successfully.")
+            return True
+
+        logging.warning("Mercury C API build failed with exit code %s", proc.returncode)
+        if proc.stdout:
+            logging.warning("Mercury build stdout:\n%s", proc.stdout.strip())
+        if proc.stderr:
+            logging.warning("Mercury build stderr:\n%s", proc.stderr.strip())
+        return False
+
+    def _reader_uri(self, port: str) -> str:
+        if "://" in port:
+            return port
+        if port.startswith("/"):
+            return f"tmr://{port}"
+        return f"tmr:///{port}"
+
+    def _status_to_text(self, status: int) -> str:
+        if self._TMR_strerror is not None:
+            try:
+                msg = self._TMR_strerror(ctypes.c_uint32(status))
+                if msg:
+                    return msg.decode(errors="ignore")
+            except Exception:
+                pass
+        return f"status={status}"
+
+    def _ensure_success(self, status: int, operation: str):
+        if status != self.TMR_SUCCESS:
+            raise RuntimeError(f"{operation} failed: {self._status_to_text(status)}")
+
+    def _resolve_auto_port(self) -> str | None:
+        ports = serial.tools.list_ports.comports()
+        for p in ports:
+            if p.vid == self.vid and p.pid == self.pid:
+                return p.device
+        return None
+
+    def _normalize_antennas(self, active_ant) -> list[int]:
+        if isinstance(active_ant, str):
+            active_ant = [p for p in active_ant.replace(";", ",").split(",") if p.strip()]
+        elif isinstance(active_ant, int):
+            active_ant = [active_ant]
+        elif not isinstance(active_ant, (list, tuple, set)):
+            active_ant = [1]
+
+        normalized = []
+        for ant in active_ant:
+            try:
+                ant_i = int(str(ant).strip())
+            except Exception:
+                continue
+            if ant_i > 0 and ant_i not in normalized:
+                normalized.append(ant_i)
+
+        return normalized if normalized else [1]
+
+    def _is_invalid_antenna_status(self, status: int) -> bool:
+        if status == self.TMR_ERROR_INVALID_ANTENNA_CONFIG:
+            return True
+        msg = self._status_to_text(status).lower()
+        return "antenna" in msg and "invalid" in msg
+
+    def _get_uint8_list_param(self, reader, param_id: int, size: int = 16) -> list[int]:
+        buffer = (ctypes.c_uint8 * size)()
+        values = _TMR_uint8List(
+            list=ctypes.cast(buffer, ctypes.POINTER(ctypes.c_uint8)),
+            max=size,
+            len=0,
+        )
+        status = self._TMR_paramGet(reader, param_id, ctypes.byref(values))
+        if status != self.TMR_SUCCESS:
+            return []
+        length = min(int(values.len), size)
+        return [int(buffer[i]) for i in range(length) if int(buffer[i]) > 0]
+
+    def _bytes_from_uint8_list(self, uint8_list: _TMR_uint8List) -> bytes:
+        if not uint8_list.list:
+            return b""
+        max_len = int(uint8_list.max) if int(uint8_list.max) > 0 else int(uint8_list.len)
+        size = min(int(uint8_list.len), max_len)
+        if size <= 0:
+            return b""
+        return bytes(uint8_list.list[i] for i in range(size))
+
+    def _read_tid_from_tag_bank(self) -> str | None:
+        if self._reader is None or not self.read_tid:
+            return None
+
+        out = (ctypes.c_uint8 * self.tid_byte_count)()
+        status = self._TMR_readTagMemBytes(
+            self._reader,
+            None,
+            ctypes.c_uint32(self.TMR_GEN2_BANK_TID),
+            ctypes.c_uint32(0),
+            ctypes.c_uint16(self.tid_byte_count),
+            out,
+        )
+        if status != self.TMR_SUCCESS:
+            if status in {self.TMR_ERROR_NO_TAGS, self.TMR_ERROR_NO_TAGS_FOUND}:
+                return None
+            return None
+
+        tid = bytes(out).hex().lower()
+        if len(tid) == self.tid_byte_count * 2:
+            return tid
+        return None
+
+    def _set_read_plan(self, reader, antennas: list[int]) -> int:
+        antenna_count = len(antennas)
+        antenna_list = None
+        if antenna_count > 0:
+            antenna_list = (ctypes.c_uint8 * antenna_count)(*antennas)
+
+            # Keep reader antenna port list aligned with requested plan.
+            port_list = _TMR_uint8List(
+                list=ctypes.cast(antenna_list, ctypes.POINTER(ctypes.c_uint8)),
+                max=antenna_count,
+                len=antenna_count,
+            )
+            self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_PORTLIST, ctypes.byref(port_list))
+
+        read_plan = _TMR_ReadPlan()
+        status = self._TMR_RP_init_simple(
+            ctypes.byref(read_plan),
+            ctypes.c_uint8(antenna_count),
+            antenna_list,
+            ctypes.c_int(self.TMR_TAG_PROTOCOL_GEN2),
+            ctypes.c_uint32(1000),
+        )
+        if status != self.TMR_SUCCESS:
+            return status
+
+        return self._TMR_paramSet(reader, self.TMR_PARAM_READ_PLAN, ctypes.byref(read_plan))
+
+    def _configure_reader_params(self, reader):
+        region = ctypes.c_int(0)
+        self._ensure_success(
+            self._TMR_paramGet(reader, self.TMR_PARAM_REGION_ID, ctypes.byref(region)),
+            "TMR_paramGet(/reader/region/id)",
+        )
+
+        if region.value == self.TMR_REGION_NONE:
+            regions_buffer = (ctypes.c_int * 32)()
+            regions = _TMR_RegionList(
+                list=ctypes.cast(regions_buffer, ctypes.POINTER(ctypes.c_int)),
+                max=32,
+                len=0,
+            )
+            self._ensure_success(
+                self._TMR_paramGet(
+                    reader,
+                    self.TMR_PARAM_REGION_SUPPORTEDREGIONS,
+                    ctypes.byref(regions),
+                ),
+                "TMR_paramGet(/reader/region/supportedRegions)",
+            )
+            if regions.len == 0:
+                raise RuntimeError("Reader returned no supported regions.")
+            region = ctypes.c_int(regions_buffer[0])
+            self._ensure_success(
+                self._TMR_paramSet(reader, self.TMR_PARAM_REGION_ID, ctypes.byref(region)),
+                "TMR_paramSet(/reader/region/id)",
+            )
+
+        # Some readers reject explicitly listed ports when checkPort is enabled.
+        # Best effort: disable strict port check when supported.
+        check_port = ctypes.c_bool(False)
+        self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_CHECKPORT, ctypes.byref(check_port))
+
+        requested_antennas = [int(a) for a in self.active_ant if int(a) > 0]
+        connected_antennas = self._get_uint8_list_param(reader, self.TMR_PARAM_ANTENNA_CONNECTEDPORTLIST)
+
+        attempts: list[list[int]] = []
+        if connected_antennas and requested_antennas:
+            intersection = [a for a in requested_antennas if a in connected_antennas]
+            if intersection:
+                attempts.append(intersection)
+        if requested_antennas:
+            attempts.append(requested_antennas)
+        if connected_antennas:
+            attempts.append(connected_antennas)
+        attempts.append([])
+
+        seen = set()
+        last_status = self.TMR_SUCCESS
+        selected_plan: list[int] | None = None
+        for candidate in attempts:
+            key = tuple(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            status = self._set_read_plan(reader, candidate)
+            if status == self.TMR_SUCCESS:
+                selected_plan = candidate
+                break
+
+            last_status = status
+            if self._is_invalid_antenna_status(status):
+                logging.warning(
+                    "%s - invalid antenna plan %s (%s). Trying fallback.",
+                    self.name,
+                    candidate if candidate else "AUTO",
+                    self._status_to_text(status),
+                )
+                continue
+
+            self._ensure_success(status, "TMR_paramSet(/reader/read/plan)")
+
+        if selected_plan is None:
+            self._ensure_success(last_status, "TMR_paramSet(/reader/read/plan)")
+
+        if selected_plan:
+            self.effective_antennas = selected_plan.copy()
+            logging.info("%s - read plan antennas: %s", self.name, selected_plan)
         else:
-            logging.warning("❌ Send attempt failed: connection not established.")
+            self.effective_antennas = []
+            logging.info("%s - read plan antennas: AUTO", self.name)
+
+        protocol = ctypes.c_int(self.TMR_TAG_PROTOCOL_GEN2)
+        self._TMR_paramSet(reader, self.TMR_PARAM_TAGOP_PROTOCOL, ctypes.byref(protocol))
+
+        tag_encoding = ctypes.c_int(self.gen2_tag_encoding)
+        status = self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_TAGENCODING, ctypes.byref(tag_encoding))
+        if status != self.TMR_SUCCESS:
+            logging.warning("%s - Could not set GEN2 tag encoding: %s", self.name, self._status_to_text(status))
+
+        power = self.read_power * 100 if self.read_power <= 100 else self.read_power
+        read_power = ctypes.c_int32(power)
+        self._TMR_paramSet(reader, self.TMR_PARAM_RADIO_READPOWER, ctypes.byref(read_power))
+
+        session = ctypes.c_int(self.session)
+        self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_SESSION, ctypes.byref(session))
+
+        metadata = ctypes.c_uint16(
+            self.TMR_TRD_METADATA_FLAG_READCOUNT
+            | self.TMR_TRD_METADATA_FLAG_RSSI
+            | self.TMR_TRD_METADATA_FLAG_ANTENNAID
+            | self.TMR_TRD_METADATA_FLAG_TIMESTAMP
+            | self.TMR_TRD_METADATA_FLAG_PROTOCOL
+            | self.TMR_TRD_METADATA_FLAG_DATA
+        )
+        self._TMR_paramSet(reader, self.TMR_PARAM_METADATAFLAG, ctypes.byref(metadata))
+
+    def _open_reader(self, port: str):
+        if self._reader is not None:
+            return
+
+        reader = ctypes.POINTER(_TMR_Reader)()
+        uri = self._reader_uri(port).encode()
+        self._ensure_success(
+            self._TMR_create_alloc(ctypes.byref(reader), uri),
+            f"TMR_create_alloc({uri.decode(errors='ignore')})",
+        )
+        try:
+            self._ensure_success(self._TMR_connect(reader), "TMR_connect")
+            self._configure_reader_params(reader)
+        except Exception:
+            try:
+                self._TMR_destroy(reader)
+            except Exception:
+                pass
+            raise
+
+        self._reader = reader
+        self._active_port = port
+        logging.info("%s connected via Mercury C API on %s", self.name, port)
+
+    def _close_reader(self):
+        if self._reader is None:
+            return
+        try:
+            self._TMR_destroy(self._reader)
+        except Exception as exc:
+            logging.warning("%s reader close warning: %s", self.name, exc)
+        finally:
+            self._reader = None
+            self._active_port = None
+
+    def _read_tags_once(self) -> list[tuple[str, int | None, int | None]]:
+        if self._reader is None:
+            return []
+
+        count = ctypes.c_int32(-1)
+        status = self._TMR_read(self._reader, ctypes.c_uint32(self._read_timeout_ms), ctypes.byref(count))
+        if status != self.TMR_SUCCESS:
+            if status in {self.TMR_ERROR_NO_TAGS, self.TMR_ERROR_NO_TAGS_FOUND}:
+                return []
+            msg = self._status_to_text(status).lower()
+            if "no tag" in msg:
+                return []
+            raise RuntimeError(f"TMR_read failed: {self._status_to_text(status)}")
+
+        tags = []
+        while self._TMR_hasMoreTags(self._reader) == self.TMR_SUCCESS:
+            trd = _TMR_TagReadData()
+            if self._TMR_TRD_init is not None:
+                self._TMR_TRD_init(ctypes.byref(trd))
+
+            status = self._TMR_getNextTag(self._reader, ctypes.byref(trd))
+            if status != self.TMR_SUCCESS:
+                break
+
+            epc_len = int(trd.tag.epcByteCount)
+            if epc_len <= 0:
+                continue
+
+            epc = bytes(trd.tag.epc[:epc_len]).hex()
+            tid = None
+            tid_raw = self._bytes_from_uint8_list(trd.tidMemData)
+            if tid_raw:
+                tid = tid_raw.hex().lower()
+            if (tid is None or len(tid) != self.tid_byte_count * 2) and self.read_tid:
+                tid = self._read_tid_from_tag_bank()
+
+            antenna = int(trd.antenna) if trd.antenna > 0 else None
+            rssi = int(trd.rssi) if trd.rssi != 0 else None
+            tags.append((epc, tid, antenna, rssi))
+
+        return tags
 
     async def connect(self):
-        """Connect to serial port and keep connection alive."""
-        """
-        Establish and maintain serial connection with automatic reconnection.
-
-        This method runs continuously, attempting to connect to the specified
-        serial port or auto-detecting it by VID/PID. When connection is lost,
-        it automatically attempts to reconnect.
-        """
-        loop = asyncio.get_running_loop()
-
+        """Connect to reader and keep Mercury inventory loop alive."""
         while self._running:
-            self.on_con_lost = asyncio.Event()
-
-            # If AUTO mode, try to detect port by VID/PID
-            if self.is_auto:
-                logging.info("🔍 Auto-detecting port")
-                ports = serial.tools.list_ports.comports()
-                found_port = None
-                for p in ports:
-                    # p.vid and p.pid are integers (e.g. 0x0001 == 1 decimal)
-                    if p.vid == self.vid and p.pid == self.pid:
-                        found_port = p.device
-                        logging.info(f"✅ Detected port: {found_port}")
-                        break
-
-                if found_port is None:
-                    logging.warning(f"⚠️ No port with VID={self.vid} and PID={self.pid} found.")
-                    logging.info(f"⏳ Retrying in {self.reconnection_time} seconds...")
-                    await asyncio.sleep(self.reconnection_time)
-                    continue  # try to detect again in next loop
-                else:
-                    self.port = found_port
-
             try:
-                logging.info(f"🔌 Trying to connect to {self.port} at {self.baudrate} bps...")
-                await serial_asyncio.create_serial_connection(loop, lambda: self, self.port, baudrate=self.baudrate)
-                logging.info("🟢 Successfully connected.")
-                await self.on_con_lost.wait()
-                logging.info("🔄 Connection lost. Attempting to reconnect...")
-            except Exception as e:
-                logging.warning(f"❌ Connection error: {e}")
+                port_to_use = self.port
+                if self.is_auto:
+                    port_to_use = self._resolve_auto_port()
+                    if port_to_use is None:
+                        logging.warning("%s - No AUTO port found for VID=%s PID=%s", self.name, self.vid, self.pid)
+                        await asyncio.sleep(self.reconnection_time)
+                        continue
 
-            # If in AUTO mode, reset port to "AUTO" to force detection next loop
-            if self.is_auto:
-                self.port = "AUTO"
+                await asyncio.to_thread(self._open_reader, port_to_use)
+                self.is_connected = True
 
-            logging.info("⏳ Waiting 3 seconds before retrying...")
-            await asyncio.sleep(3)
+                if self.start_reading:
+                    self.is_reading = True
+
+                while self._running and self.is_connected:
+                    if not self.is_reading:
+                        await asyncio.sleep(self._idle_sleep)
+                        continue
+
+                    rows = await asyncio.to_thread(self._read_tags_once)
+                    for epc, tid, ant, rssi in rows:
+                        if self.read_rssi > 0 and rssi is not None and rssi < (-abs(self.read_rssi)):
+                            continue
+
+                        try:
+                            tag = TagSchema(
+                                epc=epc,
+                                tid=tid,
+                                ant=ant,
+                                rssi=rssi,
+                            ).model_dump()
+                            self.emit_event("tag", tag)
+                        except Exception as exc:
+                            logging.error("Error parsing tag data: %s", exc)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logging.warning("%s - Mercury connection/read error: %s", self.name, exc)
+            finally:
+                await asyncio.to_thread(self._close_reader)
+                self.is_connected = False
+                self.is_reading = False
+
+            if self._running:
+                await asyncio.sleep(self.reconnection_time)
+
+    async def disconnect(self):
+        self.is_reading = False
+        self.is_connected = False
+        await asyncio.to_thread(self._close_reader)
 
     async def close(self):
-        """Shut down background tasks and close transport for this device."""
-        # stop connect loop
+        """Shut down background tasks and close Mercury resources."""
         self._running = False
-
-        # signal on_con_lost to break any waits
-        try:
-            if self.on_con_lost and not self.on_con_lost.is_set():
-                self.on_con_lost.set()
-        except Exception:
-            pass
-
-        # close transport if present
-        try:
-            if self.transport:
-                try:
-                    self.transport.close()
-                except Exception:
-                    pass
-                self.transport = None
-        except Exception:
-            pass
-
+        self.is_reading = False
+        self.is_connected = False
+        await asyncio.to_thread(self._close_reader)
         await self.shutdown()
 
-    def crc16(self, data: bytes, poly=0x8408):
-        """
-        Calculate CRC16 checksum for data validation.
-
-        Args:
-            data: Input bytes to calculate checksum
-            poly: CRC polynomial value
-
-        Returns:
-            int: 16-bit checksum value
-        """
-        """
-        Calculate CRC-16/CCITT-FALSE checksum.
-
-        Args:
-                data: Input bytes (last 2 bytes are excluded from calculation)
-                poly: CRC polynomial (default: 0x8408 for CCITT-FALSE)
-
-        Returns:
-                int: 16-bit CRC checksum
-        """
-        crc = 0xFFFF
-        for byte in data[:-2]:  # exclude last two bytes (CRC placeholder)
-            crc ^= byte
-            for _ in range(8):
-                if crc & 0x0001:
-                    crc = (crc >> 1) ^ poly
-                else:
-                    crc >>= 1
-        return crc & 0xFFFF
-
     async def start_inventory(self):
-        self.write("readtag on", verbose=True)
+        if not self.is_connected:
+            return False
         self.is_reading = True
+        return True
 
     async def stop_inventory(self):
-        self.write("readtag off", verbose=True)
+        if not self.is_connected:
+            return False
         self.is_reading = False
+        return True
 
-    def config_reader(self):
-        self.write("readmode serial")
-        self.write("tagop tid:0:6")
-        self.write(f"gen2session s{self.session}")
-        self.write("gen2q 4")
-        self.write("gen2target ab")
-        self.write("epcdecode none")
-        self.write("separator ;")
-        self.write(f"rssifilter {self.read_rssi}")
-        self.write("reportrssi on")
-        self.write("tagtimeout 0")
-        self.write("reportantenna on")
-        self.write(
-            f"antennaport {''.join(str(ant) for ant in self.active_ant) if len(self.active_ant) > 0 else 'none'}"
-        )
-        self.write(f"enablebeep {'on' if self.beep else 'off'}")
-        self.write("reportreadcount off")
-        self.write("selectfilter none")
-        self.write(f"readpowerport1 {self.read_power}")
-        self.write(f"readpowerport2 {self.read_power}")
-        self.write("initreadtag off")
-
-        if self.start_reading:
-            self.create_task(self.start_inventory())
-        else:
-            self.create_task(self.stop_inventory())
-
-    def on_receive(self, message: str):
-        if message.startswith("ok"):
+    async def write(self, to_send, verbose=False):
+        cmd = str(to_send).strip().lower()
+        if cmd in {"readtag on", "read on", "#read:on"}:
+            await self.start_inventory()
             return
-        if len(message) == 55:
-            try:
-                epc, tid, rssi, ant = message.split(";")
-                tag = TagSchema(
-                    epc=epc,
-                    tid=tid,
-                    ant=int(ant),
-                    rssi=int(rssi) * (-1),
-                ).model_dump()
+        if cmd in {"readtag off", "read off", "#read:off"}:
+            await self.stop_inventory()
+            return
 
-                self.emit_event("tag", tag)
-                return
-            except Exception as e:
-                logging.error(f"Error parsing tag data: {e}")
-
-        self.emit_event("receive", message)
+        if verbose:
+            logging.warning("%s - raw command ignored in mercury backend: %s", self.name, to_send)

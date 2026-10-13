@@ -32,19 +32,14 @@ def on_event(name: str, event_type: str, event_data=None):
 async def main():
     # === SERIAL EXAMPLE ===
     print("=== ACUPAD SERIAL Example ===")
-    acupad = ACUPAD(name="ACUPAD", active_ant=[1], start_reading=True)
+    acupad = ACUPAD(name="ACUPAD", active_ant=[1, 2], start_reading=True, read_power=20, session=0)
     acupad.on_event = on_event
     asyncio.create_task(acupad.connect())
 
     # Keep the main loop running
     while True:
         await asyncio.sleep(3)
-        if not acupad.is_reading:
-            tags.clear()
-            await acupad.start_inventory()
-        else:
-            await acupad.stop_inventory()
-            logging.info(f"Total Tags Read: {len(tags)}")
+        logging.info(f"Total Tags Read: {len(tags)}")
 
 
 if __name__ == "__main__":
