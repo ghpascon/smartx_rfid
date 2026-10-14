@@ -72,6 +72,50 @@ def test_insert_get_and_get_all(db_manager):
     assert len(where) == 1
 
 
+def test_get_where_with_advanced_filters(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+
+    db_manager.bulk_insert(
+        DbModel,
+        [
+            {"name": "A", "value": Decimal("1.00")},
+            {"name": "B", "value": Decimal("3.00")},
+            {"name": "C", "value": Decimal("5.00")},
+            {"name": "D", "value": Decimal("8.00")},
+        ],
+    )
+
+    result = db_manager.get_where(
+        DbModel,
+        {
+            "name": {"in": ["B", "C", "D"]},
+            "value": {"gt": Decimal("4.00")},
+        },
+    )
+
+    assert [record.name for record in result] == ["C", "D"]
+
+    result_suffix = db_manager.get_where(
+        DbModel,
+        {
+            "value__gte": Decimal("5.00"),
+            "name__not_in": ["D"],
+        },
+    )
+
+    assert [record.name for record in result_suffix] == ["C"]
+
+
+def test_get_where_with_invalid_operator_raises(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+    db_manager.insert_record(DbModel, {"name": "InvalidFilter", "value": Decimal("1.00")})
+
+    with pytest.raises(DatabaseOperationError):
+        db_manager.get_where(DbModel, {"value": {"unknown_operator": 10}})
+
+
 def test_bulk_insert_and_bulk_update(db_manager):
     db_manager.register_models(DbModel)
     db_manager.create_tables()
@@ -155,6 +199,33 @@ def test_delete_where_and_delete_by_field(db_manager):
     deleted_by = db_manager.delete_by_field(DbModel, "name", "Frank")
     assert deleted_by == 1
     assert db_manager.get_all(DbModel) == []
+
+
+def test_delete_where_with_advanced_filters(db_manager):
+    db_manager.register_models(DbModel)
+    db_manager.create_tables()
+
+    db_manager.bulk_insert(
+        DbModel,
+        [
+            {"name": "A", "value": Decimal("1.00")},
+            {"name": "B", "value": Decimal("4.00")},
+            {"name": "C", "value": Decimal("6.00")},
+            {"name": "D", "value": Decimal("9.00")},
+        ],
+    )
+
+    deleted = db_manager.delete_where(
+        DbModel,
+        {
+            "name__in": ["A", "B", "C"],
+            "value": {"gt": Decimal("3.00")},
+        },
+    )
+
+    assert deleted == 2
+    remaining_names = [record.name for record in db_manager.get_all(DbModel)]
+    assert set(remaining_names) == {"A", "D"}
 
 
 def test_clear_table(db_manager):

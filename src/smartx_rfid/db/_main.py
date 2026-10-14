@@ -12,6 +12,7 @@ import threading
 import io
 import json
 import csv
+from collections.abc import Iterable
 
 
 class DatabaseError(Exception):
@@ -412,6 +413,107 @@ class DatabaseManager:
             self.logger.error(f"Query execution failed: {str(e)}")
             raise DatabaseOperationError(f"Query execution failed: {str(e)}", e)
 
+    def _get_model_field(self, model: Type[DeclarativeBase], field_name: str) -> Any:
+        field = getattr(model, field_name, None)
+        if field is None:
+            raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
+        return field
+
+    def _build_filter_expression(self, field: Any, operator: str, value: Any) -> Any:
+        op = operator.lower().strip().replace(" ", "_")
+
+        if op in ("eq", "=="):
+            return field == value
+        if op in ("ne", "!="):
+            return field != value
+        if op in ("gt", ">"):
+            return field > value
+        if op in ("gte", "ge", ">="):
+            return field >= value
+        if op in ("lt", "<"):
+            return field < value
+        if op in ("lte", "le", "<="):
+            return field <= value
+        if op in ("in",):
+            if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Iterable):
+                raise ValueError("Operator 'in' expects an iterable value")
+            return field.in_(list(value))
+        if op in ("not_in", "nin"):
+            if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Iterable):
+                raise ValueError("Operator 'not_in' expects an iterable value")
+            return field.notin_(list(value))
+        if op == "like":
+            return field.like(value)
+        if op == "ilike":
+            return field.ilike(value)
+        if op == "between":
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ValueError("Operator 'between' expects a two-item list/tuple")
+            return field.between(value[0], value[1])
+        if op == "is_null":
+            return field.is_(None) if value else field.is_not(None)
+        if op == "is_not_null":
+            return field.is_not(None) if value else field.is_(None)
+        if op == "contains":
+            return field.contains(value)
+        if op == "startswith":
+            return field.startswith(value)
+        if op == "endswith":
+            return field.endswith(value)
+
+        raise ValueError(f"Unsupported filter operator: {operator}")
+
+    def _apply_filters(self, query: Any, model: Type[DeclarativeBase], filter_conditions: Dict[str, Any]) -> Any:
+        if not filter_conditions:
+            return query
+
+        key_supported_operators = {
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "ge",
+            "lt",
+            "lte",
+            "le",
+            "in",
+            "not_in",
+            "nin",
+            "like",
+            "ilike",
+            "between",
+            "is_null",
+            "is_not_null",
+            "contains",
+            "startswith",
+            "endswith",
+        }
+
+        for raw_key, condition in filter_conditions.items():
+            field_name = raw_key
+            key_operator: Optional[str] = None
+
+            if "__" in raw_key:
+                candidate_field, candidate_operator = raw_key.rsplit("__", 1)
+                normalized_candidate = candidate_operator.lower().strip().replace(" ", "_")
+                if normalized_candidate in key_supported_operators:
+                    field_name = candidate_field
+                    key_operator = normalized_candidate
+
+            field = self._get_model_field(model, field_name)
+
+            if key_operator is not None:
+                query = query.filter(self._build_filter_expression(field, key_operator, condition))
+                continue
+
+            if isinstance(condition, dict):
+                for operator, value in condition.items():
+                    query = query.filter(self._build_filter_expression(field, operator, value))
+            else:
+                query = query.filter(field == condition)
+
+        return query
+
     # GET
     def get_where(
         self,
@@ -424,7 +526,10 @@ class DatabaseManager:
 
         Args:
             model (Type[DeclarativeBase]): Model class representing the table
-            filter_conditions (Dict[str, Any]): Dictionary of field-value pairs to filter by
+            filter_conditions (Dict[str, Any]): Dictionary of field-value pairs to filter by.
+                Supports both:
+                - Equality: {"name": "Alice"}
+                - Advanced operators: {"value": {"gt": 10}, "name__in": ["A", "B"]}
 
         Returns:
             List[DeclarativeBase]: List of matching records
@@ -435,11 +540,7 @@ class DatabaseManager:
 
         try:
             query = session.query(model)
-            for field_name, value in filter_conditions.items():
-                field = getattr(model, field_name)
-                if field is None:
-                    raise AttributeError(f"Field '{field_name}' does not exist in model '{model.__name__}'")
-                query = query.filter(field == value)
+            query = self._apply_filters(query, model, filter_conditions)
             return query.all()
         except Exception as e:
             self.logger.error(
@@ -783,8 +884,7 @@ class DatabaseManager:
 
         try:
             query = session.query(model)
-            for attr, value in filter_conditions.items():
-                query = query.filter(getattr(model, attr) == value)
+            query = self._apply_filters(query, model, filter_conditions)
             deleted_count = query.delete()
             return deleted_count
         except Exception as e:
