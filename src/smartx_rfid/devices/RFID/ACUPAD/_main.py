@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import shutil
 import subprocess
+import time
 from smartx_rfid.schemas import TagSchema
 import serial.tools.list_ports
 
@@ -199,6 +200,8 @@ class ACUPAD(DeviceBase):
     TMR_PARAM_ANTENNA_CHECKPORT = 7
     TMR_PARAM_ANTENNA_PORTLIST = 8
     TMR_PARAM_ANTENNA_CONNECTEDPORTLIST = 9
+    TMR_PARAM_ANTENNA_PORTSWITCHGPOS = 10
+    TMR_PARAM_GPIO_OUTPUTLIST = 16
     TMR_PARAM_GEN2_TAGENCODING = 19
     TMR_PARAM_READ_PLAN = 40
     TMR_PARAM_GEN2_SESSION = 20
@@ -210,7 +213,7 @@ class ACUPAD(DeviceBase):
 
     TMR_REGION_NONE = 0
     TMR_TAG_PROTOCOL_GEN2 = 0x05
-    TMR_GEN2_MILLER_M_4 = 2
+    TMR_GEN2_MILLER_M_4 = 4
 
     TMR_TRD_METADATA_FLAG_READCOUNT = 0x0001
     TMR_TRD_METADATA_FLAG_RSSI = 0x0002
@@ -235,6 +238,10 @@ class ACUPAD(DeviceBase):
         read_tid: bool = False,
         tid_byte_count: int = 12,
         beep: bool = False,
+        beep_gpo: int = 2,
+        beep_duration_ms: int = 100,
+        beep_min_interval_ms: int = 100,
+        antenna_port_switch_gpos: list[int] | int | None = 1,
         gen2_tag_encoding: int = TMR_GEN2_MILLER_M_4,
         auto_build_mercury: bool = True,
         **kwargs,
@@ -260,6 +267,9 @@ class ACUPAD(DeviceBase):
         self._idle_sleep = 0.05
         self._reader = None
         self._active_port = None
+        self._last_beep_at = 0.0
+        self._beep_is_high = False
+        self._beep_until = 0.0
 
         if not isinstance(start_reading, bool):
             start_reading = True
@@ -283,7 +293,7 @@ class ACUPAD(DeviceBase):
         self.read_rssi = read_rssi
 
         if not isinstance(read_tid, bool):
-            read_tid = True
+            read_tid = False
         self.read_tid = read_tid
 
         if not isinstance(tid_byte_count, int):
@@ -299,6 +309,28 @@ class ACUPAD(DeviceBase):
         if not isinstance(beep, bool):
             beep = False
         self.beep = beep
+
+        if not isinstance(beep_gpo, int) or beep_gpo < 1:
+            beep_gpo = 2
+        self.beep_gpo = beep_gpo
+
+        if not isinstance(beep_duration_ms, int):
+            beep_duration_ms = 100
+        if beep_duration_ms < 10:
+            beep_duration_ms = 10
+        if beep_duration_ms > 1000:
+            beep_duration_ms = 1000
+        self.beep_duration_ms = beep_duration_ms
+
+        if not isinstance(beep_min_interval_ms, int):
+            beep_min_interval_ms = 100
+        if beep_min_interval_ms < 50:
+            beep_min_interval_ms = 50
+        if beep_min_interval_ms > 10_000:
+            beep_min_interval_ms = 10_000
+        self.beep_min_interval_ms = beep_min_interval_ms
+
+        self.antenna_port_switch_gpos = self._normalize_antennas(antenna_port_switch_gpos)
 
         if not isinstance(gen2_tag_encoding, int):
             gen2_tag_encoding = self.TMR_GEN2_MILLER_M_4
@@ -401,6 +433,17 @@ class ACUPAD(DeviceBase):
         if self._TMR_TRD_init is not None:
             self._TMR_TRD_init.argtypes = [ctypes.POINTER(_TMR_TagReadData)]
             self._TMR_TRD_init.restype = ctypes.c_uint32
+
+        self._TMR_gpoSet = getattr(lib, "TMR_gpoSet", None)
+        if self._TMR_gpoSet is None:
+            self._TMR_gpoSet = getattr(lib, "TMR_SR_gpoSet", None)
+        if self._TMR_gpoSet is not None:
+            self._TMR_gpoSet.argtypes = [
+                ctypes.POINTER(_TMR_Reader),
+                ctypes.c_uint8,
+                ctypes.POINTER(_TMR_GpioPin),
+            ]
+            self._TMR_gpoSet.restype = ctypes.c_uint32
 
         self._TMR_strerror = getattr(lib, "TMR_strerror", None)
         if self._TMR_strerror is not None:
@@ -578,6 +621,113 @@ class ACUPAD(DeviceBase):
 
         return self._TMR_paramSet(reader, self.TMR_PARAM_READ_PLAN, ctypes.byref(read_plan))
 
+    def _set_antenna_port_switch_gpos(self, reader):
+        gpos = [int(g) for g in self.antenna_port_switch_gpos if int(g) > 0]
+        if not gpos:
+            return
+
+        gpo_count = len(gpos)
+        gpo_array = (ctypes.c_uint8 * gpo_count)(*gpos)
+        gpo_list = _TMR_uint8List(
+            list=ctypes.cast(gpo_array, ctypes.POINTER(ctypes.c_uint8)),
+            max=gpo_count,
+            len=gpo_count,
+        )
+        status = self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_PORTSWITCHGPOS, ctypes.byref(gpo_list))
+        if status != self.TMR_SUCCESS:
+            logging.warning(
+                "%s - Could not set antenna port switch GPOs %s: %s",
+                self.name,
+                gpos,
+                self._status_to_text(status),
+            )
+            return
+
+        logging.info("%s - antenna mux configured on GPOs: %s", self.name, gpos)
+
+    def _configure_beep_gpo(self, reader):
+        if not self.beep:
+            return
+
+        if self._TMR_gpoSet is None:
+            logging.warning("%s - beep requested but gpoSet symbol is unavailable.", self.name)
+            return
+
+        output_gpos = []
+        for gpo in self.antenna_port_switch_gpos + [self.beep_gpo]:
+            gpo_i = int(gpo)
+            if gpo_i > 0 and gpo_i not in output_gpos:
+                output_gpos.append(gpo_i)
+
+        gpo_out_count = len(output_gpos)
+        gpo_out = (ctypes.c_uint8 * gpo_out_count)(*output_gpos)
+        gpo_out_list = _TMR_uint8List(
+            list=ctypes.cast(gpo_out, ctypes.POINTER(ctypes.c_uint8)),
+            max=gpo_out_count,
+            len=gpo_out_count,
+        )
+        status = self._TMR_paramSet(reader, self.TMR_PARAM_GPIO_OUTPUTLIST, ctypes.byref(gpo_out_list))
+        if status != self.TMR_SUCCESS:
+            logging.warning(
+                "%s - Could not configure GPIO output list %s: %s",
+                self.name,
+                output_gpos,
+                self._status_to_text(status),
+            )
+            return
+
+        pin = _TMR_GpioPin(id=self.beep_gpo, high=False, bGPIStsTagRdMeta=False, output=True)
+        status = self._TMR_gpoSet(reader, ctypes.c_uint8(1), ctypes.byref(pin))
+        if status != self.TMR_SUCCESS:
+            logging.warning(
+                "%s - Could not initialize beep GPO %s: %s", self.name, self.beep_gpo, self._status_to_text(status)
+            )
+
+    def _beep_set_level(self, high: bool) -> bool:
+        if self._reader is None or self._TMR_gpoSet is None:
+            return False
+
+        pin = _TMR_GpioPin(id=self.beep_gpo, high=high, bGPIStsTagRdMeta=False, output=True)
+        status = self._TMR_gpoSet(self._reader, ctypes.c_uint8(1), ctypes.byref(pin))
+        if status != self.TMR_SUCCESS:
+            logging.warning(
+                "%s - beep %s failed: %s",
+                self.name,
+                "ON" if high else "OFF",
+                self._status_to_text(status),
+            )
+            return False
+        return True
+
+    def _service_beep_state(self, now: float | None = None):
+        if not self.beep:
+            return
+        if now is None:
+            now = time.monotonic()
+
+        if self._beep_is_high and now >= self._beep_until:
+            if self._beep_set_level(False):
+                self._beep_is_high = False
+
+    def _trigger_beep_non_blocking(self):
+        if not self.beep:
+            return
+
+        now = time.monotonic()
+        self._service_beep_state(now)
+
+        min_interval = self.beep_min_interval_ms / 1000.0
+        if (now - self._last_beep_at) < min_interval:
+            return
+
+        if self._beep_is_high:
+            return
+
+        if self._beep_set_level(True):
+            self._beep_is_high = True
+            self._beep_until = now + (self.beep_duration_ms / 1000.0)
+            self._last_beep_at = now
+
     def _configure_reader_params(self, reader):
         region = ctypes.c_int(0)
         self._ensure_success(
@@ -700,6 +850,8 @@ class ACUPAD(DeviceBase):
         )
         try:
             self._ensure_success(self._TMR_connect(reader), "TMR_connect")
+            self._set_antenna_port_switch_gpos(reader)
+            self._configure_beep_gpo(reader)
             self._configure_reader_params(reader)
         except Exception:
             try:
@@ -715,6 +867,14 @@ class ACUPAD(DeviceBase):
     def _close_reader(self):
         if self._reader is None:
             return
+
+        if self._beep_is_high:
+            try:
+                self._beep_set_level(False)
+            except Exception:
+                pass
+            self._beep_is_high = False
+
         try:
             self._TMR_destroy(self._reader)
         except Exception as exc:
@@ -726,6 +886,8 @@ class ACUPAD(DeviceBase):
     def _read_tags_once(self) -> list[tuple[str, int | None, int | None]]:
         if self._reader is None:
             return []
+
+        self._service_beep_state()
 
         count = ctypes.c_int32(-1)
         status = self._TMR_read(self._reader, ctypes.c_uint32(self._read_timeout_ms), ctypes.byref(count))
@@ -762,6 +924,11 @@ class ACUPAD(DeviceBase):
             antenna = int(trd.antenna) if trd.antenna > 0 else None
             rssi = int(trd.rssi) if trd.rssi != 0 else None
             tags.append((epc, tid, antenna, rssi))
+
+        if tags:
+            self._trigger_beep_non_blocking()
+        else:
+            self._service_beep_state()
 
         return tags
 

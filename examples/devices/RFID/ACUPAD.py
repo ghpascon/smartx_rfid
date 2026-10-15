@@ -38,6 +38,8 @@ async def main():
         start_reading=True,
         read_power=23,
         session=0,
+        read_tid=False,
+        beep=True,
     )
     acupad.on_event = on_event
     asyncio.create_task(acupad.connect())
