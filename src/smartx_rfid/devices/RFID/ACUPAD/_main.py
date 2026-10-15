@@ -180,6 +180,11 @@ class _TMR_RegionList(ctypes.Structure):
     ]
 
 
+class _TMR_TagOpBuffer(ctypes.Structure):
+    # Opaque buffer large enough to hold TMR_TagOp across Mercury builds.
+    _fields_ = [("raw", ctypes.c_uint8 * 4096)]
+
+
 class ACUPAD(DeviceBase):
     """
     RFID handler based on local Mercury C API (ctypes).
@@ -231,11 +236,11 @@ class ACUPAD(DeviceBase):
         pid: int = 8192,
         reconnection_time: int = 3,
         start_reading: bool = True,
-        session: int = 1,
-        read_power: int = 22,
+        session: int = 0,
+        read_power: int = 24,
         read_rssi: int = 0,
         active_ant: list[int] = [1],
-        read_tid: bool = False,
+        read_tid: bool = True,
         tid_byte_count: int = 12,
         beep: bool = False,
         beep_gpo: int = 2,
@@ -270,6 +275,7 @@ class ACUPAD(DeviceBase):
         self._last_beep_at = 0.0
         self._beep_is_high = False
         self._beep_until = 0.0
+        self._embedded_tid_tagop: _TMR_TagOpBuffer | None = None
 
         if not isinstance(start_reading, bool):
             start_reading = True
@@ -434,6 +440,16 @@ class ACUPAD(DeviceBase):
             self._TMR_TRD_init.argtypes = [ctypes.POINTER(_TMR_TagReadData)]
             self._TMR_TRD_init.restype = ctypes.c_uint32
 
+        self._TMR_TagOp_init_GEN2_ReadData = getattr(lib, "TMR_TagOp_init_GEN2_ReadData", None)
+        if self._TMR_TagOp_init_GEN2_ReadData is not None:
+            self._TMR_TagOp_init_GEN2_ReadData.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_uint32,
+                ctypes.c_uint8,
+            ]
+            self._TMR_TagOp_init_GEN2_ReadData.restype = ctypes.c_uint32
+
         self._TMR_gpoSet = getattr(lib, "TMR_gpoSet", None)
         if self._TMR_gpoSet is None:
             self._TMR_gpoSet = getattr(lib, "TMR_SR_gpoSet", None)
@@ -571,27 +587,26 @@ class ACUPAD(DeviceBase):
             return b""
         return bytes(uint8_list.list[i] for i in range(size))
 
-    def _read_tid_from_tag_bank(self) -> str | None:
-        if self._reader is None or not self.read_tid:
+    def _extract_tid_from_trd(self, trd: _TMR_TagReadData) -> str | None:
+        if not self.read_tid:
             return None
 
-        out = (ctypes.c_uint8 * self.tid_byte_count)()
-        status = self._TMR_readTagMemBytes(
-            self._reader,
-            None,
-            ctypes.c_uint32(self.TMR_GEN2_BANK_TID),
-            ctypes.c_uint32(0),
-            ctypes.c_uint16(self.tid_byte_count),
-            out,
-        )
-        if status != self.TMR_SUCCESS:
-            if status in {self.TMR_ERROR_NO_TAGS, self.TMR_ERROR_NO_TAGS_FOUND}:
-                return None
+        # Embedded tagop returns payload in trd.data, with len in bits.
+        if int(trd.data.len) == 0x8000:
             return None
 
-        tid = bytes(out).hex().lower()
-        if len(tid) == self.tid_byte_count * 2:
-            return tid
+        if trd.data.list and int(trd.data.len) > 0:
+            data_len_bytes = int(trd.data.len) // 8
+            if data_len_bytes > 0:
+                tid_raw = bytes(trd.data.list[i] for i in range(data_len_bytes))
+                if tid_raw:
+                    return tid_raw[: self.tid_byte_count].hex().lower()
+
+        # Some firmwares also expose embedded TID in tidMemData.
+        tid_mem = self._bytes_from_uint8_list(trd.tidMemData)
+        if tid_mem:
+            return tid_mem[: self.tid_byte_count].hex().lower()
+
         return None
 
     def _set_read_plan(self, reader, antennas: list[int]) -> int:
@@ -618,6 +633,29 @@ class ACUPAD(DeviceBase):
         )
         if status != self.TMR_SUCCESS:
             return status
+
+        self._embedded_tid_tagop = None
+        if self.read_tid and self._TMR_TagOp_init_GEN2_ReadData is not None:
+            # Read TID as embedded op in same inventory cycle (no second command per tag).
+            tid_words = max(1, min(64, (self.tid_byte_count + 1) // 2))
+            tagop = _TMR_TagOpBuffer()
+            status = self._TMR_TagOp_init_GEN2_ReadData(
+                ctypes.byref(tagop),
+                ctypes.c_int(self.TMR_GEN2_BANK_TID),
+                ctypes.c_uint32(0),
+                ctypes.c_uint8(tid_words),
+            )
+            if status == self.TMR_SUCCESS:
+                self._embedded_tid_tagop = tagop
+                read_plan.u.simple.tagop = ctypes.cast(ctypes.byref(self._embedded_tid_tagop), ctypes.c_void_p).value
+            else:
+                logging.warning(
+                    "%s - Could not init embedded TID tagop: %s",
+                    self.name,
+                    self._status_to_text(status),
+                )
+        elif self.read_tid:
+            logging.warning("%s - Embedded TID tagop symbol not available in Mercury library.", self.name)
 
         return self._TMR_paramSet(reader, self.TMR_PARAM_READ_PLAN, ctypes.byref(read_plan))
 
@@ -883,7 +921,7 @@ class ACUPAD(DeviceBase):
             self._reader = None
             self._active_port = None
 
-    def _read_tags_once(self) -> list[tuple[str, int | None, int | None]]:
+    def _read_tags_once(self) -> list[tuple[str, str | None, int | None, int | None]]:
         if self._reader is None:
             return []
 
@@ -914,12 +952,7 @@ class ACUPAD(DeviceBase):
                 continue
 
             epc = bytes(trd.tag.epc[:epc_len]).hex()
-            tid = None
-            tid_raw = self._bytes_from_uint8_list(trd.tidMemData)
-            if tid_raw:
-                tid = tid_raw.hex().lower()
-            if (tid is None or len(tid) != self.tid_byte_count * 2) and self.read_tid:
-                tid = self._read_tid_from_tag_bank()
+            tid = self._extract_tid_from_trd(trd)
 
             antenna = int(trd.antenna) if trd.antenna > 0 else None
             rssi = int(trd.rssi) if trd.rssi != 0 else None

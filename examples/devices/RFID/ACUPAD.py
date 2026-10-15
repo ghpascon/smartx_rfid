@@ -38,7 +38,7 @@ async def main():
         start_reading=True,
         read_power=23,
         session=0,
-        read_tid=False,
+        read_tid=True,
         beep=True,
     )
     acupad.on_event = on_event
