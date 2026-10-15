@@ -32,7 +32,13 @@ def on_event(name: str, event_type: str, event_data=None):
 async def main():
     # === SERIAL EXAMPLE ===
     print("=== ACUPAD SERIAL Example ===")
-    acupad = ACUPAD(name="ACUPAD", active_ant=[1, 2], start_reading=True, read_power=20, session=0)
+    acupad = ACUPAD(
+        name="ACUPAD",
+        active_ant=[1, 2],
+        start_reading=True,
+        read_power=23,
+        session=0,
+    )
     acupad.on_event = on_event
     asyncio.create_task(acupad.connect())
 

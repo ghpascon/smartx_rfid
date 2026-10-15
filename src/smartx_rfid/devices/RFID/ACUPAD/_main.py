@@ -232,7 +232,7 @@ class ACUPAD(DeviceBase):
         read_power: int = 22,
         read_rssi: int = 0,
         active_ant: list[int] = [1],
-        read_tid: bool = True,
+        read_tid: bool = False,
         tid_byte_count: int = 12,
         beep: bool = False,
         gen2_tag_encoding: int = TMR_GEN2_MILLER_M_4,
