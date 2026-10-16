@@ -1,0 +1,14 @@
+{
+    "READER": "R420",
+    "IP": "192.168.1.100",
+    "LLRP_PORT": 5084,
+    "RECONNECTION_TIME": 3,
+    "START_READING": true,
+    "GPI_START": false,
+    "SESSION": 1,
+    "ACTIVE_ANT": [
+        1
+    ],
+    "READ_POWER": 30,
+    "READ_RSSI": -80
+}

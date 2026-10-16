@@ -8,6 +8,7 @@ from .RFID.R700_IOT._main import R700_IOT
 from .RFID.R700_IOT.reader_config_example import R700_IOT_config_example
 from .RFID.ACUPAD._main import ACUPAD
 from .RFID.SIMULATOR._main import SIMULATOR
+from .RFID.R420._main import R420
 
 # PRINTER DEVICES
 from .printer.SATO._main import SatoPrinter

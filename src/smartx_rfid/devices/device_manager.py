@@ -10,6 +10,7 @@ from smartx_rfid.devices import (
     SERIAL,
     TCP,
     R700_IOT,
+    R420,
     X714,
     ACUPAD,
     SIMULATOR,
@@ -26,6 +27,7 @@ _DEVICE_MAP = {
     "TCP": TCP,
     "X714": X714,
     "R700_IOT": R700_IOT,
+    "R420": R420,
     "SIMULATOR": SIMULATOR,
     "SATO": SatoPrinter,
     "SATO_WS4": SatoWs4Printer,
@@ -527,6 +529,8 @@ class DeviceManager:
         if start_connect_for_new and new_device is not None:
             task = asyncio.create_task(self._device_connect_runner(new_device))
             await self._register_connect_task(name, task)
+            # Give the event loop one cycle so newly created connect tasks can start.
+            await asyncio.sleep(0)
 
     def _atomic_write(self, filepath: str, payload: dict) -> None:
         """Write *payload* to *filepath* atomically using a temp file + rename."""
