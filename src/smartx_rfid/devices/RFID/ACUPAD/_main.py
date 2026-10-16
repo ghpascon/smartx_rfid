@@ -5,7 +5,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+from typing import Any
 from smartx_rfid.schemas import TagSchema
+from smartx_rfid.schemas.tag import WriteTagValidator
 import serial.tools.list_ports
 
 
@@ -172,6 +174,13 @@ _TMR_ReadPlan._fields_ = [
 ]
 
 
+class _TMR_String(ctypes.Structure):
+    _fields_ = [
+        ("value", ctypes.c_char_p),
+        ("max", ctypes.c_uint16),
+    ]
+
+
 class _TMR_RegionList(ctypes.Structure):
     _fields_ = [
         ("list", ctypes.POINTER(ctypes.c_int)),
@@ -183,6 +192,32 @@ class _TMR_RegionList(ctypes.Structure):
 class _TMR_TagOpBuffer(ctypes.Structure):
     # Opaque buffer large enough to hold TMR_TagOp across Mercury builds.
     _fields_ = [("raw", ctypes.c_uint8 * 4096)]
+
+
+class _TMR_GEN2_Select(ctypes.Structure):
+    _fields_ = [
+        ("invert", ctypes.c_bool),
+        ("bank", ctypes.c_int),
+        ("bitPointer", ctypes.c_uint32),
+        ("maskBitLength", ctypes.c_uint16),
+        ("mask", ctypes.POINTER(ctypes.c_uint8)),
+        ("target", ctypes.c_int),
+        ("action", ctypes.c_int),
+    ]
+
+
+class _TMR_TagFilterU(ctypes.Union):
+    _fields_ = [
+        ("tagData", _TMR_TagData),
+        ("gen2Select", _TMR_GEN2_Select),
+    ]
+
+
+class _TMR_TagFilter(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("u", _TMR_TagFilterU),
+    ]
 
 
 class ACUPAD(DeviceBase):
@@ -199,18 +234,23 @@ class ACUPAD(DeviceBase):
     TMR_SUCCESS = 0
     TMR_ERROR_NO_TAGS_FOUND = (2 << 24) | 0x400
     TMR_ERROR_NO_TAGS = (3 << 24) | 8
+    TMR_ERROR_TAG_ID_BUFFER_FULL = (2 << 24) | 0x601
     TMR_ERROR_INVALID_ANTENNA_CONFIG = (2 << 24) | 0x507
     TMR_GEN2_BANK_TID = 0x2
 
+    TMR_PARAM_COMMANDTIMEOUT = 3
     TMR_PARAM_ANTENNA_CHECKPORT = 7
     TMR_PARAM_ANTENNA_PORTLIST = 8
     TMR_PARAM_ANTENNA_CONNECTEDPORTLIST = 9
     TMR_PARAM_ANTENNA_PORTSWITCHGPOS = 10
     TMR_PARAM_GPIO_OUTPUTLIST = 16
+    TMR_PARAM_GEN2_ACCESSPASSWORD = 17
     TMR_PARAM_GEN2_TAGENCODING = 19
     TMR_PARAM_READ_PLAN = 40
     TMR_PARAM_GEN2_SESSION = 20
     TMR_PARAM_RADIO_READPOWER = 43
+    TMR_PARAM_RADIO_WRITEPOWER = 44
+    TMR_PARAM_TAGOP_ANTENNA = 52
     TMR_PARAM_TAGOP_PROTOCOL = 53
     TMR_PARAM_REGION_ID = 61
     TMR_PARAM_REGION_SUPPORTEDREGIONS = 62
@@ -218,7 +258,8 @@ class ACUPAD(DeviceBase):
 
     TMR_REGION_NONE = 0
     TMR_TAG_PROTOCOL_GEN2 = 0x05
-    TMR_GEN2_MILLER_M_4 = 4
+    TMR_GEN2_BANK_EPC = 0x1
+    TMR_GEN2_MILLER_M_4 = 2
 
     TMR_TRD_METADATA_FLAG_READCOUNT = 0x0001
     TMR_TRD_METADATA_FLAG_RSSI = 0x0002
@@ -276,6 +317,8 @@ class ACUPAD(DeviceBase):
         self._beep_is_high = False
         self._beep_until = 0.0
         self._embedded_tid_tagop: _TMR_TagOpBuffer | None = None
+        self._write_lock = asyncio.Lock()
+        self._stop_connection = False
 
         if not isinstance(start_reading, bool):
             start_reading = True
@@ -346,6 +389,7 @@ class ACUPAD(DeviceBase):
 
         self.backend = "mercury_c_api"
         self._mercury_lib = None
+        self._TMR_paramID = None
         self._configure_mercury_backend(auto_build_mercury=auto_build_mercury)
         self._configure_mercury_symbols()
 
@@ -417,6 +461,46 @@ class ACUPAD(DeviceBase):
         ]
         self._TMR_readTagMemBytes.restype = ctypes.c_uint32
 
+        self._TMR_writeTagMemBytes = _resolve_symbol(
+            "TMR_writeTagMemBytes",
+            "TMR_SR_writeTagMemBytes",
+            "TMR_LLRP_writeTagMemBytes",
+        )
+        self._TMR_writeTagMemBytes.argtypes = [
+            ctypes.POINTER(_TMR_Reader),
+            ctypes.POINTER(_TMR_TagFilter),
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_uint16,
+            ctypes.POINTER(ctypes.c_uint8),
+            ctypes.POINTER(_TMR_uint8List),
+        ]
+        self._TMR_writeTagMemBytes.restype = ctypes.c_uint32
+
+        self._TMR_writeTag = _resolve_symbol(
+            "TMR_writeTag",
+            "TMR_SR_writeTag",
+            "TMR_LLRP_writeTag",
+        )
+        self._TMR_writeTag.argtypes = [
+            ctypes.POINTER(_TMR_Reader),
+            ctypes.POINTER(_TMR_TagFilter),
+            ctypes.POINTER(_TMR_TagData),
+        ]
+        self._TMR_writeTag.restype = ctypes.c_uint32
+
+        self._TMR_TF_init_gen2_select = getattr(lib, "TMR_TF_init_gen2_select", None)
+        if self._TMR_TF_init_gen2_select is not None:
+            self._TMR_TF_init_gen2_select.argtypes = [
+                ctypes.POINTER(_TMR_TagFilter),
+                ctypes.c_bool,
+                ctypes.c_int,
+                ctypes.c_uint32,
+                ctypes.c_uint16,
+                ctypes.POINTER(ctypes.c_uint8),
+            ]
+            self._TMR_TF_init_gen2_select.restype = ctypes.c_uint32
+
         self._TMR_paramSet = lib.TMR_paramSet
         self._TMR_paramSet.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_int, ctypes.c_void_p]
         self._TMR_paramSet.restype = ctypes.c_uint32
@@ -424,6 +508,11 @@ class ACUPAD(DeviceBase):
         self._TMR_paramGet = lib.TMR_paramGet
         self._TMR_paramGet.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_int, ctypes.c_void_p]
         self._TMR_paramGet.restype = ctypes.c_uint32
+
+        self._TMR_paramID = getattr(lib, "TMR_paramID", None)
+        if self._TMR_paramID is not None:
+            self._TMR_paramID.argtypes = [ctypes.c_char_p]
+            self._TMR_paramID.restype = ctypes.c_int
 
         self._TMR_RP_init_simple = lib.TMR_RP_init_simple
         self._TMR_RP_init_simple.argtypes = [
@@ -529,6 +618,40 @@ class ACUPAD(DeviceBase):
                 pass
         return f"status={status}"
 
+    def _get_param_id(self, name: str) -> int | None:
+        if self._TMR_paramID is None:
+            return None
+        try:
+            value = int(self._TMR_paramID(name.encode("ascii")))
+        except Exception:
+            return None
+        if value <= 0:
+            return None
+        return value
+
+    def _read_reader_serial(self, reader) -> str | None:
+        param_id = self._get_param_id("/reader/version/serial")
+        if param_id is None:
+            return None
+
+        buf = ctypes.create_string_buffer(128)
+        tmr_str = _TMR_String(
+            value=ctypes.cast(buf, ctypes.c_char_p),
+            max=ctypes.c_uint16(len(buf)),
+        )
+        status = self._TMR_paramGet(reader, ctypes.c_int(param_id), ctypes.byref(tmr_str))
+        if status != self.TMR_SUCCESS:
+            return None
+
+        raw = buf.value
+        if not raw:
+            return None
+        try:
+            serial = raw.decode("utf-8", errors="ignore").strip()
+        except Exception:
+            return None
+        return serial or None
+
     def _ensure_success(self, status: int, operation: str):
         if status != self.TMR_SUCCESS:
             raise RuntimeError(f"{operation} failed: {self._status_to_text(status)}")
@@ -565,7 +688,7 @@ class ACUPAD(DeviceBase):
         msg = self._status_to_text(status).lower()
         return "antenna" in msg and "invalid" in msg
 
-    def _get_uint8_list_param(self, reader, param_id: int, size: int = 16) -> list[int]:
+    def _get_uint8_list_param(self, reader, param_id: int, size: int = 16, *, strict: bool = False) -> list[int]:
         buffer = (ctypes.c_uint8 * size)()
         values = _TMR_uint8List(
             list=ctypes.cast(buffer, ctypes.POINTER(ctypes.c_uint8)),
@@ -574,6 +697,8 @@ class ACUPAD(DeviceBase):
         )
         status = self._TMR_paramGet(reader, param_id, ctypes.byref(values))
         if status != self.TMR_SUCCESS:
+            if strict:
+                raise RuntimeError(f"TMR_paramGet({param_id}) failed: {self._status_to_text(status)}")
             return []
         length = min(int(values.len), size)
         return [int(buffer[i]) for i in range(length) if int(buffer[i]) > 0]
@@ -614,14 +739,6 @@ class ACUPAD(DeviceBase):
         antenna_list = None
         if antenna_count > 0:
             antenna_list = (ctypes.c_uint8 * antenna_count)(*antennas)
-
-            # Keep reader antenna port list aligned with requested plan.
-            port_list = _TMR_uint8List(
-                list=ctypes.cast(antenna_list, ctypes.POINTER(ctypes.c_uint8)),
-                max=antenna_count,
-                len=antenna_count,
-            )
-            self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_PORTLIST, ctypes.byref(port_list))
 
         read_plan = _TMR_ReadPlan()
         status = self._TMR_RP_init_simple(
@@ -673,13 +790,9 @@ class ACUPAD(DeviceBase):
         )
         status = self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_PORTSWITCHGPOS, ctypes.byref(gpo_list))
         if status != self.TMR_SUCCESS:
-            logging.warning(
-                "%s - Could not set antenna port switch GPOs %s: %s",
-                self.name,
-                gpos,
-                self._status_to_text(status),
+            raise RuntimeError(
+                f"TMR_paramSet(/reader/antenna/portSwitchGpos={gpos}) failed: {self._status_to_text(status)}"
             )
-            return
 
         logging.info("%s - antenna mux configured on GPOs: %s", self.name, gpos)
 
@@ -688,14 +801,14 @@ class ACUPAD(DeviceBase):
             return
 
         if self._TMR_gpoSet is None:
-            logging.warning("%s - beep requested but gpoSet symbol is unavailable.", self.name)
-            return
+            raise RuntimeError("beep requested but gpoSet symbol is unavailable")
 
-        output_gpos = []
-        for gpo in self.antenna_port_switch_gpos + [self.beep_gpo]:
-            gpo_i = int(gpo)
-            if gpo_i > 0 and gpo_i not in output_gpos:
-                output_gpos.append(gpo_i)
+        if int(self.beep_gpo) in [int(g) for g in self.antenna_port_switch_gpos if int(g) > 0]:
+            raise RuntimeError(
+                f"Invalid beep_gpo={self.beep_gpo}: cannot reuse antenna_port_switch_gpos={self.antenna_port_switch_gpos}"
+            )
+
+        output_gpos = [int(self.beep_gpo)]
 
         gpo_out_count = len(output_gpos)
         gpo_out = (ctypes.c_uint8 * gpo_out_count)(*output_gpos)
@@ -706,35 +819,27 @@ class ACUPAD(DeviceBase):
         )
         status = self._TMR_paramSet(reader, self.TMR_PARAM_GPIO_OUTPUTLIST, ctypes.byref(gpo_out_list))
         if status != self.TMR_SUCCESS:
-            logging.warning(
-                "%s - Could not configure GPIO output list %s: %s",
-                self.name,
-                output_gpos,
-                self._status_to_text(status),
+            raise RuntimeError(
+                f"TMR_paramSet(/reader/gpio/outputList={output_gpos}) failed: {self._status_to_text(status)}. "
+                f"Set beep_gpo to a valid output pin for this reader or disable beep."
             )
-            return
 
         pin = _TMR_GpioPin(id=self.beep_gpo, high=False, bGPIStsTagRdMeta=False, output=True)
         status = self._TMR_gpoSet(reader, ctypes.c_uint8(1), ctypes.byref(pin))
         if status != self.TMR_SUCCESS:
-            logging.warning(
-                "%s - Could not initialize beep GPO %s: %s", self.name, self.beep_gpo, self._status_to_text(status)
-            )
+            raise RuntimeError(f"TMR_gpoSet(init beep_gpo={self.beep_gpo}) failed: {self._status_to_text(status)}")
 
-    def _beep_set_level(self, high: bool) -> bool:
+    def _beep_set_level(self, high: bool, quiet: bool = False) -> bool:
         if self._reader is None or self._TMR_gpoSet is None:
             return False
 
         pin = _TMR_GpioPin(id=self.beep_gpo, high=high, bGPIStsTagRdMeta=False, output=True)
         status = self._TMR_gpoSet(self._reader, ctypes.c_uint8(1), ctypes.byref(pin))
         if status != self.TMR_SUCCESS:
-            logging.warning(
-                "%s - beep %s failed: %s",
-                self.name,
-                "ON" if high else "OFF",
-                self._status_to_text(status),
-            )
-            return False
+            action = "ON" if high else "OFF"
+            if quiet:
+                raise RuntimeError(f"TMR_gpoSet(beep {action}) failed: {self._status_to_text(status)}")
+            raise RuntimeError(f"{self.name} - beep {action} failed: {self._status_to_text(status)}")
         return True
 
     def _service_beep_state(self, now: float | None = None):
@@ -746,6 +851,15 @@ class ACUPAD(DeviceBase):
         if self._beep_is_high and now >= self._beep_until:
             if self._beep_set_level(False):
                 self._beep_is_high = False
+
+    def _force_beep_off(self):
+        if not self.beep:
+            return
+        if not self._beep_is_high:
+            return
+        if self._beep_set_level(False, quiet=True):
+            self._beep_is_high = False
+            self._beep_until = 0.0
 
     def _trigger_beep_non_blocking(self):
         if not self.beep:
@@ -765,6 +879,57 @@ class ACUPAD(DeviceBase):
             self._beep_is_high = True
             self._beep_until = now + (self.beep_duration_ms / 1000.0)
             self._last_beep_at = now
+
+    def _is_read_timeout_status(self, status: int) -> bool:
+        msg = self._status_to_text(status).lower()
+        return "timeout" in msg or "time out" in msg
+
+    def _is_timeout_status(self, status: int) -> bool:
+        msg = self._status_to_text(status).lower()
+        return "timeout" in msg or "time out" in msg
+
+    def _is_no_tags_status(self, status: int) -> bool:
+        if status in {self.TMR_ERROR_NO_TAGS, self.TMR_ERROR_NO_TAGS_FOUND}:
+            return True
+        msg = self._status_to_text(status).lower()
+        return "no tag" in msg
+
+    def _is_expected_disconnect_gpo_error(self, status: int) -> bool:
+        msg = self._status_to_text(status).lower()
+        return (
+            "crc error" in msg
+            or "timeout" in msg
+            or "time out" in msg
+            or "serial" in msg
+            or "connection" in msg
+            or "transport" in msg
+        )
+
+    def _is_tag_buffer_full_status(self, status: int) -> bool:
+        if status == self.TMR_ERROR_TAG_ID_BUFFER_FULL:
+            return True
+        msg = self._status_to_text(status).lower()
+        return "tag id buffer full" in msg
+
+    def _set_all_output_gpos_low(self, reader) -> None:
+        if self._TMR_gpoSet is None:
+            return
+
+        pins: list[int] = []
+        for gpo in self.antenna_port_switch_gpos + [self.beep_gpo]:
+            try:
+                gpo_i = int(gpo)
+            except Exception:
+                continue
+            if gpo_i > 0 and gpo_i not in pins:
+                pins.append(gpo_i)
+
+        if not pins:
+            return
+
+        arr_type = _TMR_GpioPin * len(pins)
+        arr = arr_type(*[_TMR_GpioPin(id=p, high=False, bGPIStsTagRdMeta=False, output=True) for p in pins])
+        self._TMR_gpoSet(reader, ctypes.c_uint8(len(pins)), arr)
 
     def _configure_reader_params(self, reader):
         region = ctypes.c_int(0)
@@ -796,53 +961,22 @@ class ACUPAD(DeviceBase):
                 "TMR_paramSet(/reader/region/id)",
             )
 
-        # Some readers reject explicitly listed ports when checkPort is enabled.
-        # Best effort: disable strict port check when supported.
+        # Keep startup strict: any param setup failure aborts this connection attempt.
         check_port = ctypes.c_bool(False)
-        self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_CHECKPORT, ctypes.byref(check_port))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_ANTENNA_CHECKPORT, ctypes.byref(check_port)),
+            "TMR_paramSet(/reader/antenna/checkPort)",
+        )
 
         requested_antennas = [int(a) for a in self.active_ant if int(a) > 0]
-        connected_antennas = self._get_uint8_list_param(reader, self.TMR_PARAM_ANTENNA_CONNECTEDPORTLIST)
-
-        attempts: list[list[int]] = []
-        if connected_antennas and requested_antennas:
-            intersection = [a for a in requested_antennas if a in connected_antennas]
-            if intersection:
-                attempts.append(intersection)
-        if requested_antennas:
-            attempts.append(requested_antennas)
-        if connected_antennas:
-            attempts.append(connected_antennas)
-        attempts.append([])
-
-        seen = set()
-        last_status = self.TMR_SUCCESS
-        selected_plan: list[int] | None = None
-        for candidate in attempts:
-            key = tuple(candidate)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            status = self._set_read_plan(reader, candidate)
-            if status == self.TMR_SUCCESS:
-                selected_plan = candidate
-                break
-
-            last_status = status
-            if self._is_invalid_antenna_status(status):
-                logging.warning(
-                    "%s - invalid antenna plan %s (%s). Trying fallback.",
-                    self.name,
-                    candidate if candidate else "AUTO",
-                    self._status_to_text(status),
-                )
-                continue
-
-            self._ensure_success(status, "TMR_paramSet(/reader/read/plan)")
-
-        if selected_plan is None:
-            self._ensure_success(last_status, "TMR_paramSet(/reader/read/plan)")
+        connected_antennas = self._get_uint8_list_param(
+            reader,
+            self.TMR_PARAM_ANTENNA_CONNECTEDPORTLIST,
+            strict=True,
+        )
+        selected_plan = requested_antennas if requested_antennas else connected_antennas
+        status = self._set_read_plan(reader, selected_plan)
+        self._ensure_success(status, "TMR_paramSet(/reader/read/plan)")
 
         if selected_plan:
             self.effective_antennas = selected_plan.copy()
@@ -852,19 +986,35 @@ class ACUPAD(DeviceBase):
             logging.info("%s - read plan antennas: AUTO", self.name)
 
         protocol = ctypes.c_int(self.TMR_TAG_PROTOCOL_GEN2)
-        self._TMR_paramSet(reader, self.TMR_PARAM_TAGOP_PROTOCOL, ctypes.byref(protocol))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_TAGOP_PROTOCOL, ctypes.byref(protocol)),
+            "TMR_paramSet(/reader/tagop/protocol)",
+        )
 
         tag_encoding = ctypes.c_int(self.gen2_tag_encoding)
-        status = self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_TAGENCODING, ctypes.byref(tag_encoding))
-        if status != self.TMR_SUCCESS:
-            logging.warning("%s - Could not set GEN2 tag encoding: %s", self.name, self._status_to_text(status))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_TAGENCODING, ctypes.byref(tag_encoding)),
+            "TMR_paramSet(/reader/gen2/tagEncoding)",
+        )
 
         power = self.read_power * 100 if self.read_power <= 100 else self.read_power
         read_power = ctypes.c_int32(power)
-        self._TMR_paramSet(reader, self.TMR_PARAM_RADIO_READPOWER, ctypes.byref(read_power))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_RADIO_READPOWER, ctypes.byref(read_power)),
+            "TMR_paramSet(/reader/radio/readPower)",
+        )
+
+        write_power = ctypes.c_int32(power)
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_RADIO_WRITEPOWER, ctypes.byref(write_power)),
+            "TMR_paramSet(/reader/radio/writePower)",
+        )
 
         session = ctypes.c_int(self.session)
-        self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_SESSION, ctypes.byref(session))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_SESSION, ctypes.byref(session)),
+            "TMR_paramSet(/reader/gen2/session)",
+        )
 
         metadata = ctypes.c_uint16(
             self.TMR_TRD_METADATA_FLAG_READCOUNT
@@ -874,7 +1024,22 @@ class ACUPAD(DeviceBase):
             | self.TMR_TRD_METADATA_FLAG_PROTOCOL
             | self.TMR_TRD_METADATA_FLAG_DATA
         )
-        self._TMR_paramSet(reader, self.TMR_PARAM_METADATAFLAG, ctypes.byref(metadata))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_METADATAFLAG, ctypes.byref(metadata)),
+            "TMR_paramSet(/reader/metadata/flags)",
+        )
+
+        tagop_antenna = None
+        if self.effective_antennas:
+            tagop_antenna = int(self.effective_antennas[0])
+        elif self.active_ant:
+            tagop_antenna = int(self.active_ant[0])
+        if tagop_antenna and tagop_antenna > 0:
+            tagop_ant = ctypes.c_uint8(tagop_antenna)
+            self._ensure_success(
+                self._TMR_paramSet(reader, self.TMR_PARAM_TAGOP_ANTENNA, ctypes.byref(tagop_ant)),
+                "TMR_paramSet(/reader/tagop/antenna)",
+            )
 
     def _open_reader(self, port: str):
         if self._reader is not None:
@@ -900,26 +1065,58 @@ class ACUPAD(DeviceBase):
 
         self._reader = reader
         self._active_port = port
+        serial = self._read_reader_serial(reader)
+        if serial and self.serial_number != serial:
+            self.serial_number = serial
+            self.emit_event("serial_number", serial)
         logging.info("%s connected via Mercury C API on %s", self.name, port)
 
     def _close_reader(self):
-        if self._reader is None:
+        reader = self._reader
+
+        # Clear state eagerly so other coroutines stop using stale reader pointers.
+        self._reader = None
+        self._active_port = None
+        self.serial_number = None
+        self._beep_is_high = False
+        self._beep_until = 0.0
+
+        if reader is None:
             return
 
-        if self._beep_is_high:
+        if self.beep and self._TMR_gpoSet is not None:
             try:
-                self._beep_set_level(False)
-            except Exception:
-                pass
-            self._beep_is_high = False
+                pin = _TMR_GpioPin(id=self.beep_gpo, high=False, bGPIStsTagRdMeta=False, output=True)
+                status = self._TMR_gpoSet(reader, ctypes.c_uint8(1), ctypes.byref(pin))
+                if status != self.TMR_SUCCESS:
+                    if not self._is_expected_disconnect_gpo_error(status):
+                        logging.warning(
+                            "%s - beep GPO OFF on disconnect failed: %s",
+                            self.name,
+                            self._status_to_text(status),
+                        )
+                    else:
+                        logging.debug(
+                            "%s - beep GPO OFF skipped during disconnect: %s",
+                            self.name,
+                            self._status_to_text(status),
+                        )
+            except Exception as exc:
+                msg = str(exc).lower()
+                if "crc" in msg or "timeout" in msg or "serial" in msg or "connection" in msg or "transport" in msg:
+                    logging.debug("%s - beep GPO OFF skipped during disconnect: %s", self.name, exc)
+                else:
+                    logging.warning("%s - beep GPO OFF on disconnect error: %s", self.name, exc)
 
         try:
-            self._TMR_destroy(self._reader)
+            self._set_all_output_gpos_low(reader)
+        except Exception as exc:
+            logging.debug("%s - could not force all output GPOs low on disconnect: %s", self.name, exc)
+
+        try:
+            self._TMR_destroy(reader)
         except Exception as exc:
             logging.warning("%s reader close warning: %s", self.name, exc)
-        finally:
-            self._reader = None
-            self._active_port = None
 
     def _read_tags_once(self) -> list[tuple[str, str | None, int | None, int | None]]:
         if self._reader is None:
@@ -932,10 +1129,19 @@ class ACUPAD(DeviceBase):
         if status != self.TMR_SUCCESS:
             if status in {self.TMR_ERROR_NO_TAGS, self.TMR_ERROR_NO_TAGS_FOUND}:
                 return []
-            msg = self._status_to_text(status).lower()
-            if "no tag" in msg:
+            if self._is_timeout_status(status):
+                # Reader timeout is expected when no tag is currently available.
+                # Treat it like an empty cycle instead of a connection failure.
+                self._service_beep_state()
                 return []
-            raise RuntimeError(f"TMR_read failed: {self._status_to_text(status)}")
+            if self._is_tag_buffer_full_status(status):
+                # Keep draining buffered tags below with hasMoreTags/getNextTag.
+                pass
+            else:
+                msg = self._status_to_text(status).lower()
+                if "no tag" in msg:
+                    return []
+                raise RuntimeError(f"TMR_read failed: {self._status_to_text(status)}")
 
         tags = []
         while self._TMR_hasMoreTags(self._reader) == self.TMR_SUCCESS:
@@ -967,14 +1173,17 @@ class ACUPAD(DeviceBase):
 
     async def connect(self):
         """Connect to reader and keep Mercury inventory loop alive."""
-        while self._running:
+        self._stop_connection = False
+
+        while self._running and not self._stop_connection:
             try:
                 port_to_use = self.port
                 if self.is_auto:
                     port_to_use = self._resolve_auto_port()
                     if port_to_use is None:
                         logging.warning("%s - No AUTO port found for VID=%s PID=%s", self.name, self.vid, self.pid)
-                        await asyncio.sleep(self.reconnection_time)
+                        if self._running and not self._stop_connection:
+                            await asyncio.sleep(self.reconnection_time)
                         continue
 
                 await asyncio.to_thread(self._open_reader, port_to_use)
@@ -983,12 +1192,13 @@ class ACUPAD(DeviceBase):
                 if self.start_reading:
                     self.is_reading = True
 
-                while self._running and self.is_connected:
+                while self._running and not self._stop_connection and self.is_connected:
                     if not self.is_reading:
                         await asyncio.sleep(self._idle_sleep)
                         continue
 
-                    rows = await asyncio.to_thread(self._read_tags_once)
+                    async with self._write_lock:
+                        rows = await asyncio.to_thread(self._read_tags_once)
                     for epc, tid, ant, rssi in rows:
                         if self.read_rssi > 0 and rssi is not None and rssi < (-abs(self.read_rssi)):
                             continue
@@ -1009,24 +1219,33 @@ class ACUPAD(DeviceBase):
             except Exception as exc:
                 logging.warning("%s - Mercury connection/read error: %s", self.name, exc)
             finally:
-                await asyncio.to_thread(self._close_reader)
-                self.is_connected = False
-                self.is_reading = False
+                try:
+                    async with self._write_lock:
+                        await asyncio.to_thread(self._close_reader)
+                except Exception as exc:
+                    logging.warning("%s - reader close error: %s", self.name, exc)
+                finally:
+                    self.is_connected = False
+                    self.is_reading = False
 
-            if self._running:
+            if self._running and not self._stop_connection:
                 await asyncio.sleep(self.reconnection_time)
 
     async def disconnect(self):
+        self._stop_connection = True
         self.is_reading = False
         self.is_connected = False
-        await asyncio.to_thread(self._close_reader)
+        async with self._write_lock:
+            await asyncio.to_thread(self._close_reader)
 
     async def close(self):
         """Shut down background tasks and close Mercury resources."""
+        self._stop_connection = True
         self._running = False
         self.is_reading = False
         self.is_connected = False
-        await asyncio.to_thread(self._close_reader)
+        async with self._write_lock:
+            await asyncio.to_thread(self._close_reader)
         await self.shutdown()
 
     async def start_inventory(self):
@@ -1052,3 +1271,158 @@ class ACUPAD(DeviceBase):
 
         if verbose:
             logging.warning("%s - raw command ignored in mercury backend: %s", self.name, to_send)
+
+    def _build_write_target_filter(
+        self,
+        validated: WriteTagValidator,
+    ) -> tuple[_TMR_TagFilter | None, Any]:
+        identifier = validated.target_identifier
+        if identifier is None:
+            return None, None
+
+        if self._TMR_TF_init_gen2_select is None:
+            raise RuntimeError("Mercury API symbol TMR_TF_init_gen2_select is not available")
+
+        target_hex = validated.target_value
+        try:
+            target_bytes = bytes.fromhex(target_hex)
+        except Exception as exc:
+            raise ValueError(f"Invalid target_value hex for {identifier}: {target_hex}") from exc
+
+        if not target_bytes:
+            raise ValueError("target_value cannot be empty when target_identifier is provided")
+
+        if identifier == "epc":
+            bank = self.TMR_GEN2_BANK_EPC
+            bit_pointer = 32
+        elif identifier == "tid":
+            bank = self.TMR_GEN2_BANK_TID
+            bit_pointer = 0
+        else:
+            raise ValueError(f"Unsupported target_identifier: {identifier}")
+
+        mask_array = (ctypes.c_uint8 * len(target_bytes)).from_buffer_copy(target_bytes)
+        tag_filter = _TMR_TagFilter()
+        status = self._TMR_TF_init_gen2_select(
+            ctypes.byref(tag_filter),
+            ctypes.c_bool(False),
+            ctypes.c_int(bank),
+            ctypes.c_uint32(bit_pointer),
+            ctypes.c_uint16(len(target_bytes) * 8),
+            ctypes.cast(mask_array, ctypes.POINTER(ctypes.c_uint8)),
+        )
+        self._ensure_success(status, "TMR_TF_init_gen2_select")
+
+        return tag_filter, mask_array
+
+    def _write_epc_sync(self, validated: WriteTagValidator) -> bool:
+        reader = self._reader
+        if reader is None:
+            raise RuntimeError(f"{self.name} - reader is not connected")
+
+        if len(validated.new_epc) % 4 != 0:
+            raise ValueError("new_epc length must be divisible by 4")
+
+        try:
+            new_epc_bytes = bytes.fromhex(validated.new_epc)
+        except Exception as exc:
+            raise ValueError(f"Invalid new_epc hex: {validated.new_epc}") from exc
+
+        if len(new_epc_bytes) == 0:
+            raise ValueError("new_epc cannot be empty")
+
+        if len(new_epc_bytes) % 2 != 0:
+            raise ValueError("new_epc byte length must be even for EPC word writes")
+
+        access_password = ctypes.c_uint32(int(validated.password, 16))
+        self._ensure_success(
+            self._TMR_paramSet(reader, self.TMR_PARAM_GEN2_ACCESSPASSWORD, ctypes.byref(access_password)),
+            "TMR_paramSet(/reader/gen2/accessPassword)",
+        )
+
+        tag_filter, _mask_ref = self._build_write_target_filter(validated)
+        filter_ptr = ctypes.byref(tag_filter) if tag_filter is not None else None
+
+        tag_data = _TMR_TagData()
+        tag_data.protocol = self.TMR_TAG_PROTOCOL_GEN2
+        tag_data.epcByteCount = len(new_epc_bytes)
+        for i, b in enumerate(new_epc_bytes):
+            tag_data.epc[i] = b
+
+        payload = (ctypes.c_uint8 * len(new_epc_bytes)).from_buffer_copy(new_epc_bytes)
+
+        original_timeout = ctypes.c_uint32(0)
+        changed_timeout = False
+        got_timeout = self._TMR_paramGet(reader, self.TMR_PARAM_COMMANDTIMEOUT, ctypes.byref(original_timeout))
+        if got_timeout == self.TMR_SUCCESS:
+            desired_timeout = max(int(original_timeout.value), 1500)
+            if desired_timeout != int(original_timeout.value):
+                new_timeout = ctypes.c_uint32(desired_timeout)
+                set_timeout = self._TMR_paramSet(reader, self.TMR_PARAM_COMMANDTIMEOUT, ctypes.byref(new_timeout))
+                changed_timeout = set_timeout == self.TMR_SUCCESS
+
+        try:
+            last_status = self.TMR_SUCCESS
+            has_target = filter_ptr is not None
+            for attempt in range(2):
+                # For targeted writes, use memory-bank write directly because
+                # TMR_writeTag can fail on some firmware/filter combinations.
+                if not has_target:
+                    status_write_tag = self._TMR_writeTag(reader, filter_ptr, ctypes.byref(tag_data))
+                    if status_write_tag == self.TMR_SUCCESS:
+                        return True
+
+                status_mem = self._TMR_writeTagMemBytes(
+                    reader,
+                    filter_ptr,
+                    ctypes.c_uint32(self.TMR_GEN2_BANK_EPC),
+                    ctypes.c_uint32(4),  # EPC starts at byte offset 4 (word pointer 2)
+                    ctypes.c_uint16(len(new_epc_bytes)),
+                    ctypes.cast(payload, ctypes.POINTER(ctypes.c_uint8)),
+                    None,
+                )
+                if status_mem == self.TMR_SUCCESS:
+                    return True
+
+                if has_target:
+                    last_status = status_mem
+                else:
+                    # Preserve non-timeout writeTag errors when fallback also fails,
+                    # otherwise propagate timeout from memory write.
+                    last_status = status_mem if self._is_timeout_status(status_mem) else status_write_tag
+
+                if not self._is_timeout_status(last_status):
+                    break
+                if attempt == 0:
+                    time.sleep(0.08)
+
+            if self._is_no_tags_status(last_status):
+                return False
+
+            self._ensure_success(last_status, "ACUPAD EPC write")
+            return True
+        finally:
+            if changed_timeout:
+                try:
+                    self._TMR_paramSet(reader, self.TMR_PARAM_COMMANDTIMEOUT, ctypes.byref(original_timeout))
+                except Exception:
+                    pass
+
+    async def write_epc(self, target_identifier: str | None, target_value: str | None, new_epc: str, password: str):
+        validated = WriteTagValidator(
+            target_identifier=target_identifier,
+            target_value=target_value,
+            new_epc=new_epc,
+            password=password,
+        )
+
+        if not self.is_connected or self._reader is None:
+            raise RuntimeError(f"{self.name} - cannot write EPC: reader is not connected")
+
+        async with self._write_lock:
+            ok = await asyncio.to_thread(self._write_epc_sync, validated)
+
+        if not ok:
+            logging.info("%s - EPC write skipped: target tag not found", self.name)
+
+        return ok
