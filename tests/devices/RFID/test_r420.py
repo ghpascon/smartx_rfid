@@ -75,7 +75,7 @@ class TestR420:
 
     def test_handle_tag_report_epc_bytes_from_sllurp(self):
         with patch("smartx_rfid.devices._base.on_event", Mock()):
-            device = R420(read_tid=True)
+            device = R420(read_tid=False)
             device.on_event = Mock()
 
             device.handle_tag_report(

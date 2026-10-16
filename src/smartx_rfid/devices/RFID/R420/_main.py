@@ -771,7 +771,9 @@ class R420(DeviceBase):
     def handle_tag_report(self, report: dict[str, Any]) -> None:
         """Public entrypoint for parsed reports from adapters/callbacks."""
         normalized = self._normalize_tag_report(report)
-        if normalized is None:
+        if not isinstance(normalized, dict) or not normalized.get("epc"):
+            return
+        if self.read_tid and not normalized.get("tid"):
             return
 
         self.emit_event("tag", normalized)
