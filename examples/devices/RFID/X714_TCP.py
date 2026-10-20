@@ -32,7 +32,7 @@ async def main():
     x714_tcp = X714(
         name="X714",
         connection_type="TCP",
-        ip="smtx-7cbe799205d4.local",
+        ip="192.168.1.102",
         start_reading=True,
     )
     x714_tcp.on_event = on_x714_event

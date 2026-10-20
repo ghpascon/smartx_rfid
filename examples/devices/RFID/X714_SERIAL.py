@@ -32,8 +32,8 @@ async def main():
     x714_serial = X714(
         name="X714",
         start_reading=True,
-        read_power=27,
-        active_ant=[1, 2],
+        read_power=20,
+        active_ant=[1],
         # port="/COM3"
     )
     x714_serial.on_event = on_x714_event

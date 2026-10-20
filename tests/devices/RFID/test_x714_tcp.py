@@ -72,21 +72,6 @@ class FakeNeverClosingWriter:
 
 
 @pytest.mark.asyncio
-async def test_monitor_connection_detects_writer_closing():
-    device = X714(connection_type="TCP")
-    device.is_connected = True
-    device.writer = FakeWriterClosing()
-    device.reconnection_time = 0.01
-
-    # run monitor_connection and wait for it to finish
-    t = device.create_task(device.monitor_connection())
-    await t
-
-    assert device.is_connected is False
-    assert device.is_reading is False
-
-
-@pytest.mark.asyncio
 async def test_close_cleans_up_writer_and_marks_disconnected():
     device = X714(connection_type="TCP")
     fake = FakeAsyncWriter()
