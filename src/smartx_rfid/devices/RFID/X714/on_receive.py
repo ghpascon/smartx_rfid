@@ -106,6 +106,7 @@ class OnReceive:
             try:
                 self.is_connected = True
                 self.emit_event("setup_done", True)
+                self.write("#get_state")
             except Exception:
                 pass
 
@@ -116,6 +117,12 @@ class OnReceive:
                 self.emit_event("serial_number", self.serial_number)
             except Exception:
                 pass
+
+        elif lower == "#reading":
+            self.is_reading = True
+
+        elif lower == "#idle":
+            self.is_reading = False
 
         else:
             try:
