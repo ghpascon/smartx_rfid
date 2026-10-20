@@ -14,11 +14,22 @@ class SmtxDb:
         self.db_manager = DatabaseManager(self.connection_string)
         self.db_manager.initialize()
 
+    def _apply_limit_offset(self, query, limit: int | None = None, offset: int | None = None):
+        if offset is not None and offset >= 0:
+            query = query.offset(offset)
+
+        if limit is not None and limit >= 0:
+            query = query.limit(limit)
+
+        return query
+
     # Readers Type
-    def get_reader_types(self):
+    def get_reader_types(self, limit: int | None = None, offset: int | None = None):
         try:
             with self.db_manager.get_session() as session:
-                results = session.query(ReadersType).all()
+                query = session.query(ReadersType)
+                query = self._apply_limit_offset(query, limit=limit, offset=offset)
+                results = query.all()
                 return [r.to_dict() for r in results]
         except Exception as e:
             logging.error(f"Error fetching readers type: {e}")
@@ -90,7 +101,7 @@ class SmtxDb:
             logging.error(f"Error adding reader: {e}")
             return False, None
 
-    def get_readers(self, filters: dict | None = None):
+    def get_readers(self, filters: dict | None = None, limit: int | None = None, offset: int | None = None):
         try:
             with self.db_manager.get_session() as session:
                 query = session.query(Readers, ReadersType.name.label("reader_type_name")).outerjoin(
@@ -107,6 +118,7 @@ class SmtxDb:
                         else:
                             logging.warning(f"Unknown filter field: {field}")
 
+                query = self._apply_limit_offset(query, limit=limit, offset=offset)
                 results = query.all()
                 decoded = []
                 for reader, reader_type_name in results:
@@ -118,20 +130,20 @@ class SmtxDb:
             logging.error(f"Error fetching readers: {e}")
             return []
 
-    def get_available_readers(self):
-        readers = self.get_readers(filters={"available": True})
+    def get_available_readers(self, limit: int | None = None, offset: int | None = None):
+        readers = self.get_readers(filters={"available": True}, limit=limit, offset=offset)
         return readers
 
-    def get_readers_by_type(self, reader_type_id: int):
-        readers = self.get_readers(filters={"reader_type_id": reader_type_id})
+    def get_readers_by_type(self, reader_type_id: int, limit: int | None = None, offset: int | None = None):
+        readers = self.get_readers(filters={"reader_type_id": reader_type_id}, limit=limit, offset=offset)
         return readers
 
-    def get_readers_by_type_name(self, type_name: str):
-        readers = self.get_readers(filters={"name": type_name})
+    def get_readers_by_type_name(self, type_name: str, limit: int | None = None, offset: int | None = None):
+        readers = self.get_readers(filters={"name": type_name}, limit=limit, offset=offset)
         return readers
 
-    def get_readers_by_availability(self, available: bool):
-        readers = self.get_readers(filters={"available": available})
+    def get_readers_by_availability(self, available: bool, limit: int | None = None, offset: int | None = None):
+        readers = self.get_readers(filters={"available": available}, limit=limit, offset=offset)
         return readers
 
     def get_reader(self, reader_id: int):
@@ -142,8 +154,8 @@ class SmtxDb:
         readers = self.get_readers(filters={"hostname": hostname})
         return readers[0] if readers else None
 
-    def get_reader_by_ids(self, reader_ids: list):
-        readers = self.get_readers(filters={"id": reader_ids})
+    def get_reader_by_ids(self, reader_ids: list, limit: int | None = None, offset: int | None = None):
+        readers = self.get_readers(filters={"id": reader_ids}, limit=limit, offset=offset)
         return readers
 
     def get_reader_by_serial(self, serial_number: str):
@@ -229,7 +241,7 @@ class SmtxDb:
         return True, None
 
     # Product Orders
-    def get_product_orders(self, filters: dict | None = None):
+    def get_product_orders(self, filters: dict | None = None, limit: int | None = None, offset: int | None = None):
         """
         Busca pedidos de produto, aceitando filtros de igualdade e de intervalo (__gte, __lte).
         """
@@ -282,6 +294,7 @@ class SmtxDb:
                         else:
                             logging.warning(f"Unknown filter field: {field}")
 
+                query = self._apply_limit_offset(query, limit=limit, offset=offset)
                 results = query.all()
                 decoded = []
                 for (
@@ -314,53 +327,68 @@ class SmtxDb:
         order = self.get_product_orders(filters={"id": order_id})
         return order[0] if order else None
 
-    def get_product_orders_by_ids(self, order_ids: list):
-        orders = self.get_product_orders(filters={"id": order_ids})
+    def get_product_orders_by_ids(self, order_ids: list, limit: int | None = None, offset: int | None = None):
+        orders = self.get_product_orders(filters={"id": order_ids}, limit=limit, offset=offset)
         return orders
 
-    def get_product_orders_by_client(self, client: str):
-        orders = self.get_product_orders(filters={"client_name": client})
+    def get_product_orders_by_client(self, client: str, limit: int | None = None, offset: int | None = None):
+        orders = self.get_product_orders(filters={"client_name": client}, limit=limit, offset=offset)
         return orders
 
-    def get_product_orders_by_cnpj(self, cnpj: str):
-        orders = self.get_product_orders(filters={"client_cnpj": cnpj})
+    def get_product_orders_by_cnpj(self, cnpj: str, limit: int | None = None, offset: int | None = None):
+        orders = self.get_product_orders(filters={"client_cnpj": cnpj}, limit=limit, offset=offset)
         return orders
 
-    def get_product_orders_by_product_code(self, product_code: str):
-        orders = self.get_product_orders(filters={"product_code": product_code})
+    def get_product_orders_by_product_code(
+        self, product_code: str, limit: int | None = None, offset: int | None = None
+    ):
+        orders = self.get_product_orders(filters={"product_code": product_code}, limit=limit, offset=offset)
         return orders
 
-    def get_product_orders_by_order_number(self, order_number: int):
-        orders = self.get_product_orders(filters={"order_number": order_number})
+    def get_product_orders_by_order_number(
+        self, order_number: int, limit: int | None = None, offset: int | None = None
+    ):
+        orders = self.get_product_orders(filters={"order_number": order_number}, limit=limit, offset=offset)
         return orders
 
-    def get_product_orders_by_label_code(self, label_code: str):
-        orders = self.get_product_orders(filters={"label_code": label_code})
+    def get_product_orders_by_label_code(self, label_code: str, limit: int | None = None, offset: int | None = None):
+        orders = self.get_product_orders(filters={"label_code": label_code}, limit=limit, offset=offset)
         return orders
 
-    def get_product_orders_by_date(self, start_date: datetime, end_date: datetime, field: str = "created_at"):
+    def get_product_orders_by_date(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        field: str = "created_at",
+        limit: int | None = None,
+        offset: int | None = None,
+    ):
         if getattr(Orders, field, None) is None:
             logging.error(f"Invalid field '{field}' for date filtering in Orders")
             return []
         filters = {f"{field}__gte": start_date, f"{field}__lte": end_date}
         try:
-            return self.get_product_orders(filters)
+            return self.get_product_orders(filters, limit=limit, offset=offset)
         except Exception as e:
             logging.error(f"Error fetching product orders between {start_date} and {end_date}: {e}")
             return []
 
-    def get_product_orders_by_reader_type(self, reader_type_id: int):
-        return self.get_product_orders(filters={"reader_type_id": reader_type_id})
+    def get_product_orders_by_reader_type(
+        self, reader_type_id: int, limit: int | None = None, offset: int | None = None
+    ):
+        return self.get_product_orders(filters={"reader_type_id": reader_type_id}, limit=limit, offset=offset)
 
-    def get_product_orders_by_reader_type_name(self, reader_type_name: str):
+    def get_product_orders_by_reader_type_name(
+        self, reader_type_name: str, limit: int | None = None, offset: int | None = None
+    ):
         type_id = self.get_reader_types()
         type_id = next((t.get("id") for t in type_id if t.get("name") == reader_type_name), None)
         if type_id is None:
             return []
-        return self.get_product_orders(filters={"reader_type_id": type_id})
+        return self.get_product_orders(filters={"reader_type_id": type_id}, limit=limit, offset=offset)
 
-    def get_product_orders_by_reader(self, reader_id: int):
-        orders = self.get_product_orders(filters={"reader_id": reader_id})
+    def get_product_orders_by_reader(self, reader_id: int, limit: int | None = None, offset: int | None = None):
+        orders = self.get_product_orders(filters={"reader_id": reader_id}, limit=limit, offset=offset)
         return orders
 
     def add_product_order(
@@ -526,10 +554,12 @@ class SmtxDb:
         return self.update_product_order(order_id, activated_at=datetime.now(), activated_by=activated_by)
 
     # [ USERS ]
-    def get_users(self):
+    def get_users(self, limit: int | None = None, offset: int | None = None):
         try:
             with self.db_manager.get_session() as session:
-                results = session.query(Users).all()
+                query = session.query(Users)
+                query = self._apply_limit_offset(query, limit=limit, offset=offset)
+                results = query.all()
                 return [r.to_dict() for r in results]
         except Exception as e:
             logging.error(f"Error fetching users: {e}")
@@ -553,12 +583,14 @@ class SmtxDb:
             logging.error(f"Error fetching user with username {username}: {e}")
             return None
 
-    def get_users_by_role(self, role: str | list):
+    def get_users_by_role(self, role: str | list, limit: int | None = None, offset: int | None = None):
         if isinstance(role, str):
             role = [role]
         try:
             with self.db_manager.get_session() as session:
-                results = session.query(Users).filter(Users.role.in_(role)).all()
+                query = session.query(Users).filter(Users.role.in_(role))
+                query = self._apply_limit_offset(query, limit=limit, offset=offset)
+                results = query.all()
                 return [r.to_dict() for r in results]
         except Exception as e:
             logging.error(f"Error fetching users with role {role}: {e}")
@@ -618,27 +650,29 @@ class SmtxDb:
         return True, None
 
     # [ UTILS ]
-    def _get_column_values(self, model, column_name):
+    def _get_column_values(self, model, column_name, limit: int | None = None, offset: int | None = None):
         try:
             with self.db_manager.get_session() as session:
                 column = getattr(model, column_name, None)
                 if column is None:
                     logging.error(f"Model {model.__name__} does not have column {column_name}")
                     return []
-                results = session.query(column).distinct().all()
+                query = session.query(column).distinct()
+                query = self._apply_limit_offset(query, limit=limit, offset=offset)
+                results = query.all()
                 return [getattr(r, column_name) for r in results if getattr(r, column_name) is not None]
         except Exception as e:
             logging.error(f"Error fetching column values for {model.__name__}.{column_name}: {e}")
             return []
 
-    def get_customers(self):
-        return self._get_column_values(Orders, "client_name")
+    def get_customers(self, limit: int | None = None, offset: int | None = None):
+        return self._get_column_values(Orders, "client_name", limit=limit, offset=offset)
 
-    def get_cnpjs(self):
-        return self._get_column_values(Orders, "client_cnpj")
+    def get_cnpjs(self, limit: int | None = None, offset: int | None = None):
+        return self._get_column_values(Orders, "client_cnpj", limit=limit, offset=offset)
 
-    def get_orders_numbers(self):
-        return self._get_column_values(Orders, "order_number")
+    def get_orders_numbers(self, limit: int | None = None, offset: int | None = None):
+        return self._get_column_values(Orders, "order_number", limit=limit, offset=offset)
 
-    def get_product_codes(self):
-        return self._get_column_values(Orders, "product_code")
+    def get_product_codes(self, limit: int | None = None, offset: int | None = None):
+        return self._get_column_values(Orders, "product_code", limit=limit, offset=offset)
