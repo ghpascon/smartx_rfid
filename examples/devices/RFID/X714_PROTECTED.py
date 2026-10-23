@@ -21,7 +21,7 @@ XPAD = X714(
 )
 
 
-def on_tag(device: str, tag_data: dict):
+def on_tag(device: dict, tag_data: dict):
     new_tag, tag = tags.add(tag_data, device=device)
     if new_tag:
         tag["descricao"] = "product ABC"  # Example of adding extra info to new tags
@@ -32,11 +32,11 @@ def on_tag(device: str, tag_data: dict):
         logging.info(f"[ EXISTING TAG ] {tag}")
 
 
-def on_event(name: str, event_type: str, data):
+def on_event(device: dict, event_type: str, data):
     if event_type == "tag":
-        on_tag(name, data)
+        on_tag(device, data)
     else:
-        logging.info(f"Event from {name} - {event_type}: {data}")
+        logging.info(f"Event from {device.get('name')} (SN: {device.get('serial_number')}) - {event_type}: {data}")
 
 
 async def main():

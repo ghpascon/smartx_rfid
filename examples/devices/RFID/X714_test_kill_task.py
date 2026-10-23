@@ -12,20 +12,22 @@ logging.basicConfig(
 devices = []
 
 
-def on_tag_event(name: str, tag_data: dict):
+def on_tag_event(device_info: dict, tag_data: dict):
     """Callback for when a tag is read"""
     print(f"🏷️  Tag Read: {tag_data}")
     print()
 
 
-def on_x714_event(name: str, event_type: str, event_data=None):
+def on_x714_event(device_info: dict, event_type: str, event_data=None):
     """General event handler for X714 events"""
     global devices
     print("=" * 60)
     if event_type == "tag":
-        on_tag_event(name, event_data)
+        on_tag_event(device_info, event_data)
         return
-    print(f"{name} -> Event: {event_type}, Data: {event_data}")
+    print(
+        f"{device_info.get('name')} (SN: {device_info.get('serial_number')}) -> Event: {event_type}, Data: {event_data}"
+    )
     print()
     if event_type == "connected" and event_data:
         print("reset devices - closing old devices first")

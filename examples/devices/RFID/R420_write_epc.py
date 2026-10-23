@@ -52,8 +52,9 @@ async def _write_epc_background(epc: str, tid: str | None) -> None:
             logging.warning("write_epc failed for %s: %s", epc, exc)
 
 
-def on_event(name: str, event_type: str, event_data=None):
-    print(f"[{name}] {event_type}: {event_data}")
+def on_event(device: dict, event_type: str, event_data=None):
+    name = device.get("name")
+    print(f"[{name}] (SN: {device.get('serial_number')}) {event_type}: {event_data}")
     if event_type == "tag":
         print(f"[{name}] writing EPC for tag {event_data.get('epc')}")
         epc: str = event_data.get("epc")

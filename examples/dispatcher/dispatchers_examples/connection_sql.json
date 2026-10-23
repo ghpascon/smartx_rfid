@@ -40,9 +40,10 @@
             "operator": "eq"
         }
     ],
-    "query": "INSERT INTO device_connection_events (device, connected, event_type) VALUES (:device, :connected, :event_type)",
+    "query": "INSERT INTO device_connection_events (device, device_serial_number, connected, event_type) VALUES (:device, :device_serial_number, :connected, :event_type)",
     "params": {
         "device": "{name}",
+        "device_serial_number": "{device[serial_number]}",
         "connected": "{data}",
         "event_type": "{event_type}"
     }

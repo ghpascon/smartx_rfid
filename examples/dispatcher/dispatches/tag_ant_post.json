@@ -31,6 +31,7 @@
     },
     "body": {
         "device": "{name}",
+        "device_serial_number": "{device[serial_number]}",
         "epc": "{data[epc]}",
         "tid": "{data[tid]}",
         "ant": "{data[ant]}",

@@ -8,7 +8,7 @@ Usage
 -----
     dispatcher = EventDispatcher(dispatches_path="dispatches/")
     await dispatcher.start()
-    await dispatcher.add_async("my_service", "user.created", {"id": 1})
+    await dispatcher.add_async({"name": "my_service", "serial_number": "SN123"}, "user.created", {"id": 1})
     await dispatcher.stop()
 
 Dispatch JSON schema
@@ -75,7 +75,10 @@ MONGODB:
         "retry_backoff_seconds": 0.25
     }
 
-Template placeholders: {name}, {event_type}, {data}, {data[key]}
+Template placeholders: {name}, {serial_number}, {device}, {device[key]}, {event_type}, {data}, {data[key]}
+
+The first argument of ``add``/``add_async`` is a device dict ``{"name": ..., "serial_number": ...}``.
+A plain string is accepted and converted to ``{"name": <string>, "serial_number": None}``.
 """
 
 # noqa: E741
@@ -99,6 +102,7 @@ from .http_dispatcher import HttpDispatcher, _PostItem
 from .mongo_dispatcher import MongoDispatcher, _MongoBatchKey, _MongoItem
 from .mqtt_dispatcher import MqttDispatcher, _MqttBatchKey, _MqttItem
 from .sql_dispatcher import SqlDispatcher, _SqlBatchKey, _SqlItem
+from smartx_rfid.utils.event import normalize_device
 
 
 logger = logging.getLogger(__name__)
@@ -109,6 +113,7 @@ logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]+)\}")
 _DATA_KEY_PATTERN = re.compile(r"^data\[([^\]]+)\]$")
+_DEVICE_KEY_PATTERN = re.compile(r"^device\[([^\]]+)\]$")
 _STOP = object()
 
 
@@ -120,7 +125,7 @@ _STOP = object()
 @dataclass(slots=True)
 class _Event:
     event_id: int
-    name: str
+    device: dict[str, Any]
     event_type: str
     data: Any
     queued_at: float
@@ -340,19 +345,24 @@ class EventDispatcher:
     # Public API — add events
     # ------------------------------------------------------------------
 
-    async def add_async(self, name: str, event_type: str, data: Any = None, verbose: bool = False) -> bool:
+    async def add_async(
+        self, device: dict[str, Any] | str, event_type: str, data: Any = None, verbose: bool = False
+    ) -> bool:
         """
         Enqueue an event. Starts the dispatcher automatically if not running.
+        ``device`` is a dict ``{"name": ..., "serial_number": ...}`` (a string is treated as the name).
         Returns True if accepted, False if dropped.
         """
         self._stats["events_received"] += 1
+        device = normalize_device(device)
+        name = device.get("name")
         if not self._started:
             self._ensure_start_task()
             await self.start()
 
         event = _Event(
             event_id=self._next_event_id,
-            name=name,
+            device=device,
             event_type=event_type,
             data=data,
             queued_at=time.monotonic(),
@@ -377,13 +387,16 @@ class EventDispatcher:
             logger.exception("Event dropped (error) | name=%s event_type=%s", name, event_type)
             return False
 
-    def add(self, name: str, event_type: str, data: Any = None, verbose: bool = False) -> bool:
+    def add(self, device: dict[str, Any] | str, event_type: str, data: Any = None, verbose: bool = False) -> bool:
         """
         Fire-and-forget enqueue from within a running event loop.
+        ``device`` is a dict ``{"name": ..., "serial_number": ...}`` (a string is treated as the name).
         Use ``add_async`` when you need confirmation the event was accepted.
         Returns True if accepted, False if dropped.
         """
         self._stats["events_received"] += 1
+        device = normalize_device(device)
+        name = device.get("name")
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -400,7 +413,7 @@ class EventDispatcher:
 
         event = _Event(
             event_id=self._next_event_id,
-            name=name,
+            device=device,
             event_type=event_type,
             data=data,
             queued_at=time.monotonic(),
@@ -664,7 +677,13 @@ class EventDispatcher:
 
     async def _process(self, event: _Event) -> None:
         self._stats["events_processed"] += 1
-        ctx: dict[str, Any] = {"name": event.name, "event_type": event.event_type, "data": event.data}
+        ctx: dict[str, Any] = {
+            "name": event.device.get("name"),
+            "serial_number": event.device.get("serial_number"),
+            "device": event.device,
+            "event_type": event.event_type,
+            "data": event.data,
+        }
 
         bucket = self._routes_by_event.get(event.event_type)
         for plan in bucket.post if bucket else []:
@@ -1147,12 +1166,16 @@ class EventDispatcher:
 
     @staticmethod
     def _resolve(token: str, ctx: dict[str, Any]) -> Any:
-        if token in ("name", "event_type", "data"):
+        if token in ("name", "serial_number", "device", "event_type", "data"):
             return ctx.get(token)
         m = _DATA_KEY_PATTERN.match(token)
         if m:
             data = ctx.get("data")
             return data.get(m.group(1)) if isinstance(data, dict) else None
+        m = _DEVICE_KEY_PATTERN.match(token)
+        if m:
+            device = ctx.get("device")
+            return device.get(m.group(1)) if isinstance(device, dict) else None
         return None
 
     # ------------------------------------------------------------------

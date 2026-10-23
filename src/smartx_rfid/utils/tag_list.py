@@ -5,6 +5,7 @@ from threading import Lock
 import logging
 from pyepc import SGTIN
 from smartx_rfid.schemas.tag import TagSchema
+from smartx_rfid.utils.event import normalize_device
 
 
 class TagList:
@@ -117,9 +118,16 @@ class TagList:
         if new_value:
             self._index[field][new_value] = primary_key
 
-    def add(self, tag: Dict[str, Any], device: str = "Unknown") -> Tuple[bool, Optional[Dict[str, Any]]]:
+    def add(
+        self, tag: Dict[str, Any], device: Dict[str, Any] | str = "Unknown"
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
         Add or update a tag.
+
+        Args:
+            tag: Raw tag data.
+            device: Device dict ``{"name": ..., "serial_number": ...}``. A plain
+                string is converted to ``{"name": device}``.
 
         Returns:
             (True, tag_dict)   if the tag is new;
@@ -127,6 +135,7 @@ class TagList:
             (False, None)      if an error occurs;
         """
         try:
+            device = normalize_device(device)
             # Validate Tag
             tag = TagSchema(**tag).model_dump()
             if self.fix_24_char_epc and not len(tag.get("epc")) == 24:
@@ -162,13 +171,13 @@ class TagList:
             logging.error(f"[ TAG ERROR ] {e}")
             return False, None
 
-    def _new_tag(self, tag: Dict[str, Any], device: str) -> Dict[str, Any]:
+    def _new_tag(self, tag: Dict[str, Any], device: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create and store a new tag.
 
         Args:
             tag: Raw tag data.
-            device: Source device identifier.
+            device: Source device dict (name, serial_number).
 
         Returns:
             The stored tag dictionary.
@@ -190,7 +199,8 @@ class TagList:
         stored_tag = {
             "timestamp": now,
             "first_seen": now,
-            "device": device,
+            "device": device.get("name"),
+            "device_serial_number": device.get("serial_number"),
             **tag,
             "gtin": gtin,
             "chip": chip_name,
@@ -202,13 +212,13 @@ class TagList:
 
         return stored_tag
 
-    def _existing_tag(self, tag: Dict[str, Any], device: str) -> Dict[str, Any]:
+    def _existing_tag(self, tag: Dict[str, Any], device: Dict[str, Any]) -> Dict[str, Any]:
         """
         Update an existing tag.
 
         Args:
             tag: Incoming tag data.
-            device: Source device identifier.
+            device: Source device dict (name, serial_number).
         Returns:
             The updated stored tag.
         """
@@ -223,8 +233,10 @@ class TagList:
         current["rssi"] = tag.get("rssi")
         current["ant"] = tag.get("ant")
         current["epc_len"] = tag.get("epc_len")
-        if not device == current["device"]:
-            current["device"] = device
+        if not device.get("name") == current.get("device"):
+            current["device"] = device.get("name")
+        if not device.get("serial_number") == current.get("device_serial_number"):
+            current["device_serial_number"] = device.get("serial_number")
         if not tag.get("epc") == current.get("epc"):
             current["epc"] = tag.get("epc")
             try:
@@ -393,15 +405,16 @@ class TagList:
         with self._lock:
             return self._remove_where(lambda tag: not tag.get("timestamp") or tag["timestamp"] < timestamp)
 
-    def remove_tags_by_device(self, device: str) -> list[Dict[str, Any]]:
+    def remove_tags_by_device(self, device: Dict[str, Any] | str) -> list[Dict[str, Any]]:
         """
         Remove all tags associated with a specific device.
 
         Args:
-            device: Device identifier.
+            device: Device dict (matched by name) or device name string.
 
         Returns:
             A list with all removed tags.
         """
+        device_name = normalize_device(device).get("name")
         with self._lock:
-            return self._remove_where(lambda tag: tag.get("device") == device)
+            return self._remove_where(lambda tag: tag.get("device") == device_name)

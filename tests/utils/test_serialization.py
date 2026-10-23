@@ -139,7 +139,7 @@ class TestSerialization:
         }
         result = webhook_manager._make_serializable(dict_data)
         assert isinstance(result, dict)
-        assert result["name"] == "test"
+        assert result.get("name") == "test"
         assert result["timestamp"] == "2024-01-17T10:30:00"
         assert result["count"] == 42
         assert result["nested"]["inner"] == "2024-01-17T00:00:00"
@@ -149,7 +149,7 @@ class TestSerialization:
         custom_obj = CustomClass(name="test_object", value=100)
         result = webhook_manager._make_serializable(custom_obj)
         assert isinstance(result, dict)
-        assert result["name"] == "test_object"
+        assert result.get("name") == "test_object"
         assert result["value"] == 100
 
     def test_serialize_nested_custom_class(self, webhook_manager):
@@ -164,7 +164,7 @@ class TestSerialization:
         result = webhook_manager._make_serializable(nested_obj)
         assert isinstance(result, dict)
         assert result["timestamp"] == "2024-01-17T15:30:00"
-        assert result["data"]["name"] == "nested"
+        assert result["data"].get("name") == "nested"
         assert result["data"]["value"] == 50
 
     def test_serialize_complex_structure(self, webhook_manager):
@@ -195,7 +195,7 @@ class TestSerialization:
         assert result["tags"][0]["timestamp"] == "2024-01-17T10:30:45"
         assert result["tags"][0]["rssi"] == -45.5
         assert result["tags"][1]["rssi"] == -50.2
-        assert result["reader_info"]["name"] == "R700"
+        assert result["reader_info"].get("name") == "R700"
         assert result["reader_info"]["value"] == 1
         assert isinstance(result["active_antennas"], list)
         assert len(result["active_antennas"]) == 4
@@ -219,14 +219,33 @@ async def test_post_event_builds_standard_payload(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
 
     manager = WebhookManager(url="http://example.com/webhook")
-    success = await manager.post_event(device="reader-01", event_type="tag_read", event_data={"epc": "ABC"})
+    success = await manager.post_event(
+        device={"name": "reader-01", "serial_number": "SN-1"}, event_type="tag_read", event_data={"epc": "ABC"}
+    )
 
     assert success is True
     assert len(MockWebhookAsyncClient.post_calls) == 1
     sent_payload = MockWebhookAsyncClient.post_calls[0]["json"]
-    assert sent_payload == {"device": "reader-01", "event_type": "tag_read", "event_data": {"epc": "ABC"}}
+    assert sent_payload == {
+        "device": {"name": "reader-01", "serial_number": "SN-1"},
+        "event_type": "tag_read",
+        "event_data": {"epc": "ABC"},
+    }
 
     await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_event_converts_string_device_to_dict(monkeypatch):
+    MockWebhookAsyncClient.reset()
+    monkeypatch.setattr(httpx, "AsyncClient", MockWebhookAsyncClient)
+
+    manager = WebhookManager(url="http://example.com/webhook")
+    success = await manager.post_event(device="reader-01", event_type="tag_read", event_data={"epc": "ABC"})
+
+    assert success is True
+    sent_payload = MockWebhookAsyncClient.post_calls[0]["json"]
+    assert sent_payload["device"] == {"name": "reader-01", "serial_number": None}
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ dispatcher = EventDispatcher(
 
 async def main():
     await dispatcher.add_async(
-        "XPAD",
+        {"name": "XPAD", "serial_number": "SN-XPAD"},
         "tag",
         {
             "epc": "000000000000000000000001",
@@ -24,7 +24,7 @@ async def main():
     )
 
     # await dispatcher.add_async(
-    #     "XPAD",
+    #     {"name": "XPAD", "serial_number": "SN-XPAD"},
     #     "tag",
     #     {
     #         "epc": "000000000000000000000002",
@@ -35,7 +35,7 @@ async def main():
     # )
 
     # await dispatcher.add_async(
-    #     "R700",
+    #     {"name": "R700", "serial_number": "SN-R700"},
     #     "tag",
     #     {
     #         "epc": "000000000000000000000003",

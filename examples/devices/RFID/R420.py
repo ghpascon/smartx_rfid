@@ -11,11 +11,12 @@ logging.basicConfig(
 )
 
 
-def on_event(name: str, event_type: str, event_data=None):
+def on_event(device: dict, event_type: str, event_data=None):
+    name = device.get("name")
     if event_type == "tag":
         print(f"[{name}] TAG -> {event_data}")
         return
-    print(f"[{name}] {event_type}: {event_data}")
+    print(f"[{name}] (SN: {device.get('serial_number')}) {event_type}: {event_data}")
 
 
 async def main():

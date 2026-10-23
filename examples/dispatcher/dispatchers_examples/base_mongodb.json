@@ -2,7 +2,10 @@
     "_usage": {
         "description": "MongoDB async dispatch template using Async PyMongo. String values wrapped in {} are placeholders replaced at dispatch time.",
         "available_placeholders": {
-            "{name}": "Device name passed to the dispatch function.",
+            "{name}": "Device name (device dict key 'name').",
+            "{serial_number}": "Device serial number (device dict key 'serial_number'; null until known).",
+            "{device}": "Full device dict received by the dispatcher: {\"name\": ..., \"serial_number\": ...}.",
+            "{device[key]}": "Access a key of the device dict (e.g. {device[name]}, {device[serial_number]}).",
             "{event_type}": "Event type string passed to the dispatch function.",
             "{data}": "Raw event_data value passed to the dispatch function. This can be any type, including bool, string, number, list, or dict.",
             "{data[key]}": "Access a field only when event_data is dict-like (e.g. {data[epc]}, {data[rssi]})."
@@ -31,7 +34,7 @@
             "database": "string — target database name (required)",
             "collection": "string — target collection name (required)",
             "ordered": "boolean — ordered insert_many behavior (default true)",
-            "document": "object|value — document template; supports placeholders {name}, {event_type}, {data}, {data[key]}",
+            "document": "object|value — document template; supports placeholders {name}, {serial_number}, {device[key]}, {event_type}, {data}, {data[key]}",
             "allow_batches": "boolean — whether this dispatch should be batched (default true)",
             "batch_size": "int — max docs per batch before immediate flush (default from dispatcher constructor)",
             "flush_interval_seconds": "number — max wait time before flushing pending batch (seconds; default from dispatcher constructor)",
@@ -54,6 +57,7 @@
     "filters": [],
     "document": {
         "device": "{name}",
+        "device_serial_number": "{device[serial_number]}",
         "event_type": "{event_type}",
         "epc": "{data[epc]}",
         "tid": "{data[tid]}",

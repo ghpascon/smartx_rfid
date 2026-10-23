@@ -54,9 +54,10 @@
             "operator": "in"
         }
     ],
-    "query": "INSERT INTO tag_events (device, epc, tid, ant, rssi, timestamp) VALUES (:device, :epc, :tid, :ant, :rssi, :timestamp)",
+    "query": "INSERT INTO tag_events (device, device_serial_number, epc, tid, ant, rssi, timestamp) VALUES (:device, :device_serial_number, :epc, :tid, :ant, :rssi, :timestamp)",
     "params": {
         "device": "{name}",
+        "device_serial_number": "{device[serial_number]}",
         "epc": "{data[epc]}",
         "tid": "{data[tid]}",
         "ant": "{data[ant]}",

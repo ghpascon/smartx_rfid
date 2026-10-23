@@ -37,6 +37,7 @@ async def test_mongodb_dispatch_uses_placeholders_and_respects_flush_interval(tm
             "retry_backoff_seconds": 0.05,
             "document": {
                 "device": "{name}",
+                "device_serial_number": "{device[serial_number]}",
                 "event": "{event_type}",
                 "epc": "{data[epc]}",
                 "rssi": "{data[rssi]}",
@@ -66,9 +67,10 @@ async def test_mongodb_dispatch_uses_placeholders_and_respects_flush_interval(tm
     await dispatcher.start()
     try:
         start = time.monotonic()
-        await dispatcher.add_async("XPAD", "tag", {"epc": "E1", "rssi": -55})
-        await dispatcher.add_async("XPAD", "tag", {"epc": "E2", "rssi": -57})
-        await dispatcher.add_async("XPAD", "tag", {"epc": "E3", "rssi": -58})
+        device = {"name": "XPAD", "serial_number": "SN-XPAD"}
+        await dispatcher.add_async(device, "tag", {"epc": "E1", "rssi": -55})
+        await dispatcher.add_async(device, "tag", {"epc": "E2", "rssi": -57})
+        await dispatcher.add_async(device, "tag", {"epc": "E3", "rssi": -58})
 
         await asyncio.wait_for(sent.wait(), timeout=2.0)
 
@@ -79,6 +81,7 @@ async def test_mongodb_dispatch_uses_placeholders_and_respects_flush_interval(tm
         assert isinstance(captured["docs"], list)
         assert len(captured["docs"]) == 3
         assert captured["docs"][0]["device"] == "XPAD"
+        assert captured["docs"][0]["device_serial_number"] == "SN-XPAD"
         assert captured["docs"][0]["event"] == "tag"
         assert captured["docs"][0]["epc"] == "E1"
         assert captured["docs"][0]["rssi"] == -55

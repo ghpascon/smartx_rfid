@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 
-def on_tag_event(name: str, tag_data: dict):
+def on_tag_event(device: dict, tag_data: dict):
     """Callback for when a tag is read"""
     print(f"🏷️  Tag Read: {tag_data}")
     print()
@@ -27,13 +27,13 @@ def on_tag_event(name: str, tag_data: dict):
         asyncio.create_task(x714_serial.write_epc(target_identifier, target_epc, new_epc, password))
 
 
-def on_x714_event(name: str, event_type: str, event_data=None):
+def on_x714_event(device: dict, event_type: str, event_data=None):
     """General event handler for X714 events"""
     print("=" * 60)
     if event_type == "tag":
-        on_tag_event(name, event_data)
+        on_tag_event(device, event_data)
         return
-    print(f"{name} -> Event: {event_type}, Data: {event_data}")
+    print(f"{device.get('name')} (SN: {device.get('serial_number')}) -> Event: {event_type}, Data: {event_data}")
     print()
 
 

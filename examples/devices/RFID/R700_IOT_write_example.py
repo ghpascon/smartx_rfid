@@ -59,7 +59,7 @@ logging.basicConfig(
 )
 
 
-def on_tag_event(name: str, tag_data: dict):
+def on_tag_event(device: dict, tag_data: dict):
     """Callback for when a tag is read"""
     print(f"🏷️  Tag Read: {tag_data}")
     print()
@@ -70,13 +70,13 @@ def on_tag_event(name: str, tag_data: dict):
         asyncio.create_task(r700_iot.write_epc(target_identifier, target_value, new_epc, password))
 
 
-def on_r700_iot_event(name: str, event_type: str, event_data=None):
+def on_r700_iot_event(device: dict, event_type: str, event_data=None):
     """General event handler for R700_IOT events"""
     print("=" * 60)
     if event_type == "tag":
-        on_tag_event(name, event_data)
+        on_tag_event(device, event_data)
         return
-    print(f"{name} -> Event: {event_type}, Data: {event_data}")
+    print(f"{device.get('name')} (SN: {device.get('serial_number')}) -> Event: {event_type}, Data: {event_data}")
     print()
 
 

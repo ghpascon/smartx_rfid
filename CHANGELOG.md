@@ -7,12 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Device `emit_event` now sends a `device` dict `{"name": ..., "serial_number": ...}` as the first `on_event` argument instead of the name string.
+- `TagList.add`, `TagList.remove_tags_by_device`, `EventDispatcher.add/add_async` and `WebhookManager.post_event` accept a device dict (strings are converted to `{"name": name}`).
+- Tags now include `device_serial_number`.
+- Dispatch templates support `{serial_number}`, `{device}` and `{device[key]}`; examples updated.
+
 ## [9.0.0] - 2026-04-16
 
 ### Changed
+
 - WebhookManager post -> post_events
 - post can be custom
-
 
 ## [1.6.0] - 2026-01-16
 
@@ -25,13 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add webhook class
-  
+
 ## [1.4.0] - 2026-01-15
 
 ### Added
 
 - Add database class
-  
+
 ## [1.3.0] - 2026-01-15
 
 ### Added
@@ -56,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add R700 Device
-  
+
 ## [0.3.0] - 2026-01-13
 
 ### Added

@@ -23,8 +23,9 @@ class DeviceBase:
         self._connected_since: datetime | None = None
         self._reading_since: datetime | None = None
         # Event handler default (can be overridden per-device or by DeviceManager)
-        # Signature: on_event(name: str, event_type: str, event_data=None)
-        self.on_event: Callable[[str, str, Any], None] = on_event
+        # Signature: on_event(device: dict, event_type: str, event_data=None)
+        # device = {"name": str, "serial_number": str | None}
+        self.on_event: Callable[[dict, str, Any], None] = on_event
 
     def create_task(self, coro: asyncio.coroutines):
         loop = asyncio.get_running_loop()
@@ -113,12 +114,14 @@ class DeviceBase:
     def emit_event(self, event_type: str, event_data: Any = None, *, name: Optional[str] = None) -> None:
         """Call the configured event handler safely.
 
+        The handler receives a device dict: {"name": name, "serial_number": serial_number}.
         Defaults to `smartx_rfid.utils.event.on_event` if not overridden.
         """
         try:
             target_name = name or getattr(self, "name", None) or "UNKNOWN"
+            device = {"name": target_name, "serial_number": getattr(self, "serial_number", None)}
             if callable(self.on_event):
-                self.on_event(target_name, event_type, event_data)
+                self.on_event(device, event_type, event_data)
         except Exception as e:
             logging.error(f"Error in event handler for {getattr(self, 'name', None)}: {e}")
 

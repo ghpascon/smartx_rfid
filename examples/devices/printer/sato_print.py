@@ -20,8 +20,8 @@ logging.basicConfig(
 )
 
 
-def on_event(name: str, event_type: str, event_data=None):
-    print(f"{name} -> Event: {event_type}, Data: {event_data}")
+def on_event(device: dict, event_type: str, event_data=None):
+    print(f"{device.get('name')} (SN: {device.get('serial_number')}) -> Event: {event_type}, Data: {event_data}")
     if event_type == "status" and event_data == "ready":
         if len(print_list) == 0:
             print("No more labels to print.")

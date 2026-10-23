@@ -10,8 +10,8 @@ logging.basicConfig(
 )
 
 
-def on_serial_event(name: str, event_type: str, event_data=None):
-    print(f"{name} -> Event: {event_type}, Data: {event_data}")
+def on_serial_event(device: dict, event_type: str, event_data=None):
+    print(f"{device.get('name')} (SN: {device.get('serial_number')}) -> Event: {event_type}, Data: {event_data}")
 
 
 async def main():

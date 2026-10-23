@@ -31,8 +31,10 @@ class RuntimeState:
 state = RuntimeState()
 
 
-def on_event(name: str, event_type: str, event_data=None):
-    logging.info("[EVENT] %s - %s: %s", name, event_type, event_data)
+def on_event(device: dict, event_type: str, event_data=None):
+    logging.info(
+        "[EVENT] %s (SN: %s) - %s: %s", device.get("name"), device.get("serial_number"), event_type, event_data
+    )
 
 
 def build_x714_config() -> dict:

@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import httpx
 
+from smartx_rfid.utils.event import normalize_device
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ class WebhookManager:
 
     async def post_event(
         self,
-        device: str,
+        device: Dict[str, Any] | str,
         event_type: str,
         event_data: Any = None,
         headers: Optional[Dict[str, str]] = None,
@@ -223,14 +224,14 @@ class WebhookManager:
         Sends a standardized event payload.
 
         Args:
-            device: Name of the device sending the webhook
+            device: Device dict {"name": ..., "serial_number": ...} (a string is treated as the name)
             event_type: Type of event being sent
             event_data: Event payload data
             headers: Optional headers for the request
             url: Optional target URL. Uses base URL if not provided.
         """
         payload = {
-            "device": device,
+            "device": normalize_device(device),
             "event_type": event_type,
             "event_data": event_data,
         }

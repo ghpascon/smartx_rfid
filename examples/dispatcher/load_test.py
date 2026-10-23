@@ -22,7 +22,11 @@ async def produce_events(dispatcher: EventDispatcher, start_index: int, end_inde
     for index in range(start_index, end_index):
         epc = build_epc(index)
         tid = build_tid_from_epc(epc)
-        device = "XPAD" if rng.randint(0, 1) == 0 else "R700"
+        device = (
+            {"name": "XPAD", "serial_number": "SN-XPAD"}
+            if rng.randint(0, 1) == 0
+            else {"name": "R700", "serial_number": "SN-R700"}
+        )
         ant = rng.randint(1, 4)
         await dispatcher.add_async(
             device,

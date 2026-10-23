@@ -10,7 +10,7 @@
             "on_event": "string — event name to match (required)",
             "url": "string — destination HTTP URL",
             "headers": "object — HTTP headers",
-            "body": "object|array|value — payload template; supports placeholders {name}, {event_type}, {data}, {data[key]}",
+            "body": "object|array|value — payload template; supports placeholders {name}, {serial_number}, {device[key]}, {event_type}, {data}, {data[key]}",
             "allow_batches": "boolean — whether this dispatch should be batched (default true)",
             "batch_size": "int — max items per batch before immediate flush (default from dispatcher constructor)",
             "flush_interval_seconds": "number — max wait time before flushing pending batch (seconds; default from dispatcher constructor)",
@@ -40,6 +40,7 @@
     },
     "body": {
         "device": "{name}",
+        "device_serial_number": "{device[serial_number]}",
         "event_type": "{event_type}",
         "serial_number": "{data}"
     }

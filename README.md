@@ -44,16 +44,16 @@ import asyncio
 from smartx_rfid.devices import X714
 
 
-async def handle_tag(device_name: str, event_data: dict):
-    print(f"[{device_name}] EPC={event_data.get('epc')} RSSI={event_data.get('rssi')}")
+async def handle_tag(device: dict, event_data: dict):
+    print(f"[{device.get('name')}] EPC={event_data.get('epc')} RSSI={event_data.get('rssi')}")
 
 
 async def main():
     reader = X714(name="X714-Reader", start_reading=True)
 
-    def on_event(device_name: str, event_type: str, event_data: dict):
+    def on_event(device: dict, event_type: str, event_data: dict):
         if event_type == "tag":
-            asyncio.create_task(handle_tag(device_name, event_data))
+            asyncio.create_task(handle_tag(device, event_data))
 
     reader.on_event = on_event
     await reader.connect()
@@ -96,17 +96,17 @@ webhook = WebhookManager(
 
 ```python
 success = await webhook.post_event(
-    device="reader-01",
+    device={"name": "reader-01", "serial_number": "SN123"},
     event_type="tag_read",
     event_data={"epc": "E200001175000001", "rssi": -45.2},
 )
 ```
 
-Payload format sent by post_event:
+Payload format sent by post_event (a plain string `device` is converted to `{"name": ..., "serial_number": null}`):
 
 ```json
 {
-  "device": "reader-01",
+  "device": { "name": "reader-01", "serial_number": "SN123" },
   "event_type": "tag_read",
   "event_data": {
     "epc": "E200001175000001",
@@ -217,11 +217,16 @@ with db.get_session() as session:
 All devices share a consistent callback contract:
 
 ```python
-def on_event(device_name: str, event_type: str, event_data: dict):
+def on_event(device: dict, event_type: str, event_data: dict):
+    # device = {"name": "X714-Reader", "serial_number": "SN123" | None}
     # Common event_type values:
     # connected, disconnected, tag, error
     ...
 ```
+
+`TagList.add(tag, device=device)` and `EventDispatcher.add/add_async(device, ...)` receive this same dict
+(a plain string is converted to `{"name": <string>, "serial_number": None}`). Tags stored in `TagList` include
+`device` (name) and `device_serial_number`. Dispatch templates can use `{name}`, `{serial_number}`, `{device}` and `{device[key]}`.
 
 ## Examples Directory
 

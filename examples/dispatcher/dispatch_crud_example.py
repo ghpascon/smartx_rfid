@@ -36,6 +36,7 @@ async def main() -> None:
         },
         "body": {
             "device": "{name}",
+            "device_serial_number": "{device[serial_number]}",
             "event_type": "{event_type}",
             "connected": "{data}",
         },
@@ -62,9 +63,10 @@ async def main() -> None:
                 "operator": "gte",
             },
         ],
-        "query": "INSERT INTO events (device, epc, rssi, ant) VALUES (:device, :epc, :rssi, :ant)",
+        "query": "INSERT INTO events (device, device_serial_number, epc, rssi, ant) VALUES (:device, :device_serial_number, :epc, :rssi, :ant)",
         "params": {
             "device": "{name}",
+            "device_serial_number": "{device[serial_number]}",
             "epc": "{data[epc]}",
             "rssi": "{data[rssi]}",
             "ant": "{data[ant]}",
@@ -91,11 +93,12 @@ async def main() -> None:
     # 5) Start dispatcher and enqueue different event types
     await dispatcher.start()
 
-    await dispatcher.add_async("XPAD", "connection", True)
-    await dispatcher.add_async("XPAD", "reading", True)
-    await dispatcher.add_async("XPAD", "serial_number", "SN-000123456")
+    xpad = {"name": "XPAD", "serial_number": "SN-XPAD-001"}
+    await dispatcher.add_async(xpad, "connection", True)
+    await dispatcher.add_async(xpad, "reading", True)
+    await dispatcher.add_async(xpad, "serial_number", "SN-000123456")
     await dispatcher.add_async(
-        "XPAD",
+        xpad,
         "tag",
         {
             "epc": "E2801170000002089910ABCD",

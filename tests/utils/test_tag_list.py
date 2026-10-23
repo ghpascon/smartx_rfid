@@ -18,6 +18,7 @@ class TestSERIAL:
         assert tag.get("rssi") is None
         assert tag.get("count") == 1
         assert tag.get("device") == "Unknown"
+        assert tag.get("device_serial_number") is None
         assert tag.get("gtin") is None
         assert isinstance(tag.get("timestamp"), datetime)
 
@@ -185,17 +186,43 @@ class TestSERIAL:
 
     def test_remove_tags_by_device_returns_removed_list(self):
         tags = TagList()
-        tags.add({"epc": "000000000000000000000001"}, device="reader_a")
-        tags.add({"epc": "000000000000000000000002"}, device="reader_a")
+        tags.add({"epc": "000000000000000000000001"}, device={"name": "reader_a", "serial_number": "SN-A"})
+        tags.add({"epc": "000000000000000000000002"}, device={"name": "reader_a", "serial_number": "SN-A"})
         tags.add({"epc": "000000000000000000000003"}, device="reader_b")
 
-        removed = tags.remove_tags_by_device("reader_a")
+        removed = tags.remove_tags_by_device({"name": "reader_a", "serial_number": "SN-A"})
 
         assert isinstance(removed, list)
         assert len(removed) == 2
         assert all(tag.get("device") == "reader_a" for tag in removed)
+        assert all(tag.get("device_serial_number") == "SN-A" for tag in removed)
         assert len(tags) == 1
         assert tags.get_by_identifier("000000000000000000000003") is not None
+
+    def test_add_with_device_dict_sets_name_and_serial_number(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001"}, device={"name": "reader_a", "serial_number": "SN-A"})
+
+        tag = tags.get_by_identifier("000000000000000000000001")
+        assert tag.get("device") == "reader_a"
+        assert tag.get("device_serial_number") == "SN-A"
+
+    def test_add_with_device_string_converts_to_dict(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001"}, device="reader_a")
+
+        tag = tags.get_by_identifier("000000000000000000000001")
+        assert tag.get("device") == "reader_a"
+        assert tag.get("device_serial_number") is None
+
+    def test_existing_tag_updates_device_serial_number(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000000000000001"}, device={"name": "reader_a", "serial_number": "SN-A"})
+        tags.add({"epc": "000000000000000000000001"}, device={"name": "reader_b", "serial_number": "SN-B"})
+
+        tag = tags.get_by_identifier("000000000000000000000001")
+        assert tag.get("device") == "reader_b"
+        assert tag.get("device_serial_number") == "SN-B"
 
     def test_get_all_limit(self):
         tags = TagList()

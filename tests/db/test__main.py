@@ -260,7 +260,7 @@ def test_generate_database_backup_dict_output(db_manager):
 
     assert "db_model" in backup
     assert len(backup["db_model"]) == 2
-    names = [row["name"] for row in backup["db_model"]]
+    names = [row.get("name") for row in backup["db_model"]]
     assert "Alpha" in names
     assert "Beta" in names
 
@@ -279,7 +279,7 @@ def test_generate_database_backup_csv_output(db_manager):
 
     rows = list(csv.DictReader(io.StringIO(csv_content)))
     assert len(rows) == 1
-    assert rows[0]["name"] == "CsvUser"
+    assert rows[0].get("name") == "CsvUser"
     assert rows[0]["dt"] == "2024-02-02"
 
 
@@ -298,7 +298,7 @@ def test_generate_database_backup_json_output(db_manager):
     data = json.loads(json_content)
     assert isinstance(data, list)
     assert len(data) == 1
-    assert data[0]["name"] == "JsonUser"
+    assert data[0].get("name") == "JsonUser"
     assert data[0]["dt"] == "2024-03-03"
 
 

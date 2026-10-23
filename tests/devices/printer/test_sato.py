@@ -7,8 +7,8 @@ class DummyEvent:
     def __init__(self):
         self.events = []
 
-    def __call__(self, name, event_type, event_data=None):
-        self.events.append((name, event_type, event_data))
+    def __call__(self, device, event_type, event_data=None):
+        self.events.append((device, event_type, event_data))
 
 
 def test_sato_init():
@@ -24,8 +24,17 @@ def test_sato_event_callback():
     dummy = DummyEvent()
     printer = SatoPrinter(ip="127.0.0.1", name="TestSato", port=9100)
     printer.on_event = dummy
-    printer.on_event(printer.name, "connection", True)
-    assert dummy.events[-1] == ("TestSato", "connection", True)
+    printer.emit_event("connection", True)
+    assert dummy.events[-1] == ({"name": "TestSato", "serial_number": None}, "connection", True)
+
+
+def test_sato_event_callback_includes_serial_number():
+    dummy = DummyEvent()
+    printer = SatoPrinter(ip="127.0.0.1", name="TestSato", port=9100)
+    printer.on_event = dummy
+    printer.serial_number = "SN-1"
+    printer.emit_event("status", "ready")
+    assert dummy.events[-1] == ({"name": "TestSato", "serial_number": "SN-1"}, "status", "ready")
 
 
 def test_sato_device_type():
