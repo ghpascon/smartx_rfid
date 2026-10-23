@@ -126,7 +126,6 @@ class ApiOmie:
 
             orders = data.get("pedido_venda_produto", [])
             page_orders = []
-
             for order in orders:
                 if raw_order:
                     page_orders.append(order)
@@ -134,7 +133,7 @@ class ApiOmie:
                 try:
                     cabecalho = order.get("cabecalho", {})
                     etapa = int(cabecalho.get("etapa", 0))
-
+                    data_faturamento = cabecalho.get("data_previsao")
                     produtos = order.get("det", [])
                     numero_pedido = cabecalho.get("numero_pedido")
                     codigo_cliente = cabecalho.get("codigo_cliente")
@@ -159,6 +158,7 @@ class ApiOmie:
                                             "codigo_cliente": codigo_cliente,  # Será substituído depois
                                             "codigo_produto": codigo,  # Será enriquecido depois
                                             "etapa": etapa,
+                                            "data_faturamento": data_faturamento,
                                         }
                                     )
                         except Exception as e:
@@ -213,6 +213,7 @@ class ApiOmie:
             enriched_order = {
                 "numero_pedido": order.get("numero_pedido"),
                 "etapa": order.get("etapa"),
+                "data_faturamento": order.get("data_faturamento"),
                 "nome_cliente": client.get("nome"),
                 "cnpj_cliente": client.get("cnpj"),
                 "codigo_produto": order.get("codigo_produto"),
