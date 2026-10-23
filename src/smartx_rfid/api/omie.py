@@ -182,14 +182,17 @@ class ApiOmie:
     def validate_product_code(self, product_code: str) -> bool:
         """Validate product code"""
         need_word = ["smtx", "vsix"]
-        return any(word in product_code for word in need_word)
+        forbidden_words = ["slim3p", "p80"]
+        return any(word in product_code for word in need_word) and not any(
+            word in product_code.lower() for word in forbidden_words
+        )
 
     def validate_description(self, description: str) -> bool:
         """Validate product description"""
         if not description:
             return False
         # forbidden descriptions
-        FORBIDDEN_KEYWORDS = ["tag", "estrutura", "etiqueta", "estrutura", "mini pc", "cabo", "26 uhf", "SLIM3P", "p80"]
+        FORBIDDEN_KEYWORDS = ["tag", "estrutura", "etiqueta", "estrutura", "mini pc", "cabo", "26 uhf", "p80"]
         return not any(keyword in description for keyword in FORBIDDEN_KEYWORDS)
 
     def _enrich_orders(
