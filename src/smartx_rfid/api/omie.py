@@ -189,7 +189,7 @@ class ApiOmie:
         if not description:
             return False
         # forbidden descriptions
-        FORBIDDEN_KEYWORDS = ["tag", "estrutura", "etiqueta", "estrutura", "mini pc", "cabo", "26 uhf"]
+        FORBIDDEN_KEYWORDS = ["tag", "estrutura", "etiqueta", "estrutura", "mini pc", "cabo", "26 uhf", "SLIM3P", "p80"]
         return not any(keyword in description for keyword in FORBIDDEN_KEYWORDS)
 
     def _enrich_orders(
