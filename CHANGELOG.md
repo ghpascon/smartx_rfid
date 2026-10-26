@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `LoggerManager` can log to a database (`database_url` or `database_manager`, optional `database_model`), alone or together with the file system. Rows are queued and inserted in batches via `DatabaseManager.bulk_insert` in a background thread, with bounded buffering, retry with backoff and poison-row isolation. New helpers: `flush()`, `wait_until_ready()`, `get_stats()`.
+- `LoggerManager` defaults `base_filename` to the executed script name.
+
+### Fixed
+
+- `smartx_rfid.models.log.Logs` no longer subclasses `DeclarativeBase` directly (it failed on import) and has an isolated metadata.
+
 ### Changed
 
 - Device `emit_event` now sends a `device` dict `{"name": ..., "serial_number": ...}` as the first `on_event` argument instead of the name string.
