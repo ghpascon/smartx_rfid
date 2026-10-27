@@ -95,14 +95,18 @@ def test_positional_storage_days_is_kept(create_logger, tmp_path):
 
 
 def test_file_retention_cleanup_runs_at_startup(create_logger, tmp_path):
-    old_log = tmp_path / "2020-01-01_app.jsonl"
-    recent_log = tmp_path / "2026-10-26_app.jsonl"
+    today = datetime.now().astimezone().date()
+    old_log = tmp_path / "2000-01-01_app.jsonl"
+    yesterday_log = tmp_path / f"{today - timedelta(days=1):%Y-%m-%d}_app.jsonl"
+    recent_log = tmp_path / f"{today:%Y-%m-%d}_app.jsonl"
     old_log.touch()
+    yesterday_log.touch()
     recent_log.touch()
 
     create_logger(log_path=str(tmp_path), base_filename="app", storage_days=1)
 
     assert not old_log.exists()
+    assert yesterday_log.exists()
     assert recent_log.exists()
 
 
@@ -285,6 +289,27 @@ def test_database_retention_deletes_old_rows(create_logger, db_url):
 
     messages = [r.message for r in db.get_all(Logs)]
     assert "ancient" not in messages and "fresh" in messages
+    manager.close()
+    db.close()
+
+
+def test_database_retention_uses_calendar_day_cutoff(create_logger, db_url):
+    db = DatabaseManager(db_url)
+    db.initialize()
+    db.register_models(Logs)
+    db.create_tables()
+    today = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = today - timedelta(days=1)
+    older = today - timedelta(days=2)
+    db.insert_record(Logs, {"timestamp": older, "level": "INFO", "message": "older"})
+    db.insert_record(Logs, {"timestamp": yesterday, "level": "INFO", "message": "yesterday"})
+    db.insert_record(Logs, {"timestamp": today, "level": "INFO", "message": "today"})
+
+    manager = create_logger(database_manager=db, db_storage_days=1)
+    assert manager.wait_until_ready()
+
+    messages = [row.message for row in db.get_all(Logs)]
+    assert "older" not in messages and "yesterday" in messages and "today" in messages
     manager.close()
     db.close()
 

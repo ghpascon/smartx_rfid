@@ -180,7 +180,8 @@ class LoggerManager:
         Args:
             log_path: Directory for JSONL log files.
             base_filename: File name suffix. Defaults to the executed script name.
-            storage_days: Number of daily log files to keep (<= 0 keeps all).
+            storage_days: Delete daily log files older than this many days. 0 keeps only
+                today's file; negative values keep all files.
             database_url: Database URL; a ``DatabaseManager`` is created and owned by the logger.
             database_manager: Existing ``DatabaseManager`` (not closed by ``close()``).
             database_model: SQLAlchemy model used to store logs. Defaults to ``Logs``.
@@ -336,19 +337,17 @@ class LoggerManager:
             logging.getLogger(__name__).warning(f"[LoggerManager] Database not ready, will retry: {e}")
             return False
 
-    def _cleanup_old_db_logs(self):
+    def _cleanup_old_db_logs(self) -> bool:
         if self.db_storage_days < 0 or "timestamp" not in self._db_columns:
-            return
+            return True
         try:
             now = datetime.now().astimezone()
-            cutoff = (
-                now.replace(hour=0, minute=0, second=0, microsecond=0)
-                if self.db_storage_days == 0
-                else (now - timedelta(days=self.db_storage_days))
-            )
+            cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=self.db_storage_days)
             self.db_manager.delete_where(self.db_model, {"timestamp__lt": cutoff})
+            return True
         except Exception as e:
             logging.getLogger(__name__).warning(f"[LoggerManager] Falha ao limpar logs antigos do banco: {e}")
+            return False
 
     @staticmethod
     def _seconds_until_next_midnight() -> float:
@@ -475,6 +474,7 @@ class LoggerManager:
         failures = 0
         retry_at = 0.0
         next_cleanup: Optional[float] = None
+        cleanup_retry_seconds = 60.0
 
         while True:
             stopping = self._db_stop_event.is_set()
@@ -495,8 +495,10 @@ class LoggerManager:
                 if not self._db_ready.is_set() and (stopping or now >= retry_at):
                     if self._setup_db_tables():
                         failures, retry_at = 0, 0.0
-                        self._cleanup_old_db_logs()
-                        next_cleanup = time.monotonic() + self._seconds_until_next_midnight()
+                        cleanup_ok = self._cleanup_old_db_logs()
+                        next_cleanup = time.monotonic() + (
+                            self._seconds_until_next_midnight() if cleanup_ok else cleanup_retry_seconds
+                        )
                         self._db_ready.set()
                     else:
                         failures += 1
@@ -504,8 +506,10 @@ class LoggerManager:
                         round_failed = True
 
                 if self._db_ready.is_set() and (next_cleanup is None or now >= next_cleanup):
-                    self._cleanup_old_db_logs()
-                    next_cleanup = time.monotonic() + self._seconds_until_next_midnight()
+                    cleanup_ok = self._cleanup_old_db_logs()
+                    next_cleanup = time.monotonic() + (
+                        self._seconds_until_next_midnight() if cleanup_ok else cleanup_retry_seconds
+                    )
 
                 if self._db_ready.is_set() and pending and (stopping or now >= retry_at):
                     due = (
@@ -680,10 +684,12 @@ class LoggerManager:
     # Cleanup old logs
     # -------------------
     def _cleanup_old_logs(self):
-        if self.storage_days <= 0:
-            return
-
-        logs = []
+        now = datetime.now().astimezone()
+        cutoff_date = (
+            now.replace(hour=0, minute=0, second=0, microsecond=0).date()
+            if self.storage_days == 0
+            else (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=self.storage_days)).date()
+        )
         try:
             files = list(self.log_path.glob(f"*_{self.base_filename}.jsonl"))
         except Exception as e:
@@ -694,20 +700,12 @@ class LoggerManager:
             try:
                 date_str = f.name.split("_")[0]
                 file_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                logs.append((file_date, f))
+                if file_date < cutoff_date:
+                    f.unlink()
             except ValueError:
                 continue
-
-        logs.sort(key=lambda x: x[0])
-        excess_logs = len(logs) - self.storage_days
-        if excess_logs <= 0:
-            return
-
-        for _, old_file in logs[:excess_logs]:
-            try:
-                old_file.unlink()
             except Exception as e:
-                logging.getLogger().warning(f"Falha ao remover log antigo {old_file}: {e}")
+                logging.getLogger().warning(f"Falha ao remover log antigo {f}: {e}")
 
     # -------------------
     # Setup logging
