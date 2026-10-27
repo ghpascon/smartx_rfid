@@ -338,7 +338,7 @@ class LoggerManager:
             return False
 
     def _cleanup_old_db_logs(self) -> bool:
-        if self.db_storage_days < 0 or "timestamp" not in self._db_columns:
+        if "timestamp" not in self._db_columns:
             return True
         try:
             now = datetime.now().astimezone()
