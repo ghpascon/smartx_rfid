@@ -173,7 +173,7 @@ class LoggerManager:
         db_batch_size: int = 100,
         db_flush_interval: float = 2.0,
         db_queue_size: int = 10_000,
-        db_storage_days: int = 0,
+        db_storage_days: Optional[int] = None,
         db_level: int = logging.INFO,
     ):
         """
@@ -188,7 +188,8 @@ class LoggerManager:
             db_batch_size: Maximum rows per bulk insert.
             db_flush_interval: Maximum seconds a row waits before being inserted.
             db_queue_size: Maximum buffered rows. When exceeded, logs are dropped instead of blocking.
-            db_storage_days: Delete database logs older than this many days (0 keeps all).
+            db_storage_days: Delete database logs older than this many days. Defaults to
+                ``storage_days``; 0 keeps only logs from today; negative values keep all.
             db_level: Minimum level persisted in the database.
         """
         if database_url and database_manager is not None:
@@ -218,7 +219,7 @@ class LoggerManager:
         self.db_batch_size = db_batch_size
         self.db_flush_interval = db_flush_interval
         self.db_queue_size = db_queue_size
-        self.db_storage_days = db_storage_days
+        self.db_storage_days = storage_days if db_storage_days is None else db_storage_days
         self.db_level = db_level
         self._owns_db = False
         self._db_columns: set = set()
@@ -337,10 +338,15 @@ class LoggerManager:
             return False
 
     def _cleanup_old_db_logs(self):
-        if self.db_storage_days <= 0 or "timestamp" not in self._db_columns:
+        if self.db_storage_days < 0 or "timestamp" not in self._db_columns:
             return
         try:
-            cutoff = datetime.now().astimezone() - timedelta(days=self.db_storage_days)
+            now = datetime.now().astimezone()
+            cutoff = (
+                now.replace(hour=0, minute=0, second=0, microsecond=0)
+                if self.db_storage_days == 0
+                else (now - timedelta(days=self.db_storage_days))
+            )
             self.db_manager.delete_where(self.db_model, {"timestamp__lt": cutoff})
         except Exception as e:
             logging.getLogger(__name__).warning(f"[LoggerManager] Falha ao limpar logs antigos do banco: {e}")

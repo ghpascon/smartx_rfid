@@ -277,6 +277,30 @@ def test_database_retention_deletes_old_rows(create_logger, db_url):
     db.close()
 
 
+def test_database_retention_defaults_to_file_storage_days(create_logger, db_url):
+    manager = create_logger(database_url=db_url, storage_days=3)
+    assert manager.db_storage_days == 3
+
+
+def test_zero_database_retention_keeps_only_today(create_logger, db_url):
+    db = DatabaseManager(db_url)
+    db.initialize()
+    db.register_models(Logs)
+    db.create_tables()
+    yesterday = datetime.now().astimezone() - timedelta(days=1)
+    today = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    db.insert_record(Logs, {"timestamp": yesterday, "level": "INFO", "message": "yesterday"})
+    db.insert_record(Logs, {"timestamp": today, "level": "INFO", "message": "today"})
+
+    manager = create_logger(database_manager=db, db_storage_days=0)
+    assert manager.wait_until_ready()
+
+    messages = [row.message for row in db.get_all(Logs)]
+    assert "yesterday" not in messages and "today" in messages
+    manager.close()
+    db.close()
+
+
 # -------------------
 # Resilience
 # -------------------

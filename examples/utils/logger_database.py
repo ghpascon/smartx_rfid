@@ -12,7 +12,7 @@ logger = LoggerManager(
     database_url="sqlite:///logs.db",  # or mysql+pymysql://..., postgresql+psycopg2://...
     db_batch_size=100,  # max rows per bulk insert
     db_flush_interval=2.0,  # max seconds a row waits before being inserted
-    db_storage_days=30,  # delete database logs older than 30 days (0 keeps everything)
+    db_storage_days=30,  # delete database logs older than 30 days (0 keeps only today's logs)
 )
 
 # File system and database can be used together:
