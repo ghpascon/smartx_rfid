@@ -27,9 +27,6 @@ class Logs(BaseMixin, LogsBase):
     logger = Column(String(255), nullable=True)
     message = Column(Text, nullable=False)
     module = Column(String(255), nullable=True)
-    function = Column(String(100), nullable=True)
-    line = Column(Integer, nullable=True)
-    thread = Column(String(100), nullable=True)
-    pathname = Column(String(500), nullable=True)
+    function = Column(String(100), nullable=True, index=True)
     exception = Column(Text, nullable=True)
     extra = Column(Text, nullable=True)  # JSON-encoded extra fields

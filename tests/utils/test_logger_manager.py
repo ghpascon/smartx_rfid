@@ -153,7 +153,6 @@ def test_database_only_inserts_rows(create_logger, db_url):
     row = next(r for r in rows if r.message == "hello db")
     assert row.level == "INFO"
     assert row.function == "test_database_only_inserts_rows"
-    assert row.line and row.pathname.endswith("test_logger_manager.py")
     assert json.loads(row.extra) == {"device": "R700", "count": 3}
     assert row.exception is None
     assert row.timestamp is not None
