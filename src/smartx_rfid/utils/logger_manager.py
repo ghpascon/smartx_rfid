@@ -331,7 +331,6 @@ class LoggerManager:
             if not self.db_manager.table_exists(table.name):
                 # Model lives in a different metadata than the manager's first model.
                 table.metadata.create_all(bind=self.db_manager._engine, tables=[table], checkfirst=True)
-            self._db_ready.set()
             return True
         except Exception as e:
             logging.getLogger(__name__).warning(f"[LoggerManager] Database not ready, will retry: {e}")
@@ -350,6 +349,14 @@ class LoggerManager:
             self.db_manager.delete_where(self.db_model, {"timestamp__lt": cutoff})
         except Exception as e:
             logging.getLogger(__name__).warning(f"[LoggerManager] Falha ao limpar logs antigos do banco: {e}")
+
+    @staticmethod
+    def _seconds_until_next_midnight() -> float:
+        """Return the elapsed seconds until the next midnight in the local timezone."""
+        now = datetime.now(timezone.utc).astimezone()
+        tomorrow = now.date() + timedelta(days=1)
+        midnight = datetime.combine(tomorrow, datetime.min.time()).astimezone()
+        return (midnight.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
 
     # -------------------
     # Database queue / rows
@@ -467,7 +474,7 @@ class LoggerManager:
         pending_since: Optional[float] = None
         failures = 0
         retry_at = 0.0
-        next_cleanup = 0.0
+        next_cleanup: Optional[float] = None
 
         while True:
             stopping = self._db_stop_event.is_set()
@@ -488,14 +495,17 @@ class LoggerManager:
                 if not self._db_ready.is_set() and (stopping or now >= retry_at):
                     if self._setup_db_tables():
                         failures, retry_at = 0, 0.0
+                        self._cleanup_old_db_logs()
+                        next_cleanup = time.monotonic() + self._seconds_until_next_midnight()
+                        self._db_ready.set()
                     else:
                         failures += 1
                         retry_at = now + self._backoff(failures)
                         round_failed = True
 
-                if self._db_ready.is_set() and now >= next_cleanup:
+                if self._db_ready.is_set() and (next_cleanup is None or now >= next_cleanup):
                     self._cleanup_old_db_logs()
-                    next_cleanup = now + 86400
+                    next_cleanup = time.monotonic() + self._seconds_until_next_midnight()
 
                 if self._db_ready.is_set() and pending and (stopping or now >= retry_at):
                     due = (
@@ -635,6 +645,7 @@ class LoggerManager:
     # Worker for async writing
     # -------------------
     def _worker(self):
+        next_cleanup = time.monotonic() + self._seconds_until_next_midnight()
         while not self.stop_event.is_set() or not self.log_queue.empty():
             try:
                 msg = self.log_queue.get(timeout=0.5)
@@ -643,14 +654,17 @@ class LoggerManager:
                 except Exception as e:
                     logging.getLogger().error("Erro ao escrever log", exc_info=e)
             except queue.Empty:
-                continue
+                pass
+
+            if time.monotonic() >= next_cleanup:
+                self._cleanup_old_logs()
+                next_cleanup = time.monotonic() + self._seconds_until_next_midnight()
 
     def _write(self, msg: str):
         today = datetime.now(timezone.utc).astimezone().date()
         if today != self.current_date:
             self.current_date = today
             self.filename = self._get_filename_for_date(today)
-            self._cleanup_old_logs()
         try:
             with open(self.filename, "a", encoding="utf-8") as f:
                 f.write(msg + "\n")

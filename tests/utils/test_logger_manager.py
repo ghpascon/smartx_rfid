@@ -94,6 +94,18 @@ def test_positional_storage_days_is_kept(create_logger, tmp_path):
     assert manager.storage_days == 3
 
 
+def test_file_retention_cleanup_runs_at_startup(create_logger, tmp_path):
+    old_log = tmp_path / "2020-01-01_app.jsonl"
+    recent_log = tmp_path / "2026-10-26_app.jsonl"
+    old_log.touch()
+    recent_log.touch()
+
+    create_logger(log_path=str(tmp_path), base_filename="app", storage_days=1)
+
+    assert not old_log.exists()
+    assert recent_log.exists()
+
+
 def test_default_base_filename_uses_executed_script(create_logger, tmp_path, monkeypatch):
     class FakeMain:
         __file__ = "/some/where/my_script.py"
