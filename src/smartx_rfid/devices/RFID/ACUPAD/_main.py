@@ -1,9 +1,11 @@
 import asyncio
 import ctypes
 import logging
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import time
 from typing import Any
 from smartx_rfid.schemas import TagSchema
@@ -406,7 +408,9 @@ class ACUPAD(DeviceBase):
 
         if loaded is None:
             raise RuntimeError(
-                "Mercury C API not available in ./mercury_api. Build failed or library file was not generated."
+                "Mercury C API library not available for this platform in ./mercury_api. "
+                "Install/build the platform-specific library and ensure its architecture "
+                "matches Python (x64/x86)."
             )
 
         self._mercury_lib = loaded
@@ -416,41 +420,49 @@ class ACUPAD(DeviceBase):
     def _configure_mercury_symbols(self):
         lib = self._mercury_lib
 
-        def _resolve_symbol(*names: str):
+        def _resolve_export(*names: str):
+            if os.name == "nt":
+                for name in names:
+                    short_name = name.removeprefix("TMR_SR_").removeprefix("TMR_")
+                    try:
+                        return getattr(lib, f"ACUPAD_TMR_{short_name}")
+                    except AttributeError:
+                        continue
             for name in names:
-                symbol = getattr(lib, name, None)
-                if symbol is not None:
-                    return symbol
+                try:
+                    return getattr(lib, name)
+                except AttributeError:
+                    continue
             raise AttributeError(f"Missing Mercury symbol. Tried: {', '.join(names)}")
 
-        self._TMR_create_alloc = lib.TMR_create_alloc
+        self._TMR_create_alloc = _resolve_export("TMR_create_alloc")
         self._TMR_create_alloc.argtypes = [
             ctypes.POINTER(ctypes.POINTER(_TMR_Reader)),
             ctypes.c_char_p,
         ]
         self._TMR_create_alloc.restype = ctypes.c_uint32
 
-        self._TMR_connect = _resolve_symbol("TMR_connect", "TMR_SR_connect")
+        self._TMR_connect = _resolve_export("TMR_connect", "TMR_SR_connect")
         self._TMR_connect.argtypes = [ctypes.POINTER(_TMR_Reader)]
         self._TMR_connect.restype = ctypes.c_uint32
 
-        self._TMR_destroy = _resolve_symbol("TMR_destroy", "TMR_SR_destroy")
+        self._TMR_destroy = _resolve_export("TMR_destroy", "TMR_SR_destroy")
         self._TMR_destroy.argtypes = [ctypes.POINTER(_TMR_Reader)]
         self._TMR_destroy.restype = ctypes.c_uint32
 
-        self._TMR_read = _resolve_symbol("TMR_read", "TMR_SR_read")
+        self._TMR_read = _resolve_export("TMR_read", "TMR_SR_read")
         self._TMR_read.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_uint32, ctypes.POINTER(ctypes.c_int32)]
         self._TMR_read.restype = ctypes.c_uint32
 
-        self._TMR_hasMoreTags = _resolve_symbol("TMR_hasMoreTags", "TMR_SR_hasMoreTags")
+        self._TMR_hasMoreTags = _resolve_export("TMR_hasMoreTags", "TMR_SR_hasMoreTags")
         self._TMR_hasMoreTags.argtypes = [ctypes.POINTER(_TMR_Reader)]
         self._TMR_hasMoreTags.restype = ctypes.c_uint32
 
-        self._TMR_getNextTag = _resolve_symbol("TMR_getNextTag", "TMR_SR_getNextTag")
+        self._TMR_getNextTag = _resolve_export("TMR_getNextTag", "TMR_SR_getNextTag")
         self._TMR_getNextTag.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.POINTER(_TMR_TagReadData)]
         self._TMR_getNextTag.restype = ctypes.c_uint32
 
-        self._TMR_readTagMemBytes = _resolve_symbol("TMR_readTagMemBytes", "TMR_SR_readTagMemBytes")
+        self._TMR_readTagMemBytes = _resolve_export("TMR_readTagMemBytes", "TMR_SR_readTagMemBytes")
         self._TMR_readTagMemBytes.argtypes = [
             ctypes.POINTER(_TMR_Reader),
             ctypes.c_void_p,
@@ -461,9 +473,9 @@ class ACUPAD(DeviceBase):
         ]
         self._TMR_readTagMemBytes.restype = ctypes.c_uint32
 
-        self._TMR_writeTagMemBytes = _resolve_symbol(
-            "TMR_writeTagMemBytes",
+        self._TMR_writeTagMemBytes = _resolve_export(
             "TMR_SR_writeTagMemBytes",
+            "TMR_writeTagMemBytes",
             "TMR_LLRP_writeTagMemBytes",
         )
         self._TMR_writeTagMemBytes.argtypes = [
@@ -477,9 +489,9 @@ class ACUPAD(DeviceBase):
         ]
         self._TMR_writeTagMemBytes.restype = ctypes.c_uint32
 
-        self._TMR_writeTag = _resolve_symbol(
-            "TMR_writeTag",
+        self._TMR_writeTag = _resolve_export(
             "TMR_SR_writeTag",
+            "TMR_writeTag",
             "TMR_LLRP_writeTag",
         )
         self._TMR_writeTag.argtypes = [
@@ -489,7 +501,10 @@ class ACUPAD(DeviceBase):
         ]
         self._TMR_writeTag.restype = ctypes.c_uint32
 
-        self._TMR_TF_init_gen2_select = getattr(lib, "TMR_TF_init_gen2_select", None)
+        try:
+            self._TMR_TF_init_gen2_select = _resolve_export("TMR_TF_init_gen2_select")
+        except AttributeError:
+            self._TMR_TF_init_gen2_select = None
         if self._TMR_TF_init_gen2_select is not None:
             self._TMR_TF_init_gen2_select.argtypes = [
                 ctypes.POINTER(_TMR_TagFilter),
@@ -501,20 +516,23 @@ class ACUPAD(DeviceBase):
             ]
             self._TMR_TF_init_gen2_select.restype = ctypes.c_uint32
 
-        self._TMR_paramSet = lib.TMR_paramSet
+        self._TMR_paramSet = _resolve_export("TMR_paramSet", "TMR_SR_paramSet")
         self._TMR_paramSet.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_int, ctypes.c_void_p]
         self._TMR_paramSet.restype = ctypes.c_uint32
 
-        self._TMR_paramGet = lib.TMR_paramGet
+        self._TMR_paramGet = _resolve_export("TMR_paramGet", "TMR_SR_paramGet")
         self._TMR_paramGet.argtypes = [ctypes.POINTER(_TMR_Reader), ctypes.c_int, ctypes.c_void_p]
         self._TMR_paramGet.restype = ctypes.c_uint32
 
-        self._TMR_paramID = getattr(lib, "TMR_paramID", None)
+        try:
+            self._TMR_paramID = _resolve_export("TMR_paramID")
+        except AttributeError:
+            self._TMR_paramID = None
         if self._TMR_paramID is not None:
             self._TMR_paramID.argtypes = [ctypes.c_char_p]
             self._TMR_paramID.restype = ctypes.c_int
 
-        self._TMR_RP_init_simple = lib.TMR_RP_init_simple
+        self._TMR_RP_init_simple = _resolve_export("TMR_RP_init_simple")
         self._TMR_RP_init_simple.argtypes = [
             ctypes.POINTER(_TMR_ReadPlan),
             ctypes.c_uint8,
@@ -524,12 +542,18 @@ class ACUPAD(DeviceBase):
         ]
         self._TMR_RP_init_simple.restype = ctypes.c_uint32
 
-        self._TMR_TRD_init = getattr(lib, "TMR_TRD_init", None)
+        try:
+            self._TMR_TRD_init = _resolve_export("TMR_TRD_init")
+        except AttributeError:
+            self._TMR_TRD_init = None
         if self._TMR_TRD_init is not None:
             self._TMR_TRD_init.argtypes = [ctypes.POINTER(_TMR_TagReadData)]
             self._TMR_TRD_init.restype = ctypes.c_uint32
 
-        self._TMR_TagOp_init_GEN2_ReadData = getattr(lib, "TMR_TagOp_init_GEN2_ReadData", None)
+        try:
+            self._TMR_TagOp_init_GEN2_ReadData = _resolve_export("TMR_TagOp_init_GEN2_ReadData")
+        except AttributeError:
+            self._TMR_TagOp_init_GEN2_ReadData = None
         if self._TMR_TagOp_init_GEN2_ReadData is not None:
             self._TMR_TagOp_init_GEN2_ReadData.argtypes = [
                 ctypes.c_void_p,
@@ -539,9 +563,10 @@ class ACUPAD(DeviceBase):
             ]
             self._TMR_TagOp_init_GEN2_ReadData.restype = ctypes.c_uint32
 
-        self._TMR_gpoSet = getattr(lib, "TMR_gpoSet", None)
-        if self._TMR_gpoSet is None:
-            self._TMR_gpoSet = getattr(lib, "TMR_SR_gpoSet", None)
+        try:
+            self._TMR_gpoSet = _resolve_export("TMR_gpoSet", "TMR_SR_gpoSet")
+        except AttributeError:
+            self._TMR_gpoSet = None
         if self._TMR_gpoSet is not None:
             self._TMR_gpoSet.argtypes = [
                 ctypes.POINTER(_TMR_Reader),
@@ -550,22 +575,25 @@ class ACUPAD(DeviceBase):
             ]
             self._TMR_gpoSet.restype = ctypes.c_uint32
 
-        self._TMR_strerror = getattr(lib, "TMR_strerror", None)
+        try:
+            self._TMR_strerror = _resolve_export("TMR_strerror")
+        except AttributeError:
+            self._TMR_strerror = None
         if self._TMR_strerror is not None:
             self._TMR_strerror.argtypes = [ctypes.c_uint32]
             self._TMR_strerror.restype = ctypes.c_char_p
 
     def _library_candidates(self, sdk_dir: Path) -> list[Path]:
         candidates: list[Path] = []
+        if os.name == "nt":
+            library_names = ("libmercuryapi.dll", "mercuryapi.dll")
+        elif sys.platform == "darwin":
+            library_names = ("libmercuryapi.dylib",)
+        else:
+            library_names = ("libmercuryapi.so.1", "libmercuryapi.so")
 
-        candidates.extend(
-            [
-                sdk_dir / "libmercuryapi.so.1",
-                sdk_dir / "libmercuryapi.so",
-                sdk_dir / "build" / "libmercuryapi.so.1",
-                sdk_dir / "build" / "libmercuryapi.so",
-            ]
-        )
+        for directory in (sdk_dir, sdk_dir / "build"):
+            candidates.extend(directory / name for name in library_names)
         return candidates
 
     def _load_mercury_library(self, sdk_dir: Path):
@@ -579,6 +607,14 @@ class ACUPAD(DeviceBase):
         return None
 
     def _build_mercury_library(self, sdk_dir: Path) -> bool:
+        if os.name == "nt":
+            logging.warning(
+                "Automatic Mercury SDK build is not configured for Windows. "
+                "Place a compatible libmercuryapi.dll in %s or its build directory.",
+                sdk_dir,
+            )
+            return False
+
         make_bin = shutil.which("make")
         if make_bin is None:
             logging.warning("Cannot build Mercury C API: 'make' not found.")

@@ -171,6 +171,30 @@ def test_database_stores_exception(create_logger, db_url):
     assert "ValueError: boom" in row.exception
 
 
+def test_get_logs_parses_day_first_date_strings(create_logger, db_url):
+    manager = create_logger(database_url=db_url)
+    assert manager.wait_until_ready()
+    manager.db_manager.bulk_insert(
+        Logs,
+        [
+            {
+                "timestamp": datetime(2026, 4, 1, 12, 30),
+                "level": "ERROR",
+                "message": "date parsing check",
+            }
+        ],
+    )
+
+    rows = manager.get_logs(
+        start_time="01/04/2026 12:00",
+        end_time="01/04/2026 13:00:00",
+    )
+    assert [row.message for row in rows] == ["date parsing check"]
+
+    with pytest.raises(ValueError, match="Invalid date value"):
+        manager.get_logs(start_time="not-a-date")
+
+
 def test_file_and_database_together(create_logger, tmp_path, db_url):
     manager = create_logger(log_path=str(tmp_path), base_filename="both", database_url=db_url)
     assert manager.file_enabled and manager.db_enabled
@@ -193,6 +217,28 @@ def test_db_level_filters_rows(create_logger, db_url):
     assert manager.flush()
     messages = _db_messages(manager)
     assert "kept" in messages and "too low" not in messages
+
+
+def test_get_logs_supports_filters_and_pagination(create_logger, db_url):
+    manager = create_logger(database_url=db_url)
+    assert manager.wait_until_ready()
+    base_time = datetime.now().astimezone()
+    manager.db_manager.bulk_insert(
+        Logs,
+        [
+            {"timestamp": base_time + timedelta(seconds=i), "level": level, "logger": "reader", "message": msg}
+            for i, (level, msg) in enumerate(
+                [("INFO", "device online"), ("ERROR", "device timeout"), ("ERROR", "other failure")]
+            )
+        ],
+    )
+
+    matching = manager.get_logs(level="ERROR", message="device", start_time=base_time, limit=1)
+    assert len(matching) == 1
+    assert matching[0].message == "device timeout"
+
+    page = manager.get_logs(filters={"logger": "reader"}, limit=2, offset=1, descending=False)
+    assert [row.message for row in page] == ["device timeout", "other failure"]
 
 
 def test_logs_are_batched(create_logger, db_url, monkeypatch):

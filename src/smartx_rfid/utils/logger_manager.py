@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Union
 
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm import DeclarativeBase
@@ -587,6 +587,95 @@ class LoggerManager:
             "db_dropped": stats["dropped"] + stats["overflow"],
             "db_failures": stats["failures"],
         }
+
+    @staticmethod
+    def _coerce_datetime(value: Union[datetime, date, str]) -> datetime:
+        """Convert datetime/date values or common date strings to ``datetime``."""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date):
+            return datetime.combine(value, datetime.min.time())
+        if not isinstance(value, str):
+            raise TypeError("Date filters must be datetime, date, or string values")
+
+        text = value.strip()
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            pass
+
+        for date_format in (
+            "%d/%m/%Y",
+            "%d/%m/%Y %H:%M",
+            "%d/%m/%Y %H:%M:%S",
+            "%d/%m/%Y %H:%M:%S.%f",
+            "%d-%m-%Y",
+            "%d-%m-%Y %H:%M:%S",
+            "%d.%m.%Y",
+            "%Y/%m/%d",
+        ):
+            try:
+                return datetime.strptime(text, date_format)
+            except ValueError:
+                continue
+
+        raise ValueError(f"Invalid date value {value!r}. Use ISO format or a supported date such as '01/04/2026'.")
+
+    def get_logs(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        *,
+        level: Optional[str] = None,
+        logger: Optional[str] = None,
+        module: Optional[str] = None,
+        message: Optional[str] = None,
+        start_time: Optional[Union[datetime, date, str]] = None,
+        end_time: Optional[Union[datetime, date, str]] = None,
+        limit: int = 1000,
+        offset: int = 0,
+        order_by: Optional[str] = "timestamp",
+        descending: bool = True,
+    ) -> List[DeclarativeBase]:
+        """Retrieve database logs with field filters and pagination.
+
+        ``filters`` accepts the same operators as ``DatabaseManager.get_where``,
+        for example ``{"level": "ERROR", "timestamp__gte": start}`` or
+        ``{"message__ilike": "%timeout%"}``. Named arguments are shortcuts;
+        ``message`` searches for a substring and the time arguments are inclusive.
+        Results default to newest first.
+        """
+        if not self.db_enabled or self.db_manager is None or self.db_model is None:
+            raise RuntimeError("Database logging is not enabled")
+        if limit < 1 or offset < 0:
+            raise ValueError("limit must be positive and offset must be non-negative")
+        if not self.wait_until_ready():
+            raise RuntimeError("Log database is not ready")
+
+        if start_time is not None:
+            start_time = self._coerce_datetime(start_time)
+        if end_time is not None:
+            end_time = self._coerce_datetime(end_time)
+
+        query_filters = dict(filters or {})
+        for field, value in (("level", level), ("logger", logger), ("module", module)):
+            if value is not None:
+                query_filters[field] = value
+        if message is not None:
+            query_filters["message__contains"] = message
+        if start_time is not None:
+            query_filters["timestamp__gte"] = start_time
+        if end_time is not None:
+            query_filters["timestamp__lte"] = end_time
+
+        with self.db_manager.get_session() as session:
+            query = session.query(self.db_model)
+            query = self.db_manager._apply_filters(query, self.db_model, query_filters)
+            if order_by is not None:
+                order_column = getattr(self.db_model, order_by, None)
+                if order_column is None:
+                    raise ValueError(f"Unknown log sort field: {order_by}")
+                query = query.order_by(order_column.desc() if descending else order_column.asc())
+            return query.offset(offset).limit(limit).all()
 
     # -------------------
     # Filename helpers

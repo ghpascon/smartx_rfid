@@ -5,7 +5,7 @@
  *  @date 10/28/2009
  */
 
- /*
+/*
  * Copyright (c) 2023 Novanta, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -17,7 +17,7 @@
  *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -31,27 +31,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "tm_reader.h"
 #include "serial_reader_imp.h"
 #include "tmr_utils.h"
 
 #define EAPI_PREFIX "eapi://"
-#define EAPI_PREFIX_LEN (sizeof(EAPI_PREFIX)-1)
+#define EAPI_PREFIX_LEN (sizeof(EAPI_PREFIX) - 1)
 
 #define TMR_PREFIX "tmr://"
-#define TMR_PREFIX_LEN (sizeof(TMR_PREFIX)-1)
+#define TMR_PREFIX_LEN (sizeof(TMR_PREFIX) - 1)
 
-
-//#define LLRP_EAPI_PREFIX "llrp+eapi://"
-//#define LLRP_EAPI_PREFIX_LEN (sizeof(LLRP_EAPI_PREFIX)-1)
+// #define LLRP_EAPI_PREFIX "llrp+eapi://"
+// #define LLRP_EAPI_PREFIX_LEN (sizeof(LLRP_EAPI_PREFIX)-1)
 #if WIN32
 #define snprintf sprintf_s
-#endif 
+#endif
 
 #ifdef TMR_ENABLE_UHF
 #define LLRP_PREFIX "llrp://"
-#define LLRP_PREFIX_LEN (sizeof(LLRP_PREFIX)-1)
+#define LLRP_PREFIX_LEN (sizeof(LLRP_PREFIX) - 1)
 #endif /* TMR_ENABLE_UHF */
 
 TMR_Status restart_reading(struct TMR_Reader *reader);
@@ -62,20 +62,20 @@ TMR_Status restart_reading(struct TMR_Reader *reader);
  * pointer to the factory init function.
  **/
 static void TMR_initSerialTransportTable(void);
-void* do_background_receiveAutonomousReading(void * arg);
+void *do_background_receiveAutonomousReading(void *arg);
 
 typedef struct TMR_SerialTransportDispatchTableData
 {
   char transportScheme[TMR_MAX_TRANSPORT_SCHEME_NAME];
   TMR_TransportNativeInit transportInit;
-}TMR_SerialTransportDispatchTableData;
+} TMR_SerialTransportDispatchTableData;
 
 typedef struct TMR_SerialTransportDispatchTable
 {
   TMR_SerialTransportDispatchTableData *list;
   uint8_t max;
   uint8_t len;
-}TMR_SerialTransportDispatchTable;
+} TMR_SerialTransportDispatchTable;
 
 static bool transportTableInitialized = false;
 static TMR_SerialTransportDispatchTableData tdTableData[10];
@@ -85,13 +85,13 @@ static void TMR_initSerialTransportTable()
 {
   if (false == transportTableInitialized)
   {
-    /** 
+    /**
      * We did not get a chance to initialize the transport table.
      * Initialize it now.
      */
     memset(tdTableData, 0, sizeof(tdTableData));
     tdTable.list = tdTableData;
-    tdTable.max = sizeof(tdTableData)/sizeof(tdTableData[0]);
+    tdTable.max = sizeof(tdTableData) / sizeof(tdTableData[0]);
     tdTable.len = 0;
 
     /* Add default schemes to the table */
@@ -114,7 +114,7 @@ static void TMR_initSerialTransportTable()
 }
 
 TMR_Status
-TMR_create_alloc(TMR_Reader **reader, const char* deviceUri)
+TMR_create_alloc(TMR_Reader **reader, const char *deviceUri)
 {
 
   *reader = malloc(sizeof(**reader));
@@ -123,9 +123,8 @@ TMR_create_alloc(TMR_Reader **reader, const char* deviceUri)
   return TMR_create(*reader, deviceUri);
 }
 
-
 TMR_Status
-TMR_create(TMR_Reader *reader, const char* deviceUri)
+TMR_create(TMR_Reader *reader, const char *deviceUri)
 {
   TMR_Status ret;
 
@@ -162,151 +161,146 @@ TMR_create(TMR_Reader *reader, const char* deviceUri)
 
 #ifdef TMR_ENABLE_SERIAL_READER
 #ifdef TMR_ENABLE_SERIAL_TRANSPORT_NATIVE
-if (
-     (strncmp(deviceUri, EAPI_PREFIX, EAPI_PREFIX_LEN) == 0) ||
-     ((strncmp(deviceUri, TMR_PREFIX, TMR_PREFIX_LEN) == 0)
-      && *(deviceUri + TMR_PREFIX_LEN) == '/'))
-{
-  uint8_t i;
-  char  *scheme;
-  char devname[TMR_MAX_READER_NAME_LENGTH];
-  bool scheme_exists = false;
-
-  TMR_initSerialTransportTable();
-
-  strcpy(devname, deviceUri);
-  scheme = strtok((char *)devname, ":");
-
-  for (i = 0; i < tdTable.len; i++)
+  if (
+      (strncmp(deviceUri, EAPI_PREFIX, EAPI_PREFIX_LEN) == 0) ||
+      ((strncmp(deviceUri, TMR_PREFIX, TMR_PREFIX_LEN) == 0) && *(deviceUri + TMR_PREFIX_LEN) == '/'))
   {
-    if (0 == strcmp(scheme, tdTable.list[i].transportScheme))
+    uint8_t i;
+    char *scheme;
+    char devname[TMR_MAX_READER_NAME_LENGTH];
+    bool scheme_exists = false;
+
+    TMR_initSerialTransportTable();
+
+    strcpy(devname, deviceUri);
+    scheme = strtok((char *)devname, ":");
+
+    for (i = 0; i < tdTable.len; i++)
     {
-      if ('e' == deviceUri[0])
+      if (0 == strcmp(scheme, tdTable.list[i].transportScheme))
       {
-        scheme = (char *)deviceUri + EAPI_PREFIX_LEN;
-      }
-      else
-      {
-        scheme = (char *)deviceUri + TMR_PREFIX_LEN;
-      }
-      strncpy(reader->uri, deviceUri, TMR_MAX_READER_NAME_LENGTH);
+        if ('e' == deviceUri[0])
+        {
+          scheme = (char *)deviceUri + EAPI_PREFIX_LEN;
+        }
+        else
+        {
+          scheme = (char *)deviceUri + TMR_PREFIX_LEN;
+        }
+        strncpy(reader->uri, deviceUri, TMR_MAX_READER_NAME_LENGTH);
 
         /* Entry exists */
         ret = tdTable.list[i].transportInit(&reader->u.serialReader.transport,
-            &reader->u.serialReader.
-            transportContext.nativeContext,
-            scheme);
-      if (TMR_SUCCESS != ret)
-      {
-        return ret;
+                                            &reader->u.serialReader.transportContext.nativeContext,
+                                            scheme);
+        if (TMR_SUCCESS != ret)
+        {
+          return ret;
+        }
+
+        scheme_exists = true;
+        break;
       }
-
-      scheme_exists = true;
-      break;
     }
-  }
 
-  if (false == scheme_exists)
-  {
-    /* No entry found */
-    return TMR_ERROR_INVALID;
+    if (false == scheme_exists)
+    {
+      /* No entry found */
+      return TMR_ERROR_INVALID;
+    }
+    return TMR_SR_SerialReader_init(reader);
   }
-  return TMR_SR_SerialReader_init(reader);
-}
-else
+  else
 #endif /* TMR_ENABLE_SERIAL_TRANSPORT_NATIVE */
 #ifdef TMR_ENABLE_UHF
-  if ((strncmp(deviceUri, LLRP_PREFIX, LLRP_PREFIX_LEN) == 0)
-      || (strncmp(deviceUri, TMR_PREFIX, TMR_PREFIX_LEN) == 0))
-{
+      if ((strncmp(deviceUri, LLRP_PREFIX, LLRP_PREFIX_LEN) == 0) || (strncmp(deviceUri, TMR_PREFIX, TMR_PREFIX_LEN) == 0))
+  {
 #ifdef TMR_ENABLE_LLRP_READER
-  const char *host, *port;
-  char hostCopy[256];
+    const char *host, *port;
+    char hostCopy[256];
 
-  if ('t' == deviceUri[0])
-  {
-    host = deviceUri + TMR_PREFIX_LEN;
-  }
-  else
-  {
-    host = deviceUri + LLRP_PREFIX_LEN;
-  }
-  port = strchr(host, ':');
-  strcpy(hostCopy, host);
-  if (port == NULL)
-  {
-    char *slash;
-    reader->u.llrpReader.portNum = TMR_LLRP_READER_DEFAULT_PORT;
-    slash = strchr(hostCopy, '/');
-    if (slash)
+    if ('t' == deviceUri[0])
     {
-      *slash = '\0';
+      host = deviceUri + TMR_PREFIX_LEN;
     }
-  }
-  else
-  {
-    reader->u.llrpReader.portNum = atoi(port + 1);
-    hostCopy[port - host] = '\0';
-  }
-
-  strncpy(reader->uri, hostCopy, TMR_MAX_READER_NAME_LENGTH); 
-  return TMR_LLRP_LlrpReader_init(reader);
-
-#else
-  return TMR_ERROR_UNSUPPORTED_READER_TYPE;
-#endif /* TMR_ENABLE_LLRP_READER */
-}
-else
-#endif /* TMR_ENABLE_UHF */
-{
-#if !((!defined(TMR_ENABLE_UHF)) || defined(BARE_METAL))
-  /**
-   * we are here means user requested for custom transport
-   * scheme.
-   **/
-  uint8_t i;
-  char* scheme;
-  bool scheme_exists = false;
-
-  scheme = strtok((char *)deviceUri, ":");
-
-  for (i = 0; i < tdTable.len; i++)
-  {
-    if (0 == strcmp(scheme, tdTable.list[i].transportScheme))
+    else
     {
-      deviceUri += strlen(scheme) + 2;
-      strncpy(reader->uri, deviceUri, TMR_MAX_READER_NAME_LENGTH);
-
-      /* Entry exists */
-      ret = tdTable.list[i].transportInit(&reader->u.serialReader.transport,
-          &reader->u.serialReader.
-          transportContext.nativeContext,
-          reader->uri);
-      if (TMR_SUCCESS != ret)
+      host = deviceUri + LLRP_PREFIX_LEN;
+    }
+    port = strchr(host, ':');
+    strcpy(hostCopy, host);
+    if (port == NULL)
+    {
+      char *slash;
+      reader->u.llrpReader.portNum = TMR_LLRP_READER_DEFAULT_PORT;
+      slash = strchr(hostCopy, '/');
+      if (slash)
       {
-        return ret;
+        *slash = '\0';
       }
-
-      scheme_exists = true;
-      break;
     }
-  }
+    else
+    {
+      reader->u.llrpReader.portNum = atoi(port + 1);
+      hostCopy[port - host] = '\0';
+    }
 
-  if (false == scheme_exists)
-  {
-    /* No entry found */
-    return TMR_ERROR_INVALID;
-  }
-  return TMR_SR_SerialReader_init(reader);
+    strncpy(reader->uri, hostCopy, TMR_MAX_READER_NAME_LENGTH);
+    return TMR_LLRP_LlrpReader_init(reader);
+
 #else
-  return TMR_ERROR_UNSUPPORTED_READER_TYPE;
-#endif /* TMR_ENABLE_HF_LF || BARE_METAL */
-}
+    return TMR_ERROR_UNSUPPORTED_READER_TYPE;
+#endif /* TMR_ENABLE_LLRP_READER */
+  }
+  else
+#endif /* TMR_ENABLE_UHF */
+  {
+#if !((!defined(TMR_ENABLE_UHF)) || defined(BARE_METAL))
+    /**
+     * we are here means user requested for custom transport
+     * scheme.
+     **/
+    uint8_t i;
+    char *scheme;
+    bool scheme_exists = false;
 
+    scheme = strtok((char *)deviceUri, ":");
+
+    for (i = 0; i < tdTable.len; i++)
+    {
+      if (0 == strcmp(scheme, tdTable.list[i].transportScheme))
+      {
+        deviceUri += strlen(scheme) + 2;
+        strncpy(reader->uri, deviceUri, TMR_MAX_READER_NAME_LENGTH);
+
+        /* Entry exists */
+        ret = tdTable.list[i].transportInit(&reader->u.serialReader.transport,
+                                            &reader->u.serialReader.transportContext.nativeContext,
+                                            reader->uri);
+        if (TMR_SUCCESS != ret)
+        {
+          return ret;
+        }
+
+        scheme_exists = true;
+        break;
+      }
+    }
+
+    if (false == scheme_exists)
+    {
+      /* No entry found */
+      return TMR_ERROR_INVALID;
+    }
+    return TMR_SR_SerialReader_init(reader);
+#else
+    return TMR_ERROR_UNSUPPORTED_READER_TYPE;
+#endif /* TMR_ENABLE_HF_LF || BARE_METAL */
+  }
 
 #else /* TMR_ENABLE_SERIAL_READER */
-/* No readers supported! */
-return TMR_ERROR_INVALID;
+  /* No readers supported! */
+  return TMR_ERROR_INVALID;
 #endif
 }
 
@@ -324,7 +318,7 @@ TMR_reader_init_internal(struct TMR_Reader *reader)
   reader->readParams.asyncOffTime = 0;
 #endif
 #ifdef TMR_ENABLE_BACKGROUND_READS
-  reader->readParams.asyncOnTime = 250;  
+  reader->readParams.asyncOnTime = 250;
   reader->readParams.asyncOffTime = 0;
 #if 0
   pthread_mutex_init(&reader->backgroundLock, NULL);
@@ -352,7 +346,7 @@ TMR_reader_init_internal(struct TMR_Reader *reader)
   reader->parserEnabled = false;
   reader->tagQueueHead = NULL;
   reader->tagQueueTail = NULL;
-  reader->isStatusResponse = false;  
+  reader->isStatusResponse = false;
 #ifdef TMR_ENABLE_UHF
   reader->isSummary = false;
   reader->inventoryRoundSummaryFlag = false;
@@ -394,16 +388,16 @@ TMR_reader_init_internal(struct TMR_Reader *reader)
   reader->isProtocolDynamicSwitching = false;
 #endif /* TMR_ENABLE_HF_LF */
 
-  //Set default error message.
+  // Set default error message.
   sprintf(errMsg, "Unknown error");
-  if(TMR_READER_TYPE_SERIAL == reader->readerType)
+  if (TMR_READER_TYPE_SERIAL == reader->readerType)
   {
     sprintf(reader->u.serialReader.errMsg, "%s", errMsg);
   }
 #ifdef TMR_ENABLE_LLRP_READER
   else
   {
-    sprintf(reader->u.llrpReader.errMsg,  "%s", errMsg);
+    sprintf(reader->u.llrpReader.errMsg, "%s", errMsg);
   }
 #endif /* TMR_ENABLE_LLRP_READER */
 
@@ -411,15 +405,14 @@ TMR_reader_init_internal(struct TMR_Reader *reader)
 }
 
 TMR_Status
-TMR_setSerialTransport(char* scheme, TMR_TransportNativeInit nativeInit)
+TMR_setSerialTransport(char *scheme, TMR_TransportNativeInit nativeInit)
 {
   bool scheme_exists = false;
   uint8_t i;
 
   TMR_initSerialTransportTable();
 
-  if ((0 == strcmp("llrp", scheme))
-      || (0 == strcmp("llrp", scheme)))
+  if ((0 == strcmp("llrp", scheme)) || (0 == strcmp("llrp", scheme)))
   {
     /**
      * Currently set serial transport is only supported for
@@ -462,21 +455,21 @@ TMR_setSerialTransport(char* scheme, TMR_TransportNativeInit nativeInit)
 
 static int
 TMR_findDupTag(TMR_Reader *reader,
-               TMR_TagReadData* newRead,
+               TMR_TagReadData *newRead,
                TMR_TagReadData oldReads[], int32_t oldLength,
                bool uniqueByAntenna, bool uniqueByData, bool uniqueByProtocol)
 {
   int i;
 
-  for (i=0; i<oldLength; i++)
+  for (i = 0; i < oldLength; i++)
   {
-    TMR_TagReadData* oldRead = &oldReads[i];
-    TMR_TagData* oldTag = &oldRead->tag;
-    TMR_TagData* newTag = &newRead->tag;
+    TMR_TagReadData *oldRead = &oldReads[i];
+    TMR_TagData *oldTag = &oldRead->tag;
+    TMR_TagData *newTag = &newRead->tag;
 
     if ((oldTag->epcByteCount != newTag->epcByteCount) ||
         (0 != memcmp(oldTag->epc, newTag->epc,
-                     (oldTag->epcByteCount)*sizeof(uint8_t))))
+                     (oldTag->epcByteCount) * sizeof(uint8_t))))
     {
       continue;
     }
@@ -491,7 +484,7 @@ TMR_findDupTag(TMR_Reader *reader,
     {
       if ((oldRead->data.len != newRead->data.len) ||
           (0 != memcmp(oldRead->data.list, newRead->data.list,
-                       (oldRead->data.len)*sizeof(uint8_t))))
+                       (oldRead->data.len) * sizeof(uint8_t))))
       {
         continue;
       }
@@ -511,8 +504,8 @@ TMR_findDupTag(TMR_Reader *reader,
 }
 
 static void
-TMR_updateDupTag(TMR_Reader* reader,
-                 TMR_TagReadData* oldRead, TMR_TagReadData* newRead,
+TMR_updateDupTag(TMR_Reader *reader,
+                 TMR_TagReadData *oldRead, TMR_TagReadData *newRead,
                  bool highestRssi)
 {
   oldRead->readCount += newRead->readCount;
@@ -555,23 +548,47 @@ TMR_readIntoArray(struct TMR_Reader *reader, uint32_t timeoutMs,
     bool bval;
 
     ret = TMR_paramGet(reader, TMR_PARAM_TAGREADDATA_UNIQUEBYANTENNA, &bval);
-    if (TMR_ERROR_NOT_FOUND == ret) { bval = false; }
-    else if (TMR_SUCCESS != ret) { return ret; }
+    if (TMR_ERROR_NOT_FOUND == ret)
+    {
+      bval = false;
+    }
+    else if (TMR_SUCCESS != ret)
+    {
+      return ret;
+    }
     uniqueByAntenna = bval;
 
     ret = TMR_paramGet(reader, TMR_PARAM_TAGREADDATA_UNIQUEBYDATA, &bval);
-    if (TMR_ERROR_NOT_FOUND == ret) { bval = false; }
-    else if (TMR_SUCCESS != ret) { return ret; }
+    if (TMR_ERROR_NOT_FOUND == ret)
+    {
+      bval = false;
+    }
+    else if (TMR_SUCCESS != ret)
+    {
+      return ret;
+    }
     uniqueByData = bval;
 
     ret = TMR_paramGet(reader, TMR_PARAM_TAGREADDATA_UNIQUEBYPROTOCOL, &bval);
-    if (TMR_ERROR_NOT_FOUND == ret) { bval = false; }
-    else if (TMR_SUCCESS != ret) { return ret; }
+    if (TMR_ERROR_NOT_FOUND == ret)
+    {
+      bval = false;
+    }
+    else if (TMR_SUCCESS != ret)
+    {
+      return ret;
+    }
     uniqueByProtocol = bval;
 
     ret = TMR_paramGet(reader, TMR_PARAM_TAGREADDATA_RECORDHIGHESTRSSI, &bval);
-    if (TMR_ERROR_NOT_FOUND == ret) { bval = false; }
-    else if (TMR_SUCCESS != ret) { return ret; }
+    if (TMR_ERROR_NOT_FOUND == ret)
+    {
+      bval = false;
+    }
+    else if (TMR_SUCCESS != ret)
+    {
+      return ret;
+    }
     recordHighestRssi = bval;
   }
 #endif /* TMR_ENABLE_API_SIDE_DEDUPLICATION */
@@ -586,7 +603,7 @@ TMR_readIntoArray(struct TMR_Reader *reader, uint32_t timeoutMs,
   /* Calculating the elapsed time */
   elapsed = tm_time_subtract(tmr_gettime_low(), starttimeLow);
 
-  do 
+  do
   {
     readTimeMs = timeoutMs - elapsed;
     if (timeoutMs > 65535)
@@ -657,9 +674,9 @@ TMR_readIntoArray(struct TMR_Reader *reader, uint32_t timeoutMs,
        */
       if (true == reader->u.serialReader.enableReadFiltering)
       {
-        TMR_TagReadData* last = &results[tagsRead];
+        TMR_TagReadData *last = &results[tagsRead];
         int dupIndex = TMR_findDupTag(reader, last, results, tagsRead,
-                        uniqueByAntenna, uniqueByData, uniqueByProtocol);
+                                      uniqueByAntenna, uniqueByData, uniqueByProtocol);
         if (-1 == dupIndex)
         {
           tagsRead++;
@@ -676,14 +693,14 @@ TMR_readIntoArray(struct TMR_Reader *reader, uint32_t timeoutMs,
 #endif /* TMR_ENABLE_API_SIDE_DEDUPLICATION */
     }
 
-    if(isOpFailed)
+    if (isOpFailed)
     {
       break;
     }
 
     elapsed = tm_time_subtract(tmr_gettime_low(), starttimeLow);
 
-  }while (elapsed <= timeoutMs);
+  } while (elapsed <= timeoutMs);
 
   if (NULL != tagCount)
   {
@@ -698,7 +715,7 @@ TMR_readIntoArray(struct TMR_Reader *reader, uint32_t timeoutMs,
 
 TMR_Status
 validateReadPlan(TMR_Reader *reader, TMR_ReadPlan *plan,
-                  TMR_AntennaMapList *txRxMap, uint32_t protocols)
+                 TMR_AntennaMapList *txRxMap, uint32_t protocols)
 {
   if (TMR_READ_PLAN_TYPE_MULTI == plan->type)
   {
@@ -710,7 +727,7 @@ validateReadPlan(TMR_Reader *reader, TMR_ReadPlan *plan,
       plan->u.multi.totalWeight += plan->u.multi.plans[i]->weight;
     }
 #else
-  return TMR_ERROR_UNSUPPORTED;
+    return TMR_ERROR_UNSUPPORTED;
 #endif /* TMR_ENABLE_GEN2_ONLY */
   }
   return TMR_SUCCESS;
@@ -718,34 +735,34 @@ validateReadPlan(TMR_Reader *reader, TMR_ReadPlan *plan,
 
 bool versionCompare(uint8_t *readerVersion, uint8_t *checkVersion)
 {
- uint8_t i = 0;
- 
- if(readerVersion[i] < checkVersion[i])
- {
-  return false;
- }
- else if(readerVersion[i] == checkVersion[i])
- {
-  if(readerVersion[i+1] < checkVersion[i+1])
+  uint8_t i = 0;
+
+  if (readerVersion[i] < checkVersion[i])
   {
-   return false;
-  }
-  else if(readerVersion[i+1] == checkVersion[i+1])
-  {
-   if(readerVersion[i+2] < checkVersion[i+2])
-   {
     return false;
-   }
-   else if(readerVersion[i+2] == checkVersion[i+2])
-   {
-    if(readerVersion[i+3] < checkVersion[i+3])
-    {
-     return false;
-    }
-   }
   }
- }
- return true;
+  else if (readerVersion[i] == checkVersion[i])
+  {
+    if (readerVersion[i + 1] < checkVersion[i + 1])
+    {
+      return false;
+    }
+    else if (readerVersion[i + 1] == checkVersion[i + 1])
+    {
+      if (readerVersion[i + 2] < checkVersion[i + 2])
+      {
+        return false;
+      }
+      else if (readerVersion[i + 2] == checkVersion[i + 2])
+      {
+        if (readerVersion[i + 3] < checkVersion[i + 3])
+        {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
 }
 
 #ifdef TMR_ENABLE_HF_LF
@@ -753,26 +770,38 @@ void getAddrByteExtEnabledVersion(struct TMR_Reader *reader, uint8_t *checkVersi
 {
   switch (reader->u.serialReader.versionInfo.hardware[0])
   {
-    case TMR_SR_MODEL_M3E:
-      checkVersion[0] = 0x01; checkVersion[1] = 0x01; checkVersion[2] = 0x02; checkVersion[3] = 0x16;
-      break;
-    default:
-      checkVersion[0] = 0xFF; checkVersion[1] = 0xFF; checkVersion[2] = 0xFF; checkVersion[3] = 0xFF;
+  case TMR_SR_MODEL_M3E:
+    checkVersion[0] = 0x01;
+    checkVersion[1] = 0x01;
+    checkVersion[2] = 0x02;
+    checkVersion[3] = 0x16;
+    break;
+  default:
+    checkVersion[0] = 0xFF;
+    checkVersion[1] = 0xFF;
+    checkVersion[2] = 0xFF;
+    checkVersion[3] = 0xFF;
   }
 }
 
-void getEBVExpansionToTenBytesVersion(struct TMR_Reader* reader, uint8_t* checkVersion)
+void getEBVExpansionToTenBytesVersion(struct TMR_Reader *reader, uint8_t *checkVersion)
 {
-    switch (reader->u.serialReader.versionInfo.hardware[0])
-    {
-      case TMR_SR_MODEL_M3E:
-        checkVersion[0] = 0x01; checkVersion[1] = 0x03; checkVersion[2] = 0x01; checkVersion[3] = 0x1B;
-        break;
-      default:
-        checkVersion[0] = 0xFF; checkVersion[1] = 0xFF; checkVersion[2] = 0xFF; checkVersion[3] = 0xFF;
-    }
+  switch (reader->u.serialReader.versionInfo.hardware[0])
+  {
+  case TMR_SR_MODEL_M3E:
+    checkVersion[0] = 0x01;
+    checkVersion[1] = 0x03;
+    checkVersion[2] = 0x01;
+    checkVersion[3] = 0x1B;
+    break;
+  default:
+    checkVersion[0] = 0xFF;
+    checkVersion[1] = 0xFF;
+    checkVersion[2] = 0xFF;
+    checkVersion[3] = 0xFF;
+  }
 }
-#endif  /* TMR_ENABLE_HF_LF */
+#endif /* TMR_ENABLE_HF_LF */
 
 #ifdef TMR_ENABLE_LLRP_READER
 bool readerVersionCheck(struct TMR_Reader *reader, uint8_t *checkVersion)
@@ -786,7 +815,7 @@ bool readerVersionCheck(struct TMR_Reader *reader, uint8_t *checkVersion)
   if (NULL != token)
   {
     readerVersion[i++] = (uint8_t)atoi(token);
-    while(NULL != token)
+    while (NULL != token)
     {
       token = strtok(NULL, ".");
       if (token)
@@ -795,14 +824,17 @@ bool readerVersionCheck(struct TMR_Reader *reader, uint8_t *checkVersion)
       }
     }
   }
-  return versionCompare(readerVersion,checkVersion);
+  return versionCompare(readerVersion, checkVersion);
 }
 
 bool isTmreaderStateAwaterFilterTargetMapped(struct TMR_Reader *reader)
 {
   uint8_t checkVersion[4];
 
-  checkVersion[0] = 0x05; checkVersion[1] = 0x03; checkVersion[2] = 0x04; checkVersion[3] = 59;
+  checkVersion[0] = 0x05;
+  checkVersion[1] = 0x03;
+  checkVersion[2] = 0x04;
+  checkVersion[3] = 59;
   return readerVersionCheck(reader, checkVersion);
 }
 
@@ -810,7 +842,10 @@ bool isTmreaderStatsListenerSupported(struct TMR_Reader *reader)
 {
   uint8_t checkVersion[4];
 
-  checkVersion[0] = 0x05; checkVersion[1] = 0x03; checkVersion[2] = 0x04; checkVersion[3] = 50;
+  checkVersion[0] = 0x05;
+  checkVersion[1] = 0x03;
+  checkVersion[2] = 0x04;
+  checkVersion[3] = 50;
   return readerVersionCheck(reader, checkVersion);
 }
 
@@ -818,7 +853,10 @@ bool isTMReaderInventorySpecIDSupported(struct TMR_Reader *reader)
 {
   uint8_t checkVersion[4];
 
-  checkVersion[0] = 0x05; checkVersion[1] = 0x03; checkVersion[2] = 0x02; checkVersion[3] = 97;
+  checkVersion[0] = 0x05;
+  checkVersion[1] = 0x03;
+  checkVersion[2] = 0x02;
+  checkVersion[3] = 97;
   return readerVersionCheck(reader, checkVersion);
 }
 
@@ -826,7 +864,10 @@ bool isTMReaderMultiSelectSupported(struct TMR_Reader *reader)
 {
   uint8_t checkVersion[4];
 
-  checkVersion[0] = 0x05; checkVersion[1] = 0x03; checkVersion[2] = 0x02; checkVersion[3] = 12;
+  checkVersion[0] = 0x05;
+  checkVersion[1] = 0x03;
+  checkVersion[2] = 0x02;
+  checkVersion[3] = 12;
   return readerVersionCheck(reader, checkVersion);
 }
 
@@ -834,7 +875,10 @@ bool isTMReaderPerAntennaOntimeSupported(struct TMR_Reader *reader)
 {
   uint8_t checkVersion[4];
 
-  checkVersion[0] = 0x05; checkVersion[1] = 0x03; checkVersion[2] = 0x02; checkVersion[3] = 38;
+  checkVersion[0] = 0x05;
+  checkVersion[1] = 0x03;
+  checkVersion[2] = 0x02;
+  checkVersion[3] = 38;
   return readerVersionCheck(reader, checkVersion);
 }
 #endif
@@ -844,15 +888,15 @@ void checkForAvailableReaderFeatures(struct TMR_Reader *reader)
 {
 #ifdef TMR_ENABLE_LLRP_READER
   reader->u.llrpReader.featureFlags = 0;
-  if(isTMReaderPerAntennaOntimeSupported(reader))
+  if (isTMReaderPerAntennaOntimeSupported(reader))
   {
     reader->u.llrpReader.featureFlags |= TMMP_READER_FEATURES_FLAG_PERANTENNA_ONTIME;
   }
-  if(isTMReaderMultiSelectSupported(reader))
+  if (isTMReaderMultiSelectSupported(reader))
   {
     reader->u.llrpReader.featureFlags |= TMMP_READER_FEATURES_FLAG_MULTI_SELECT;
   }
-  if(isTMReaderInventorySpecIDSupported(reader))
+  if (isTMReaderInventorySpecIDSupported(reader))
   {
     reader->u.llrpReader.featureFlags |= TMMP_READER_FEATURES_FLAG_INVENTORYSPEC_ID;
   }
@@ -870,27 +914,27 @@ void checkForAvailableReaderFeatures(struct TMR_Reader *reader)
 #ifdef TMR_ENABLE_HF_LF
 /* This function will check all available features with respect to firmware version. */
 void checkForAvailableFeatures(struct TMR_Reader *reader)
-{ 
+{
   uint8_t i = 0;
   uint8_t checkVersion[4] = {0};
   uint8_t *readerVersion = reader->u.serialReader.versionInfo.fwVersion;
 
-  while(i < TMR_READER_TOTAL_FEATURES)
+  while (i < TMR_READER_TOTAL_FEATURES)
   {
     switch (1 << i)
     {
-      case TMR_READER_FEATURES_FLAG_ADDR_BYTE_EXTENSION:
-      {
-        getAddrByteExtEnabledVersion(reader, checkVersion);
-        break;
-      }
-      case TMR_READER_FEATURES_FLAG_EBV_EXPANSION_TEN_BYTES:
-      {
-        getEBVExpansionToTenBytesVersion(reader, checkVersion);
-        break;
-      }
-      default:
-        break;
+    case TMR_READER_FEATURES_FLAG_ADDR_BYTE_EXTENSION:
+    {
+      getAddrByteExtEnabledVersion(reader, checkVersion);
+      break;
+    }
+    case TMR_READER_FEATURES_FLAG_EBV_EXPANSION_TEN_BYTES:
+    {
+      getEBVExpansionToTenBytesVersion(reader, checkVersion);
+      break;
+    }
+    default:
+      break;
     }
 
     if (versionCompare(readerVersion, checkVersion))
@@ -911,59 +955,58 @@ TMR_paramSet(struct TMR_Reader *reader, TMR_Param key, const void *value)
 
   switch (key)
   {
-#if defined(TMR_ENABLE_BACKGROUND_READS)|| defined(SINGLE_THREAD_ASYNC_READ)
-    case TMR_PARAM_READ_ASYNCOFFTIME:
-      {
-        if (TMR_READER_TYPE_LLRP != reader->readerType)
-        {
-          if((*(uint32_t *)value) > TMR_MAX_VALUE)
-          {
-            return TMR_ERROR_INVALID_VALUE;
-          }
-
-          /* Modifying off time while read is in progress is not allowed. */
-          if (reader->continuousReading)
-          {
-            return TMR_ERROR_UNSUPPORTED;
-          }
-
-          reader->readParams.asyncOffTime = *(uint32_t*)value;
-          break;
-        }
-      }
-    case TMR_PARAM_READ_ASYNCONTIME:
-      {
-        if ((TMR_READER_TYPE_LLRP != reader->readerType)
-#ifdef TMR_ENABLE_LLRP_READER
-           || (!(reader->u.llrpReader.featureFlags & TMMP_READER_FEATURES_FLAG_PERANTENNA_ONTIME))
-#endif
-           )
-        {
-          if((*(uint32_t *)value) > TMR_MAX_VALUE)
-          {
-            return TMR_ERROR_INVALID_VALUE;
-          }
-
-          /* Modifying on time while read is in progress is not allowed. */
-          if (reader->continuousReading)
-          {
-            return TMR_ERROR_UNSUPPORTED;
-          }
-
-          reader->readParams.asyncOnTime = *(uint32_t*)value;
-          break;
-        }
-      }
-#endif
-    default:
+#if defined(TMR_ENABLE_BACKGROUND_READS) || defined(SINGLE_THREAD_ASYNC_READ)
+  case TMR_PARAM_READ_ASYNCOFFTIME:
+  {
+    if (TMR_READER_TYPE_LLRP != reader->readerType)
     {
-      ret = reader->paramSet(reader, key, value);
+      if ((*(uint32_t *)value) > TMR_MAX_VALUE)
+      {
+        return TMR_ERROR_INVALID_VALUE;
+      }
+
+      /* Modifying off time while read is in progress is not allowed. */
+      if (reader->continuousReading)
+      {
+        return TMR_ERROR_UNSUPPORTED;
+      }
+
+      reader->readParams.asyncOffTime = *(uint32_t *)value;
+      break;
     }
+  }
+  case TMR_PARAM_READ_ASYNCONTIME:
+  {
+    if ((TMR_READER_TYPE_LLRP != reader->readerType)
+#ifdef TMR_ENABLE_LLRP_READER
+        || (!(reader->u.llrpReader.featureFlags & TMMP_READER_FEATURES_FLAG_PERANTENNA_ONTIME))
+#endif
+    )
+    {
+      if ((*(uint32_t *)value) > TMR_MAX_VALUE)
+      {
+        return TMR_ERROR_INVALID_VALUE;
+      }
+
+      /* Modifying on time while read is in progress is not allowed. */
+      if (reader->continuousReading)
+      {
+        return TMR_ERROR_UNSUPPORTED;
+      }
+
+      reader->readParams.asyncOnTime = *(uint32_t *)value;
+      break;
+    }
+  }
+#endif
+  default:
+  {
+    ret = reader->paramSet(reader, key, value);
+  }
   }
 
   return ret;
 }
-
 
 TMR_Status
 TMR_paramGet(struct TMR_Reader *reader, TMR_Param key, void *value)
@@ -973,44 +1016,43 @@ TMR_paramGet(struct TMR_Reader *reader, TMR_Param key, void *value)
 
   switch (key)
   {
-    case TMR_PARAM_READ_PLAN:
-      {
-        TMR_ReadPlan *plan = value;
-        *plan = *reader->readParams.readPlan;
-        
-        break;
-      }
-#if defined(TMR_ENABLE_BACKGROUND_READS)|| defined(SINGLE_THREAD_ASYNC_READ) 
-    case TMR_PARAM_READ_ASYNCOFFTIME:
-      {
-        if (TMR_READER_TYPE_LLRP != reader->readerType)
-        {
-          *(uint32_t *)value = reader->readParams.asyncOffTime;
+  case TMR_PARAM_READ_PLAN:
+  {
+    TMR_ReadPlan *plan = value;
+    *plan = *reader->readParams.readPlan;
 
-          break;
-        }
-      }
-    case TMR_PARAM_READ_ASYNCONTIME:
+    break;
+  }
+#if defined(TMR_ENABLE_BACKGROUND_READS) || defined(SINGLE_THREAD_ASYNC_READ)
+  case TMR_PARAM_READ_ASYNCOFFTIME:
+  {
+    if (TMR_READER_TYPE_LLRP != reader->readerType)
     {
-      if ((TMR_READER_TYPE_LLRP != reader->readerType)
+      *(uint32_t *)value = reader->readParams.asyncOffTime;
+
+      break;
+    }
+  }
+  case TMR_PARAM_READ_ASYNCONTIME:
+  {
+    if ((TMR_READER_TYPE_LLRP != reader->readerType)
 #ifdef TMR_ENABLE_LLRP_READER
-         || (!(reader->u.llrpReader.featureFlags & TMMP_READER_FEATURES_FLAG_PERANTENNA_ONTIME))
+        || (!(reader->u.llrpReader.featureFlags & TMMP_READER_FEATURES_FLAG_PERANTENNA_ONTIME))
 #endif
-          )
-      {
-        *(uint32_t *)value = reader->readParams.asyncOnTime;
-        break;
-      }
-    }
-#endif
-    default:
+    )
     {
-      ret = reader->paramGet(reader, key, value);
+      *(uint32_t *)value = reader->readParams.asyncOnTime;
+      break;
     }
+  }
+#endif
+  default:
+  {
+    ret = reader->paramGet(reader, key, value);
+  }
   }
   return ret;
 }
-
 
 TMR_Status
 TMR_addTransportListener(TMR_Reader *reader, TMR_TransportListenerBlock *b)
@@ -1021,7 +1063,6 @@ TMR_addTransportListener(TMR_Reader *reader, TMR_TransportListenerBlock *b)
 
   return TMR_SUCCESS;
 }
-
 
 TMR_Status
 TMR_removeTransportListener(TMR_Reader *reader, TMR_TransportListenerBlock *b)
@@ -1048,11 +1089,9 @@ TMR_removeTransportListener(TMR_Reader *reader, TMR_TransportListenerBlock *b)
   return TMR_SUCCESS;
 }
 
-
-void
-TMR__notifyTransportListeners(TMR_Reader *reader, bool tx, 
-                              uint32_t dataLen, uint8_t *data,
-                              int timeout)
+void TMR__notifyTransportListeners(TMR_Reader *reader, bool tx,
+                                   uint32_t dataLen, uint8_t *data,
+                                   int timeout)
 {
   TMR_TransportListenerBlock *block;
 
@@ -1064,8 +1103,7 @@ TMR__notifyTransportListeners(TMR_Reader *reader, bool tx,
   }
 }
 
-bool
-TMR_memoryProvider(void *cookie, uint16_t *size, uint8_t *data)
+bool TMR_memoryProvider(void *cookie, uint16_t *size, uint8_t *data)
 {
   TMR_memoryCookie *mc;
   int len;
@@ -1079,13 +1117,13 @@ TMR_memoryProvider(void *cookie, uint16_t *size, uint8_t *data)
 
   if (*size > mc->firmwareSize)
   {
-    *size =(uint16_t) mc->firmwareSize;
+    *size = (uint16_t)mc->firmwareSize;
   }
 
   len = *size;
 
   memcpy(data, mc->firmwareStart, len);
-  
+
   mc->firmwareSize -= len;
   mc->firmwareStart += len;
 
@@ -1093,8 +1131,7 @@ TMR_memoryProvider(void *cookie, uint16_t *size, uint8_t *data)
 }
 
 #ifdef TMR_ENABLE_STDIO
-bool
-TMR_fileProvider(void *cookie, uint16_t *size, uint8_t *data)
+bool TMR_fileProvider(void *cookie, uint16_t *size, uint8_t *data)
 {
   FILE *fp;
   size_t len;
@@ -1106,8 +1143,8 @@ TMR_fileProvider(void *cookie, uint16_t *size, uint8_t *data)
   {
     return false;
   }
-  
-  *size = (uint16_t) len;
+
+  *size = (uint16_t)len;
   return true;
 }
 #endif
@@ -1115,7 +1152,7 @@ TMR_fileProvider(void *cookie, uint16_t *size, uint8_t *data)
 /**
  * Initialize TMR_TagReadData with default values.
  * The tagData buffer will be initialized to TMR_MAX_EMBEDDED_DATA_LENGTH
- * which can be found in tm_config.h.  
+ * which can be found in tm_config.h.
  * If this value is zero, then the buffer is pointed to NULL.
  * @param trd Pointer to the TMR_TagReadData structure to initialize
  */
@@ -1238,7 +1275,7 @@ TMR_GEN2_init_BapParams(TMR_GEN2_Bap *bapVal, int32_t powerUpDelayUs, int32_t fr
 {
 
   bapVal->powerUpDelayUs = powerUpDelayUs;
-  bapVal->freqHopOfftimeUs=freqHopOfftimeUs;
+  bapVal->freqHopOfftimeUs = freqHopOfftimeUs;
 
   return TMR_SUCCESS;
 }
@@ -1246,24 +1283,24 @@ TMR_GEN2_init_BapParams(TMR_GEN2_Bap *bapVal, int32_t powerUpDelayUs, int32_t fr
 /**
  * Initialize a TMR_Filter structure as tag data (EPC) filter with the
  * provided tag (which is copied).
- * 
+ *
  * @param filter Pointer to the filter structure to initialize
  * @param tag TMR_TagData to use as the filter value
  */
 TMR_Status
 TMR_TF_init_tag(TMR_TagFilter *filter, TMR_TagData *tag)
 {
-  
+
   filter->type = TMR_FILTER_TYPE_TAG_DATA;
   filter->u.tagData = *tag;
-  
+
   return TMR_SUCCESS;
 }
 
 /**
  * Initialize a TMR_Filter structure as a Gen2 select filter with the
  * provided parameters.
- * 
+ *
  * @param filter Pointer to the filter structure to initialize
  * @param invert Whether to invert the result of the select
  * @param bank The memory bank on the tag to compare with the data
@@ -1276,16 +1313,16 @@ TMR_TF_init_gen2_select(TMR_TagFilter *filter, bool invert, TMR_GEN2_Bank bank,
                         uint32_t bitPointer, uint16_t maskBitLength,
                         uint8_t *mask)
 {
-  
+
   filter->type = TMR_FILTER_TYPE_GEN2_SELECT;
   filter->u.gen2Select.invert = invert;
   filter->u.gen2Select.bank = bank;
   filter->u.gen2Select.bitPointer = bitPointer;
   filter->u.gen2Select.maskBitLength = maskBitLength;
   filter->u.gen2Select.mask = mask;
-  filter->u.gen2Select.target = SELECT; //default value of target
-  filter->u.gen2Select.action = ON_N_OFF; //default value of action
-  
+  filter->u.gen2Select.target = SELECT;   // default value of target
+  filter->u.gen2Select.action = ON_N_OFF; // default value of action
+
   return TMR_SUCCESS;
 }
 
@@ -1293,11 +1330,11 @@ TMR_TF_init_gen2_select(TMR_TagFilter *filter, bool invert, TMR_GEN2_Bank bank,
 /**
  * Initialize a TMR_Filter structure as an ISO180006B select filter with the
  * provided parameters.
- * 
+ *
  * @param filter Pointer to the filter structure to initialize
  * @param invert Whether to invert the result of the select
  * @param op The operation to use to compare the provided data with the tag data
- * @param address The address of the 8 bytes of data on the tag to compare 
+ * @param address The address of the 8 bytes of data on the tag to compare
  * @param mask 8-bit mask of the bytes to compare
  * @param wordData The data to compare to the tag data
  */
@@ -1313,14 +1350,12 @@ TMR_Status TMR_TF_init_ISO180006B_select(TMR_TagFilter *filter, bool invert,
   filter->u.iso180006bSelect.address = address;
   filter->u.iso180006bSelect.mask = mask;
   memcpy(filter->u.iso180006bSelect.data, wordData, 8);
-  
+
   return TMR_SUCCESS;
 }
 #endif /* TMR_ENABLE_ISO180006B */
 
-
-bool
-TMR_TF_match(TMR_TagFilter *filter, TMR_TagData *tag)
+bool TMR_TF_match(TMR_TagFilter *filter, TMR_TagData *tag)
 {
   int32_t i, bitAddr;
   bool match;
@@ -1364,7 +1399,7 @@ TMR_TF_match(TMR_TagFilter *filter, TMR_TagData *tag)
   match = true;
   for (; i < sel->maskBitLength; i++, bitAddr++)
   {
-    if (bitAddr >(int32_t) (tag->epcByteCount * 8))
+    if (bitAddr > (int32_t)(tag->epcByteCount * 8))
     {
       match = false;
       break;
@@ -1382,7 +1417,6 @@ TMR_TF_match(TMR_TagFilter *filter, TMR_TagData *tag)
 
   return match;
 }
-
 
 /**
  * Initialize a TMR_TagAuthentication structure as a Gen2 password.
@@ -1410,7 +1444,7 @@ TMR_TA_init_gen2(TMR_TagAuthentication *auth, TMR_GEN2_Password password)
  * @param data Gen2 Denatran IAV write credential
  */
 TMR_Status
-TMR_TA_init_gen2_Denatran_IAV_writeCredentials(TMR_TagAuthentication *auth, uint8_t idLength, uint8_t* tagId, uint8_t len, uint8_t *data)
+TMR_TA_init_gen2_Denatran_IAV_writeCredentials(TMR_TagAuthentication *auth, uint8_t idLength, uint8_t *tagId, uint8_t len, uint8_t *data)
 {
   uint8_t i;
   auth->type = TMR_AUTH_TYPE_GEN2_DENATRAN_IAV_WRITE_CREDENTIALS;
@@ -1454,7 +1488,7 @@ TMR_TA_init_gen2_Denatran_IAV_writeCredentials(TMR_TagAuthentication *auth, uint
  * @param credentials
  */
 TMR_Status
-TMR_TA_init_gen2_Denatran_IAV_writeSecCredentials(TMR_TagAuthentication *auth, uint8_t length, uint8_t* data, uint8_t len, uint8_t* credentials)
+TMR_TA_init_gen2_Denatran_IAV_writeSecCredentials(TMR_TagAuthentication *auth, uint8_t length, uint8_t *data, uint8_t len, uint8_t *credentials)
 {
   uint8_t i;
   auth->type = TMR_AUTH_TYPE_GEN2_DENATRAN_IAV_WRITE_SEC_CREDENTIALS;
@@ -1513,14 +1547,14 @@ TMR_STATS_init(TMR_Reader_StatsValues *stats)
  *
  * @param dst Pointer to the TMR_StatValues structure to copy to.
  * @param src Pointer to the TMR_StatValues structure to copy from.
-*/
+ */
 TMR_Status
 TMR_STATS_copy(TMR_Reader_StatsValues *dst, TMR_Reader_StatsValues *src)
 {
   if (NULL != src && NULL != dst)
   {
     *dst = *src;
-     dst->perAntenna.list = dst->_perAntStorage;
+    dst->perAntenna.list = dst->_perAntStorage;
   }
   return TMR_SUCCESS;
 }
@@ -1542,7 +1576,7 @@ TMR_GPITR_init_enable(TMR_GPITriggerRead *triggerRead, bool enable)
 
 /**
  * Initialize a TMR_ReadPlan structure as a simple read plan with the
- * provided parameters.  
+ * provided parameters.
  *
  * Only the mandatory elements are parameters to
  * this function. The optional elements, filters and tag operations,
@@ -1559,9 +1593,9 @@ TMR_GPITR_init_enable(TMR_GPITriggerRead *triggerRead, bool enable)
 TMR_Status
 TMR_RP_init_simple(TMR_ReadPlan *plan, uint8_t antennaCount,
                    uint8_t *antennaList, TMR_TagProtocol protocol,
-                   uint32_t weight) 
+                   uint32_t weight)
 {
-  
+
   plan->type = TMR_READ_PLAN_TYPE_SIMPLE;
   plan->u.simple.antennas.max = antennaCount;
   plan->u.simple.antennas.len = antennaCount;
@@ -1609,7 +1643,7 @@ TMR_RP_set_stopTrigger(TMR_ReadPlan *plan, uint32_t nCount)
  * Set the filter of a simple read plan.
  *
  * @param plan Pointer to the read plan
- * @param filter Pointer to the filter 
+ * @param filter Pointer to the filter
  */
 TMR_Status
 TMR_RP_set_filter(TMR_ReadPlan *plan, TMR_TagFilter *filter)
@@ -1626,12 +1660,12 @@ TMR_RP_set_filter(TMR_ReadPlan *plan, TMR_TagFilter *filter)
 #ifdef TMR_ENABLE_UHF
 #ifdef TMR_ENABLE_LLRP_READER
 TMR_Status
-TMR_RP_set_customAntConfig(TMR_ReadPlan *plan,TMR_CustomAntConfig *customAntConfig)
+TMR_RP_set_customAntConfig(TMR_ReadPlan *plan, TMR_CustomAntConfig *customAntConfig)
 {
 
   if (TMR_READ_PLAN_TYPE_SIMPLE != plan->type)
     return TMR_ERROR_INVALID;
-  
+
   plan->u.simple.customAntConfig = customAntConfig;
 
   return TMR_SUCCESS;
@@ -1642,7 +1676,7 @@ TMR_RP_set_customAntConfig(TMR_ReadPlan *plan,TMR_CustomAntConfig *customAntConf
  *
  * @param plan Pointer to the read plan
  * @param useFastSearch Option for FastSearch
- */ 
+ */
 TMR_Status
 TMR_RP_set_useFastSearch(TMR_ReadPlan *plan, bool useFastSearch)
 {
@@ -1660,7 +1694,7 @@ TMR_RP_set_useFastSearch(TMR_ReadPlan *plan, bool useFastSearch)
  *
  * @param plan Pointer to the read plan
  * @param autonomousRead Option for autonomous read.
- */ 
+ */
 TMR_Status
 TMR_RP_set_enableAutonomousRead(TMR_ReadPlan *plan, bool autonomousRead)
 {
@@ -1687,7 +1721,7 @@ TMR_RP_set_enableTriggerRead(TMR_ReadPlan *plan, TMR_GPITriggerRead *triggerRead
    */
   plan->u.simple.triggerRead.gpiList.list = NULL;
   plan->u.simple.triggerRead.gpiList.len = 0;
-  plan->u.simple.triggerRead.gpiList.max = 0;  
+  plan->u.simple.triggerRead.gpiList.max = 0;
 
   return TMR_SUCCESS;
 }
@@ -1696,7 +1730,7 @@ TMR_RP_set_enableTriggerRead(TMR_ReadPlan *plan, TMR_GPITriggerRead *triggerRead
  * Set the tagop of a simple read plan.
  *
  * @param plan Pointer to the read plan
- * @param tagop Pointer to the tagop 
+ * @param tagop Pointer to the tagop
  */
 TMR_Status
 TMR_RP_set_tagop(TMR_ReadPlan *plan, TMR_TagOp *tagop)
@@ -1732,7 +1766,6 @@ TMR_RP_init_multi(TMR_ReadPlan *plan, TMR_ReadPlan **plans, uint8_t planCount,
   return TMR_SUCCESS;
 }
 
-
 #ifdef TMR_ENABLE_UHF
 /**
  * Initialize a TMR_TagLockAction as a Gen2 lock action with the
@@ -1752,7 +1785,6 @@ TMR_TLA_init_gen2(TMR_TagLockAction *lockAction, uint16_t mask, uint16_t action)
 
   return TMR_SUCCESS;
 }
-
 
 #ifdef TMR_ENABLE_ISO180006B
 /**
@@ -1774,19 +1806,18 @@ TMR_TLA_init_ISO180006B(TMR_TagLockAction *lockAction, uint8_t address)
 
 #endif /* TMR_ENABLE_ISO180006B */
 
-
 /**
  * Initialize a TMR_TagOp as a GEN2 EPC write operation with the
  * provided parameters.
- * 
+ *
  * @param tagop Pointer to the tagop structure to initialize.
  * @param epc EPC to write
  */
 TMR_Status
-TMR_TagOp_init_GEN2_WriteTag(TMR_TagOp *tagop, TMR_TagData* epc)
+TMR_TagOp_init_GEN2_WriteTag(TMR_TagOp *tagop, TMR_TagData *epc)
 {
   tagop->type = TMR_TAGOP_GEN2_WRITETAG;
-  tagop->u.gen2.u.writeTag.epcptr = epc;  /* Takes pointer to EPC; doesn't make an actual copy */
+  tagop->u.gen2.u.writeTag.epcptr = epc; /* Takes pointer to EPC; doesn't make an actual copy */
 
   return TMR_SUCCESS;
 }
@@ -1794,7 +1825,7 @@ TMR_TagOp_init_GEN2_WriteTag(TMR_TagOp *tagop, TMR_TagData* epc)
 /**
  * Initialize a TMR_TagOp as a GEN2 data read operation with the
  * provided parameters.
- * 
+ *
  * @param tagop Pointer to the tagop structure to initialize.
  * @param bank Memory bank from which to read
  * @param wordAddress Word address of location in bank from which to read
@@ -1813,7 +1844,7 @@ TMR_TagOp_init_GEN2_ReadData(TMR_TagOp *tagop, TMR_GEN2_Bank bank,
   return TMR_SUCCESS;
 }
 
-/** 
+/**
  * Initialize a TMR_TagOp as a GEN2 Secure data read operation with the
  * provided parameters.
  *
@@ -1822,7 +1853,7 @@ TMR_TagOp_init_GEN2_ReadData(TMR_TagOp *tagop, TMR_GEN2_Bank bank,
  * @param wordAddress Word address of location in bank from which to read
  * @param len Number of words to read
  * @param tagtype to select Alien Higgs 3 secure access and Monza 4 secure access
- * @param passwordType specifying the mode of password 
+ * @param passwordType specifying the mode of password
  */
 TMR_Status
 TMR_TagOp_init_GEN2_SecureReadData(TMR_TagOp *tagop, TMR_GEN2_Bank bank, uint32_t wordAddress,
@@ -1839,11 +1870,11 @@ TMR_TagOp_init_GEN2_SecureReadData(TMR_TagOp *tagop, TMR_GEN2_Bank bank, uint32_
 }
 
 /**
- * Initialize a TMR_TagOp as a Gen2 Secure Password with the 
+ * Initialize a TMR_TagOp as a Gen2 Secure Password with the
  * provided parameters.
  *
  * @param tagop Pointer to the tagop structure to initialize
- * @param passwordType specifying the mode of password 
+ * @param passwordType specifying the mode of password
  * @param gen2PassWord Gen2 access password
  * @param addressLength Number of bits used to address the AP list
  * @param addressOffset EPC word offset
@@ -1853,7 +1884,7 @@ TMR_Status
 TMR_TagOp_init_GEN2_SecurePassWord(TMR_TagOp *tagop, uint8_t passwordType, uint32_t gen2PassWord,
                                    uint8_t addressLength, uint8_t addressOffset, uint16_t flashOffset)
 {
-  
+
   tagop->u.gen2.u.secureReadData.passwordType = (TMR_SecurePasswordType)passwordType;
   tagop->u.gen2.u.secureReadData.password.gen2PassWord.u.gen2Password = gen2PassWord;
   tagop->u.gen2.u.secureReadData.password.secureAddressLength = addressLength;
@@ -1866,7 +1897,7 @@ TMR_TagOp_init_GEN2_SecurePassWord(TMR_TagOp *tagop, uint8_t passwordType, uint3
 /**
  * Initialize a TMR_TagOp as a ISO18000B data read operation with the
  * provided parameters.
- * 
+ *
  * @param tagop Pointer to the tagop structure to initialize.
  * @param byteAddress Address of location in bank from which to read
  * @param len Number of bytes to read
@@ -1882,11 +1913,10 @@ TMR_TagOp_init_ISO180006B_ReadData(TMR_TagOp *tagop, uint8_t byteAddress, uint8_
   return TMR_SUCCESS;
 }
 
-
 /**
  * Initialize a TMR_TagOp as a GEN2 data write operation with the
  * provided parameters.
- * 
+ *
  * @param tagop Pointer to the tagop structure to initialize.
  * @param bank Memory bank to write into
  * @param wordAddress Word address of location to begin write
@@ -1907,7 +1937,7 @@ TMR_TagOp_init_GEN2_WriteData(TMR_TagOp *tagop, TMR_GEN2_Bank bank,
 /**
  * Initialize a TMR_TagOp as a ISO180006B data write operation with the
  * provided parameters.
- * 
+ *
  * @param tagop Pointer to the tagop structure to initialize.
  * @param byteAddress  address of location to begin write
  * @param data Data to write
@@ -1946,7 +1976,7 @@ TMR_TagOp_init_GEN2_Lock(TMR_TagOp *tagop, uint16_t mask, uint16_t action, TMR_G
  * @param address The memory address of the byte to lock.
  */
 TMR_Status
-TMR_TagOp_init_ISO180006B_Lock(TMR_TagOp *tagop,  uint8_t address)
+TMR_TagOp_init_ISO180006B_Lock(TMR_TagOp *tagop, uint8_t address)
 {
 
   tagop->type = TMR_TAGOP_ISO180006B_LOCK;
@@ -1969,7 +1999,6 @@ TMR_TagOp_init_GEN2_Kill(TMR_TagOp *tagop, TMR_GEN2_Password killPassword)
 
   return TMR_SUCCESS;
 }
-
 
 /**
  * Initialize a TMR_TagOp as a GEN2 BlockWrite operation with the provided parameters.
@@ -2009,7 +2038,6 @@ TMR_TagOp_init_GEN2_BlockPermaLock(TMR_TagOp *tagop, uint8_t readLock, TMR_GEN2_
   tagop->u.gen2.u.blockPermaLock.mask.list = mask->list;
   tagop->u.gen2.u.blockPermaLock.mask.max = mask->max;
   return TMR_SUCCESS;
-
 }
 
 /**
@@ -2019,7 +2047,7 @@ TMR_TagOp_init_GEN2_BlockPermaLock(TMR_TagOp *tagop, uint8_t readLock, TMR_GEN2_
  * @param wordPtr The starting word address to erase
  * @param wordCount Number of words to erase
  */
-TMR_Status 
+TMR_Status
 TMR_TagOp_init_GEN2_BlockErase(TMR_TagOp *tagop, TMR_GEN2_Bank bank, uint32_t wordPtr, uint8_t wordCount)
 {
   tagop->type = TMR_TAGOP_GEN2_BLOCKERASE;
@@ -2040,9 +2068,9 @@ TMR_TagOp_init_GEN2_BlockErase(TMR_TagOp *tagop, TMR_GEN2_Bank bank, uint32_t wo
 #endif /* TMR_ENABLE_UHF */
 #ifdef TMR_ENABLE_GEN2_CUSTOM_TAGOPS
 
-TMR_Status 
+TMR_Status
 TMR_TagOp_init_GEN2_Alien_Higgs2_PartialLoadImage(TMR_TagOp *tagop, TMR_GEN2_Password killPassword,
-                                       TMR_GEN2_Password accessPassword, TMR_TagData *epc)
+                                                  TMR_GEN2_Password accessPassword, TMR_TagData *epc)
 {
   tagop->type = TMR_TAGOP_GEN2_ALIEN_HIGGS2_PARTIALLOADIMAGE;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_ALIEN_HIGGS_SILICON;
@@ -2064,8 +2092,8 @@ TMR_TagOp_init_GEN2_Alien_Higgs2_PartialLoadImage(TMR_TagOp *tagop, TMR_GEN2_Pas
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Alien_Higgs2_FullLoadImage(TMR_TagOp *tagop, TMR_GEN2_Password killPassword,
-                                    TMR_GEN2_Password accessPassword, uint16_t lockBits, 
-                                    uint16_t pcWord, TMR_TagData *epc)
+                                               TMR_GEN2_Password accessPassword, uint16_t lockBits,
+                                               uint16_t pcWord, TMR_TagData *epc)
 {
   tagop->type = TMR_TAGOP_GEN2_ALIEN_HIGGS2_FULLLOADIMAGE;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_ALIEN_HIGGS_SILICON;
@@ -2088,8 +2116,8 @@ TMR_TagOp_init_GEN2_Alien_Higgs2_FullLoadImage(TMR_TagOp *tagop, TMR_GEN2_Passwo
  * @param epc EPC to write
  */
 TMR_Status TMR_TagOp_init_GEN2_Alien_Higgs3_FastLoadImage(TMR_TagOp *tagop, TMR_GEN2_Password currentAccessPassword,
-                                    TMR_GEN2_Password accessPassword, TMR_GEN2_Password killPassword, 
-                                    uint16_t pcWord, TMR_TagData *epc)
+                                                          TMR_GEN2_Password accessPassword, TMR_GEN2_Password killPassword,
+                                                          uint16_t pcWord, TMR_TagData *epc)
 {
   tagop->type = TMR_TAGOP_GEN2_ALIEN_HIGGS3_FASTLOADIMAGE;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_ALIEN_HIGGS3_SILICON;
@@ -2112,8 +2140,8 @@ TMR_Status TMR_TagOp_init_GEN2_Alien_Higgs3_FastLoadImage(TMR_TagOp *tagop, TMR_
  * @param epcAndUserData Tag EPC and user data to write to the tag (76 bytes)
  */
 TMR_Status TMR_TagOp_init_GEN2_Alien_Higgs3_LoadImage(TMR_TagOp *tagop, TMR_GEN2_Password currentAccessPassword,
-                                    TMR_GEN2_Password accessPassword, TMR_GEN2_Password killPassword, 
-                                    uint16_t pcWord, TMR_uint8List *epcAndUserData)
+                                                      TMR_GEN2_Password accessPassword, TMR_GEN2_Password killPassword,
+                                                      uint16_t pcWord, TMR_uint8List *epcAndUserData)
 {
   tagop->type = TMR_TAGOP_GEN2_ALIEN_HIGGS3_LOADIMAGE;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_ALIEN_HIGGS3_SILICON;
@@ -2138,7 +2166,7 @@ TMR_Status TMR_TagOp_init_GEN2_Alien_Higgs3_BlockReadLock(TMR_TagOp *tagop, TMR_
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_ALIEN_HIGGS3_SILICON;
   tagop->u.gen2.u.custom.u.alien.u.higgs3.u.blockReadLock.accessPassword = accessPassword;
   tagop->u.gen2.u.custom.u.alien.u.higgs3.u.blockReadLock.lockBits = lockBits;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -2245,114 +2273,114 @@ TMR_Status TMR_TagOp_init_GEN2_NXP_G2I_EASAlarm(TMR_TagOp *tagop, TMR_GEN2_Divid
   return TMR_SUCCESS;
 }
 
-TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Untraceable(TMR_TagOp *tagop,TMR_GEN2_UNTRACEABLE_Epc epc, int epclen , TMR_GEN2_UNTRACEABLE_Tid tid, TMR_GEN2_UNTRACEABLE_UserMemory user,
-																									 TMR_GEN2_UNTRACEABLE_Range range, TMR_TagOp_GEN2_NXP_Untraceable *untraceable)
+TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Untraceable(TMR_TagOp *tagop, TMR_GEN2_UNTRACEABLE_Epc epc, int epclen, TMR_GEN2_UNTRACEABLE_Tid tid, TMR_GEN2_UNTRACEABLE_UserMemory user,
+                                                   TMR_GEN2_UNTRACEABLE_Range range, TMR_TagOp_GEN2_NXP_Untraceable *untraceable)
 {
-	tagop->type = TMR_TAGOP_GEN2_NXP_UNTRACEABLE;
-	tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_NXP_AES_UCODE;
-	tagop->u.gen2.u.custom.u.nxp.u.untraceable.epc = epc;
-	tagop->u.gen2.u.custom.u.nxp.u.untraceable.epcLength = epclen;
-	tagop->u.gen2.u.custom.u.nxp.u.untraceable.tid = tid;
-	tagop->u.gen2.u.custom.u.nxp.u.untraceable.userMemory = user;
-	tagop->u.gen2.u.custom.u.nxp.u.untraceable.range = range;
-        tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.authType = untraceable->auth.authType;
-	if(untraceable->auth.authType == UNTRACEABLE_WITH_AUTHENTICATION)
-	{
-		tagop->u.gen2.u.custom.u.nxp.u.untraceable.subCommand = 0x02;
-		tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.tam1Auth = untraceable->auth.tam1Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.tam1Auth.Authentication |= 0x03;
-	}
-	else
-	{
-		tagop->u.gen2.u.custom.u.nxp.u.untraceable.subCommand = 0x03;
-		tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.accessPassword = untraceable->auth.accessPassword;
-	}
-	return TMR_SUCCESS;
+  tagop->type = TMR_TAGOP_GEN2_NXP_UNTRACEABLE;
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_NXP_AES_UCODE;
+  tagop->u.gen2.u.custom.u.nxp.u.untraceable.epc = epc;
+  tagop->u.gen2.u.custom.u.nxp.u.untraceable.epcLength = epclen;
+  tagop->u.gen2.u.custom.u.nxp.u.untraceable.tid = tid;
+  tagop->u.gen2.u.custom.u.nxp.u.untraceable.userMemory = user;
+  tagop->u.gen2.u.custom.u.nxp.u.untraceable.range = range;
+  tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.authType = untraceable->auth.authType;
+  if (untraceable->auth.authType == UNTRACEABLE_WITH_AUTHENTICATION)
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.untraceable.subCommand = 0x02;
+    tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.tam1Auth = untraceable->auth.tam1Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.tam1Auth.Authentication |= 0x03;
+  }
+  else
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.untraceable.subCommand = 0x03;
+    tagop->u.gen2.u.custom.u.nxp.u.untraceable.auth.accessPassword = untraceable->auth.accessPassword;
+  }
+  return TMR_SUCCESS;
 }
 
 TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Authenticate(TMR_TagOp *tagop, TMR_TagOp_GEN2_NXP_Authenticate *authenticate)
 {
-	tagop->type = TMR_TAGOP_GEN2_NXP_AUTHENTICATE;
-	tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_NXP_AES_UCODE;
-	if(authenticate->type == TAM1_AUTHENTICATION)
-	{
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.type = authenticate->type;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.subCommand = 0x01;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth = authenticate->tam1Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth.Authentication |= 0x03;
-	}
-    else if (authenticate->type == TAM2_AUTHENTICATION)
-	{
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth = authenticate->tam2Auth.tam1Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.type = authenticate->type;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.subCommand = 0x01;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam2Auth = authenticate->tam2Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth.Authentication |= 0x07;
-	}
-    else if (authenticate->type == M775_AUTHENTICATION)
-    {
-        tagop->u.gen2.u.custom.u.nxp.u.authenticate.type = authenticate->type;  
-        tagop->u.gen2.u.custom.u.nxp.u.authenticate.subCommand = 0x01;
-        tagop->u.gen2.u.custom.u.nxp.u.authenticate.M775Auth = authenticate->M775Auth; 
-        tagop->u.gen2.u.custom.u.nxp.u.authenticate.M775Auth.Authentication |= 0x03;
-    }
+  tagop->type = TMR_TAGOP_GEN2_NXP_AUTHENTICATE;
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_NXP_AES_UCODE;
+  if (authenticate->type == TAM1_AUTHENTICATION)
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.type = authenticate->type;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.subCommand = 0x01;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth = authenticate->tam1Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth.Authentication |= 0x03;
+  }
+  else if (authenticate->type == TAM2_AUTHENTICATION)
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth = authenticate->tam2Auth.tam1Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.type = authenticate->type;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.subCommand = 0x01;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam2Auth = authenticate->tam2Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.tam1Auth.Authentication |= 0x07;
+  }
+  else if (authenticate->type == M775_AUTHENTICATION)
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.type = authenticate->type;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.subCommand = 0x01;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.M775Auth = authenticate->M775Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.authenticate.M775Auth.Authentication |= 0x03;
+  }
 
-	return TMR_SUCCESS;
+  return TMR_SUCCESS;
 }
 
-TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Tam2authentication(TMR_TagOp_GEN2_NXP_Tam2Authentication *auth, TMR_NXP_KeyId keyid, TMR_uint8List *key, 
-																		TMR_NXP_Profile profile, uint16_t Offset,uint8_t blockCount, int protMode, bool sendRawData)
+TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Tam2authentication(TMR_TagOp_GEN2_NXP_Tam2Authentication *auth, TMR_NXP_KeyId keyid, TMR_uint8List *key,
+                                                          TMR_NXP_Profile profile, uint16_t Offset, uint8_t blockCount, int protMode, bool sendRawData)
 {
-	auth->tam1Auth.Authentication = sendRawData ? 0x80 : 0x00;
-	auth->tam1Auth.CSI = 0x00;
-	auth->tam1Auth.KeyLength = 0x10;
-	auth->tam1Auth.Key.len = key->len;
-	auth->tam1Auth.Key.list = key->list;
-	auth->tam1Auth.Key.max = key->max;
-	auth->tam1Auth.keyID = keyid;
-	auth->Offset = Offset;
-	auth->BlockCount = blockCount;
-	auth->ProtMode = protMode;
-	auth->profile = profile;
-	return TMR_SUCCESS;
+  auth->tam1Auth.Authentication = sendRawData ? 0x80 : 0x00;
+  auth->tam1Auth.CSI = 0x00;
+  auth->tam1Auth.KeyLength = 0x10;
+  auth->tam1Auth.Key.len = key->len;
+  auth->tam1Auth.Key.list = key->list;
+  auth->tam1Auth.Key.max = key->max;
+  auth->tam1Auth.keyID = keyid;
+  auth->Offset = Offset;
+  auth->BlockCount = blockCount;
+  auth->ProtMode = protMode;
+  auth->profile = profile;
+  return TMR_SUCCESS;
 }
 TMR_Status TMR_TagOp_init_GEN2_NXP_AES_ReadBuffer(TMR_TagOp *tagop, uint16_t wordPointer, uint16_t bitCount, TMR_TagOp_GEN2_NXP_Readbuffer *readbuffer)
 {
-	tagop->type = TMR_TAGOP_GEN2_NXP_READBUFFER;
-	tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_NXP_AES_UCODE;
-	tagop->u.gen2.u.custom.u.nxp.u.readBuffer.wordPointer = wordPointer;
-	tagop->u.gen2.u.custom.u.nxp.u.readBuffer.bitCount = bitCount;
-	if(readbuffer->authenticate.type == TAM1_AUTHENTICATION)
-	{
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.type = readbuffer->authenticate.type;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.subCommand = 0x04;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth = readbuffer->authenticate.tam1Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth.Authentication |= 0x00;
-	}
-	else
-	{
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth = readbuffer->authenticate.tam2Auth.tam1Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.type = readbuffer->authenticate.type;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.subCommand = 0x04;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam2Auth = readbuffer->authenticate.tam2Auth;
-		tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth.Authentication |= 0x04;
-	}
-	return TMR_SUCCESS;
+  tagop->type = TMR_TAGOP_GEN2_NXP_READBUFFER;
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_NXP_AES_UCODE;
+  tagop->u.gen2.u.custom.u.nxp.u.readBuffer.wordPointer = wordPointer;
+  tagop->u.gen2.u.custom.u.nxp.u.readBuffer.bitCount = bitCount;
+  if (readbuffer->authenticate.type == TAM1_AUTHENTICATION)
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.type = readbuffer->authenticate.type;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.subCommand = 0x04;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth = readbuffer->authenticate.tam1Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth.Authentication |= 0x00;
+  }
+  else
+  {
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth = readbuffer->authenticate.tam2Auth.tam1Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.type = readbuffer->authenticate.type;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.subCommand = 0x04;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam2Auth = readbuffer->authenticate.tam2Auth;
+    tagop->u.gen2.u.custom.u.nxp.u.readBuffer.authenticate.tam1Auth.Authentication |= 0x04;
+  }
+  return TMR_SUCCESS;
 }
 
-TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Tam1authentication(TMR_TagOp_GEN2_NXP_Tam1Authentication *auth, TMR_NXP_KeyId keyid, TMR_uint8List *key, bool sendRawData )
+TMR_Status TMR_TagOp_init_GEN2_NXP_AES_Tam1authentication(TMR_TagOp_GEN2_NXP_Tam1Authentication *auth, TMR_NXP_KeyId keyid, TMR_uint8List *key, bool sendRawData)
 {
-	auth->Authentication = sendRawData ? 0x80 : 0x00;
-	auth->CSI = 0x00;
-	auth->KeyLength = 0x10;
-	auth->Key.len = key->len;
-	auth->Key.list = key->list;
-	auth->Key.max = key->max;
-	auth->keyID = keyid;
-	return TMR_SUCCESS;
+  auth->Authentication = sendRawData ? 0x80 : 0x00;
+  auth->CSI = 0x00;
+  auth->KeyLength = 0x10;
+  auth->Key.len = key->len;
+  auth->Key.list = key->list;
+  auth->Key.max = key->max;
+  auth->keyID = keyid;
+  return TMR_SUCCESS;
 }
 
-TMR_Status TMR_TagOp_init_GEN2_NXP_AES_M775Authentication(TMR_TagOp_GEN2_NXP_M775Authentication* auth)
+TMR_Status TMR_TagOp_init_GEN2_NXP_AES_M775Authentication(TMR_TagOp_GEN2_NXP_M775Authentication *auth)
 {
   auth->Authentication = 0x00;
   auth->CSI = 0x01;
@@ -2373,7 +2401,7 @@ TMR_Status TMR_TagOp_init_GEN2_NXP_G2X_EASAlarm(TMR_TagOp *tagop, TMR_GEN2_Divid
   tagop->u.gen2.u.custom.u.nxp.u.EASAlarm.dr = dr;
   tagop->u.gen2.u.custom.u.nxp.u.EASAlarm.m = m;
   tagop->u.gen2.u.custom.u.nxp.u.EASAlarm.trExt = trExt;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -2459,12 +2487,12 @@ TMR_Status TMR_TagOp_init_GEN2_NXP_UCODE7_ChangeConfig(TMR_TagOp *tagop, TMR_GEN
  * Initialize a TMR_TagOp as a Monza4 QT Read/Write operation with the provided parameters.
  * @param tagop Pointer to the tagop structure to initialize.
  * @param accessPassword access password
- * @param controlByte The QT control Byte 
+ * @param controlByte The QT control Byte
  * @param payload The QT payload
  */
-TMR_Status 
+TMR_Status
 TMR_TagOp_init_GEN2_Impinj_Monza4_QTReadWrite(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
-                                  TMR_Monza4_ControlByte controlByte, TMR_Monza4_Payload payload)
+                                              TMR_Monza4_ControlByte controlByte, TMR_Monza4_Payload payload)
 {
   tagop->type = TMR_TAGOP_GEN2_IMPINJ_MONZA4_QTREADWRITE;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_IMPINJ_MONZA4_SILICON;
@@ -2479,13 +2507,13 @@ TMR_TagOp_init_GEN2_Impinj_Monza4_QTReadWrite(TMR_TagOp *tagop, TMR_GEN2_Passwor
  * Initialize a TMR_TagOp as a Monza6 Margin read operation with the provided parameters.
  * @param tagop: Pointer to the tagop structure to initialize.
  * @param bank: The Gen2 memory bank to read from
- * @param bitAddress: The bit address to start reading from 
+ * @param bitAddress: The bit address to start reading from
  * @param maskBitLength: The number of mask bits
  * @param mask: Pointer to mask data
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Impinj_Monza6_MarginRead(TMR_TagOp *tagop, TMR_GEN2_Bank bank,
-                                   uint32_t bitAddress, uint16_t maskBitLength, uint8_t *mask)
+                                             uint32_t bitAddress, uint16_t maskBitLength, uint8_t *mask)
 {
 
   tagop->type = TMR_TAGOP_GEN2_IMPINJ_MONZA6_MARGINREAD;
@@ -2498,7 +2526,7 @@ TMR_TagOp_init_GEN2_Impinj_Monza6_MarginRead(TMR_TagOp *tagop, TMR_GEN2_Bank ban
   return TMR_SUCCESS;
 }
 
- /**
+/**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran ActivateSecureMode operation with the provided parameter
  * @param tagop Pointer to the tagop structure to initialize
  * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
@@ -2507,7 +2535,7 @@ TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_Activate_Secure_Mode(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_DENATRAN_IAV_ACTIVATESECUREMODE;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.secureMode.mode = GEN2_ACTIVATE_SECURE_MODE;
   tagop->u.gen2.u.custom.u.IavDenatran.u.secureMode.payload = payload;
 
@@ -2516,14 +2544,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_Activate_Secure_Mode(TMR_TagOp *tagop, uint8_t 
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran AuthenticateOBU operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_Authenticate_OBU(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_DENATRAN_IAV_AUTHENTICATEOBU;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.authenticateOBU.mode = GEN2_AUTHENTICATE_OBU;
   tagop->u.gen2.u.custom.u.IavDenatran.u.authenticateOBU.payload = payload;
 
@@ -2532,7 +2560,7 @@ TMR_TagOp_init_GEN2_Denatran_IAV_Authenticate_OBU(TMR_TagOp *tagop, uint8_t payl
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran ACTIVATE_SINIAV_MODE operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  * @param token 64 bits of token number to activate the tag
  */
@@ -2542,7 +2570,7 @@ TMR_TagOp_init_GEN2_Denatran_IAV_Activate_Siniav_Mode(TMR_TagOp *tagop, uint8_t 
   uint8_t tokenDesc;
 
   tagop->type = TMR_TAGOP_GEN2_ACTIVATE_SINIAV_MODE;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.activateSiniavMode.mode = GEN2_ACTIVATE_SINIAV_MODE;
   tagop->u.gen2.u.custom.u.IavDenatran.u.activateSiniavMode.payload = payload;
 
@@ -2554,14 +2582,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_Activate_Siniav_Mode(TMR_TagOp *tagop, uint8_t 
    */
   tokenDesc = 0x03 & payload;
   if (0x01 == tokenDesc)
-  { 
-    /* the token field is always 64 bits in this case */    
+  {
+    /* the token field is always 64 bits in this case */
     if (0x08 != token->len)
     {
       return TMR_ERROR_INVALID;
     }
     memcpy(tagop->u.gen2.u.custom.u.IavDenatran.u.activateSiniavMode.token, token->list, token->len);
-    tagop->u.gen2.u.custom.u.IavDenatran.u.activateSiniavMode.isTokenDesc = true;  
+    tagop->u.gen2.u.custom.u.IavDenatran.u.activateSiniavMode.isTokenDesc = true;
   }
   else
   {
@@ -2573,14 +2601,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_Activate_Siniav_Mode(TMR_TagOp *tagop, uint8_t 
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran OBU_Auth_ID operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
- * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits] 
+ * @param tagop Pointer to the tagop structure to initialize
+ * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_ID(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_OBU_AUTH_ID;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthId.mode = GEN2_OBU_AUTH_ID;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthId.payload = payload;
 
@@ -2589,14 +2617,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_ID(TMR_TagOp *tagop, uint8_t payload)
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran OBU_Auth_Full_Pass1 operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
- * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits] 
+ * @param tagop Pointer to the tagop structure to initialize
+ * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_Full_Pass1(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_AUTHENTICATE_OBU_FULL_PASS1;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthFullPass1.mode = GEN2_AUTHENTICATE_OBU_FULL_PASS1;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthFullPass1.payload = payload;
 
@@ -2605,14 +2633,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_Full_Pass1(TMR_TagOp *tagop, uint8_t p
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran OBU_Auth_Full_Pass2 operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
- * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits] 
+ * @param tagop Pointer to the tagop structure to initialize
+ * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_Full_Pass2(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_AUTHENTICATE_OBU_FULL_PASS2;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthFullPass2.mode = GEN2_AUTHENTICATE_OBU_FULL_PASS2;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthFullPass2.payload = payload;
 
@@ -2621,7 +2649,7 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_Full_Pass2(TMR_TagOp *tagop, uint8_t p
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran OBU_ReadFromMemMap operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  * @param payload The OBU_ReadFromMemMap Payload
  * @param wordAddress pointer indicating the address to be read from USER memory bank
  */
@@ -2639,7 +2667,7 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_ReadFromMemMap(TMR_TagOp *tagop, uint8_t pa
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran OBU_WriteToMemMap operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  * @param payload The OBU_WriteToMemMap Payload
  * @param wordAddress pointer to the USER data
  * @param word data to be written
@@ -2647,7 +2675,7 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_ReadFromMemMap(TMR_TagOp *tagop, uint8_t pa
  * @param data credentials written word
  */
 TMR_Status
-TMR_TagOp_init_GEN2_Denatran_IAV_OBU_WriteToMemMap(TMR_TagOp *tagop, uint8_t payload, uint16_t wordAddress, uint16_t word, uint8_t* tagId, uint8_t* data)
+TMR_TagOp_init_GEN2_Denatran_IAV_OBU_WriteToMemMap(TMR_TagOp *tagop, uint8_t payload, uint16_t wordAddress, uint16_t word, uint8_t *tagId, uint8_t *data)
 {
   tagop->type = TMR_TAGOP_GEN2_OBU_WRITE_TO_MEM_MAP;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
@@ -2663,13 +2691,13 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_WriteToMemMap(TMR_TagOp *tagop, uint8_t pay
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran Write Sec operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  * @param payload The OBU_WriteToMemMap Payload
  * @param data credentials written word
  * @param credentials
  */
 TMR_Status
-TMR_TagOp_init_GEN2_Denatran_IAV_WriteSec(TMR_TagOp *tagop, uint8_t payload, uint8_t* data, uint8_t* credentials)
+TMR_TagOp_init_GEN2_Denatran_IAV_WriteSec(TMR_TagOp *tagop, uint8_t payload, uint8_t *data, uint8_t *credentials)
 {
   tagop->type = TMR_TAGOP_GEN2_DENATRAN_IAV_WRITE_SEC;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
@@ -2683,14 +2711,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_WriteSec(TMR_TagOp *tagop, uint8_t payload, uin
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran OBU_Auth_Full_Pass operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
- * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits] 
+ * @param tagop Pointer to the tagop structure to initialize
+ * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_Full_Pass(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_DENATRAN_IAV_AUTHENTICATE_OBU_FULL_PASS;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthFullPass.mode = GEN2_AUTHENTICATE_OBU_FULL_PASS;
   tagop->u.gen2.u.custom.u.IavDenatran.u.obuAuthFullPass.payload = payload;
 
@@ -2699,14 +2727,14 @@ TMR_TagOp_init_GEN2_Denatran_IAV_OBU_Auth_Full_Pass(TMR_TagOp *tagop, uint8_t pa
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran G0_PA_OBU_Auth_ID operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
- * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits] 
+ * @param tagop Pointer to the tagop structure to initialize
+ * @param payload 1byte->[TC(Transmission Count) 1bit + RFFU(Reserved For Furture Use) 7bits]
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_G0_PA_OBU_Auth(TMR_TagOp *tagop, uint8_t payload)
 {
   tagop->type = TMR_TAGOP_GEN2_DENATRAN_IAV_G0_PA_OBU_AUTHENTICATE_ID;
-  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON; 
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_DENATRAN_IAV_SILICON;
   tagop->u.gen2.u.custom.u.IavDenatran.u.g0paobuauthid.mode = GEN2_PA_G0_AUTHENTICATE;
   tagop->u.gen2.u.custom.u.IavDenatran.u.g0paobuauthid.payload = payload;
 
@@ -2715,7 +2743,7 @@ TMR_TagOp_init_GEN2_Denatran_IAV_G0_PA_OBU_Auth(TMR_TagOp *tagop, uint8_t payloa
 
 /**
  * Initialize a TMR_TagOp as a Gen2 IAVDenatran Get Token Id operation with the provided parameter
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  */
 TMR_Status
 TMR_TagOp_init_GEN2_Denatran_IAV_GetTokenId(TMR_TagOp *tagop)
@@ -2774,7 +2802,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_GetCalibrationData(TMR_TagOp *tagop, TMR_GEN2_Pas
  * @param password IDS password
  * @param newPasswordLevel IDS NewPasswordLevel
  * @param newPassword IDS NewPassword
- */ 
+ */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_SetPassword(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword, PasswordLevel level,
                                            uint32_t password, PasswordLevel newPasswordLevel, uint32_t newPassword)
@@ -2787,7 +2815,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_SetPassword(TMR_TagOp *tagop, TMR_GEN2_Password a
   tagop->u.gen2.u.custom.u.ids.u.setPassword.Password = password;
   tagop->u.gen2.u.custom.u.ids.u.setPassword.NewPasswordLevel = newPasswordLevel;
   tagop->u.gen2.u.custom.u.ids.u.setPassword.NewPassword = newPassword;
-  
+
   return TMR_SUCCESS;
 }
 /**
@@ -2799,7 +2827,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_SetPassword(TMR_TagOp *tagop, TMR_GEN2_Password a
  * @param data IDS calibration data
  */
 TMR_Status
-TMR_TagOp_init_GEN2_IDS_SL900A_SetCalibrationData(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword, PasswordLevel level, 
+TMR_TagOp_init_GEN2_IDS_SL900A_SetCalibrationData(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword, PasswordLevel level,
                                                   uint32_t password, TMR_TagOp_GEN2_IDS_SL900A_CalibrationData *data)
 {
   tagop->type = TMR_TAGOP_GEN2_IDS_SL900A_SETCALIBRATIONDATA;
@@ -2870,7 +2898,7 @@ TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_GetMeasurementSetup(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
                                                    PasswordLevel level, uint32_t password)
 {
-  tagop->type =TMR_TAGOP_GEN2_IDS_SL900A_GETMEASUREMENTSETUP;
+  tagop->type = TMR_TAGOP_GEN2_IDS_SL900A_GETMEASUREMENTSETUP;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_IDS_SL900A_SILICON;
   tagop->u.gen2.u.custom.u.ids.u.measurementSetup.AccessPassword = accessPassword;
   tagop->u.gen2.u.custom.u.ids.u.measurementSetup.CommandCode = 0xA3;
@@ -2918,7 +2946,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_GetLogState(TMR_TagOp *tagop, TMR_GEN2_Password a
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_SetLogMode(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword, PasswordLevel level,
                                           uint32_t password, LoggingForm form, StorageRule rule, bool Ext1Enable,
-                                          bool Ext2Enable,  bool TempEnable, bool BattEnable, uint16_t LogInterval)
+                                          bool Ext2Enable, bool TempEnable, bool BattEnable, uint16_t LogInterval)
 {
   tagop->type = TMR_TAGOP_GEN2_IDS_SL900A_SETLOGMODE;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_IDS_SL900A_SILICON;
@@ -2972,8 +3000,8 @@ TMR_TagOp_init_GEN2_IDS_SL900A_EndLog(TMR_TagOp *tagop, TMR_GEN2_Password access
  */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_Initialize(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
-                                          PasswordLevel level, uint32_t password, uint8_t delayMode, 
-                                          uint16_t delayTime, bool timeEnable, uint16_t numberOfWords, 
+                                          PasswordLevel level, uint32_t password, uint8_t delayMode,
+                                          uint16_t delayTime, bool timeEnable, uint16_t numberOfWords,
                                           uint8_t BrokenWordPointer)
 {
   uint16_t mask = 0x1 << 1;
@@ -2986,11 +3014,11 @@ TMR_TagOp_init_GEN2_IDS_SL900A_Initialize(TMR_TagOp *tagop, TMR_GEN2_Password ac
   tagop->u.gen2.u.custom.u.ids.u.initialize.sl900A.level = level;
 
   if (TMR_GEN2_IDS_SL900A_DELAYMODE_TIMER == delayMode)
-  {   
-   uint16_t raw = 0;
-   raw &= (uint16_t)~mask;
-   tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.raw = raw;
-   tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.Mode = (TMR_SL900A_DelayMode)delayMode;
+  {
+    uint16_t raw = 0;
+    raw &= (uint16_t)~mask;
+    tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.raw = raw;
+    tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.Mode = (TMR_SL900A_DelayMode)delayMode;
   }
   else
   {
@@ -3006,7 +3034,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_Initialize(TMR_TagOp *tagop, TMR_GEN2_Password ac
     tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.Time = delayTime;
   }
   mask = 0x1;
-  if(timeEnable)
+  if (timeEnable)
   {
     tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.raw |= mask;
     tagop->u.gen2.u.custom.u.ids.u.initialize.delayTime.IrqTimerEnable = timeEnable;
@@ -3036,7 +3064,6 @@ TMR_TagOp_init_GEN2_IDS_SL900A_Initialize(TMR_TagOp *tagop, TMR_GEN2_Password ac
   return TMR_SUCCESS;
 }
 
-
 /**
  * Initialize a TMR_TagOp as a Gen2 Ids SL900A AcessFifo Status operation with the provided parameters.
  * @param tagop Pointer to the tagop structure to initialize.
@@ -3046,7 +3073,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_Initialize(TMR_TagOp *tagop, TMR_GEN2_Password ac
  */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_AccessFifoStatus(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
-                                                 PasswordLevel level, uint32_t password)
+                                                PasswordLevel level, uint32_t password)
 {
   tagop->type = TMR_TAGOP_GEN2_IDS_SL900A_ACCESSFIFOSTATUS;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_IDS_SL900A_SILICON;
@@ -3069,7 +3096,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_AccessFifoStatus(TMR_TagOp *tagop, TMR_GEN2_Passw
  */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_AccessFifoRead(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
-                                               PasswordLevel level, uint32_t password, uint8_t readLength)
+                                              PasswordLevel level, uint32_t password, uint8_t readLength)
 {
   tagop->type = TMR_TAGOP_GEN2_IDS_SL900A_ACCESSFIFOREAD;
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_IDS_SL900A_SILICON;
@@ -3078,7 +3105,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_AccessFifoRead(TMR_TagOp *tagop, TMR_GEN2_Passwor
   tagop->u.gen2.u.custom.u.ids.u.accessFifoRead.read.Password = password;
   tagop->u.gen2.u.custom.u.ids.u.accessFifoRead.read.sl900A.level = level;
   tagop->u.gen2.u.custom.u.ids.u.accessFifoRead.read.operation = TMR_GEN2_IDS_SL900A_ACCESSFIFO_READ;
-  
+
   if (readLength != (readLength & 0xF))
   {
     return TMR_ERROR_MSG_INVALID_PARAMETER_VALUE;
@@ -3107,7 +3134,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_AccessFifoWrite(TMR_TagOp *tagop, TMR_GEN2_Passwo
   tagop->u.gen2.u.custom.u.ids.u.accessFifoWrite.write.Password = password;
   tagop->u.gen2.u.custom.u.ids.u.accessFifoWrite.write.sl900A.level = level;
   tagop->u.gen2.u.custom.u.ids.u.accessFifoWrite.write.operation = TMR_GEN2_IDS_SL900A_ACCESSFIFO_WRITE;
-  
+
   if (payLoad->len != (payLoad->len & 0xF))
   {
     return TMR_ERROR_MSG_INVALID_PARAMETER_VALUE;
@@ -3123,7 +3150,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_AccessFifoWrite(TMR_TagOp *tagop, TMR_GEN2_Passwo
  * @param accessPassword Gen2 accessPassword
  * @param level IDS passwordlevel
  * @param password IDS password
- * @param timestamp pointer to TMR_TimeStructure (timestamp structure) 
+ * @param timestamp pointer to TMR_TimeStructure (timestamp structure)
  */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_StartLog(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
@@ -3138,11 +3165,11 @@ TMR_TagOp_init_GEN2_IDS_SL900A_StartLog(TMR_TagOp *tagop, TMR_GEN2_Password acce
   if (NULL == timestamp)
   {
     /** in case user not providing the time stamp
-    * use current system time
-    */
+     * use current system time
+     */
     return TMR_ERROR_TIMESTAMP_NULL;
   }
-  
+
   tagop->u.gen2.u.custom.u.ids.u.startLog.startTime = 0;
   tagop->u.gen2.u.custom.u.ids.u.startLog.startTime |= (uint32_t)((timestamp->tm_year - 2010) << 26);
   tagop->u.gen2.u.custom.u.ids.u.startLog.startTime |= (uint32_t)((timestamp->tm_mon) << 22);
@@ -3201,7 +3228,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_SetLogLimit(TMR_TagOp *tagop, TMR_GEN2_Password a
    */
   if (0x03FF < logLimits->extremeLower)
   {
-    return TMR_ERROR_MSG_INVALID_PARAMETER_VALUE; 
+    return TMR_ERROR_MSG_INVALID_PARAMETER_VALUE;
   }
 
   tagop->u.gen2.u.custom.u.ids.u.setLogLimit.limit.extremeLower = logLimits->extremeLower;
@@ -3225,7 +3252,6 @@ TMR_TagOp_init_GEN2_IDS_SL900A_SetLogLimit(TMR_TagOp *tagop, TMR_GEN2_Password a
   tagop->u.gen2.u.custom.u.ids.u.setLogLimit.limit.extremeUpper = logLimits->extremeUpper;
 
   return TMR_SUCCESS;
-
 }
 
 /**
@@ -3235,7 +3261,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_SetLogLimit(TMR_TagOp *tagop, TMR_GEN2_Password a
  * @param tmin SetShelfLife Tmin
  * @param tstd SetshelfLIfe Tstd;
  * @param ea   SetshelfLife Ea;
- */ 
+ */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLifeBlock0 *block0,
                                                uint8_t tmax, uint8_t tmin, uint8_t tstd, uint8_t ea)
@@ -3243,7 +3269,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
   uint64_t mask;
   block0->raw = 0;
 
-  /* Copying the tmax to  block0 raw value */ 
+  /* Copying the tmax to  block0 raw value */
   {
     block0->Tmax = tmax;
     mask = TMR_makeBitMask(24, 8);
@@ -3251,7 +3277,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
     block0->raw |= (uint32_t)((uint32_t)tmax << 24);
   }
 
-  /* Copying the tmin to  block0 raw value */ 
+  /* Copying the tmin to  block0 raw value */
   {
     block0->Tmin = tmin;
     mask = TMR_makeBitMask(16, 8);
@@ -3259,7 +3285,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
     block0->raw |= (uint32_t)((uint32_t)tmin << 16);
   }
 
-  /* Copying the tstd to  block0 raw value */ 
+  /* Copying the tstd to  block0 raw value */
   {
     block0->Tstd = tstd;
     mask = TMR_makeBitMask(8, 8);
@@ -3267,7 +3293,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
     block0->raw |= (uint32_t)((uint32_t)tstd << 8);
   }
 
-  /* Copying the ea to  block0 raw value */ 
+  /* Copying the ea to  block0 raw value */
   {
     block0->Ea = ea;
     mask = TMR_makeBitMask(0, 8);
@@ -3278,7 +3304,6 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
   return TMR_SUCCESS;
 }
 
-
 /**
  * Initialize the Gen2 IDS SL900A SetShelfLifeBlock1 with
  * @param block1 pointer to the TMR_TagOp_GEN2_IDS_SL900A_ShelfLifeBlock1,
@@ -3287,7 +3312,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock0(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
  * @param sensorid SetshelfLIfe sensorID
  * @param negative SetshelfLife enableNegative
  * @param algorithm SetShelfLife algorithmEnable
- */ 
+ */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock1(TMR_TagOp_GEN2_IDS_SL900A_ShelfLifeBlock1 *block1,
                                                uint16_t slinit, uint16_t tint, uint8_t sensorid,
@@ -3356,7 +3381,7 @@ TMR_TagOp_init_GEN2_IDS_SL900A_ShelfLifeBlock1(TMR_TagOp_GEN2_IDS_SL900A_ShelfLi
  */
 TMR_Status
 TMR_TagOp_init_GEN2_IDS_SL900A_SetShelfLife(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword, PasswordLevel level,
-                                            uint32_t password,TMR_TagOp_GEN2_IDS_SL900A_ShelfLifeBlock0 *block0,
+                                            uint32_t password, TMR_TagOp_GEN2_IDS_SL900A_ShelfLifeBlock0 *block0,
                                             TMR_TagOp_GEN2_IDS_SL900A_ShelfLifeBlock1 *block1)
 {
   tagop->type = TMR_TAGOP_GEN2_IDS_SL900A_SETSHELFLIFE;
@@ -3380,7 +3405,7 @@ TMR_Status
 TMR_init_UserConfigOp(TMR_SR_UserConfigOp *config, TMR_SR_UserConfigOperation op)
 {
   config->category = TMR_SR_ALL;
-  config->op       = op;
+  config->op = op;
 
   return TMR_SUCCESS;
 }
@@ -3391,7 +3416,7 @@ TMR_init_UserConfigOp(TMR_SR_UserConfigOp *config, TMR_SR_UserConfigOperation op
  *  then no need to call this constructor.
  *  @param configWord Instance of TMR_NXP_ConfigWord
  */
-TMR_Status 
+TMR_Status
 TMR_init_GEN2_NXP_G2I_ConfigWord(TMR_NXP_ConfigWord *configWord)
 {
   configWord->data = 0x0000;
@@ -3404,7 +3429,7 @@ TMR_init_GEN2_NXP_G2I_ConfigWord(TMR_NXP_ConfigWord *configWord)
  *  then no need to call this constructor.
  *  @param configWord Instance of TMR_NXP_UCODE7_ConfigWord
  */
-TMR_Status 
+TMR_Status
 TMR_init_GEN2_NXP_UCODE7_ConfigWord(TMR_NXP_UCODE7_ConfigWord *configWord)
 {
   configWord->data = 0x0000;
@@ -3447,56 +3472,56 @@ TMR_update_GEN2_IDS_SL900A_SfeParameters(TMR_TagOp_GEN2_IDS_SL900A_SfeParameters
   /* Update the raw value as per the  field set by the user */
   switch (sfe->type)
   {
-    case TMR_GEN2_IDS_SL900A_SFE_RANG:
-      {
-        mask = TMR_makeBitMask(11, 5);
-        sfe->raw &= ~mask;
-        sfe->raw |= ((uint64_t)(((uint64_t)sfe->Rang) << 11));
+  case TMR_GEN2_IDS_SL900A_SFE_RANG:
+  {
+    mask = TMR_makeBitMask(11, 5);
+    sfe->raw &= ~mask;
+    sfe->raw |= ((uint64_t)(((uint64_t)sfe->Rang) << 11));
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_SFE_SETI:
-      {
-        mask = TMR_makeBitMask(6, 5);
-        sfe->raw &= ~mask;
-        sfe->raw |= ((uint64_t)(((uint64_t)sfe->Seti) << 6));
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_SFE_SETI:
+  {
+    mask = TMR_makeBitMask(6, 5);
+    sfe->raw &= ~mask;
+    sfe->raw |= ((uint64_t)(((uint64_t)sfe->Seti) << 6));
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_SFE_EXT1:
-      {
-        mask = TMR_makeBitMask(4, 2);
-        sfe->raw &= ~mask;
-        sfe->raw |= ((uint64_t)(((uint64_t)sfe->Ext1) << 4));
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_SFE_EXT1:
+  {
+    mask = TMR_makeBitMask(4, 2);
+    sfe->raw &= ~mask;
+    sfe->raw |= ((uint64_t)(((uint64_t)sfe->Ext1) << 4));
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_SFE_EXT2:
-      {
-        mask = TMR_makeBitMask(3, 1);
-        sfe->raw &= ~mask;
-        sfe->raw |= ((uint64_t)(((uint64_t)sfe->Ext2) << 3));
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_SFE_EXT2:
+  {
+    mask = TMR_makeBitMask(3, 1);
+    sfe->raw &= ~mask;
+    sfe->raw |= ((uint64_t)(((uint64_t)sfe->Ext2) << 3));
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_SFE_AUTORANGEDISABLE:
-      {
-        mask = TMR_makeBitMask(2, 1);
-        sfe->raw &= ~mask;
-        sfe->raw |= ((uint64_t)(((uint64_t)sfe->AutorangeDisable) << 2));
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_SFE_AUTORANGEDISABLE:
+  {
+    mask = TMR_makeBitMask(2, 1);
+    sfe->raw &= ~mask;
+    sfe->raw |= ((uint64_t)(((uint64_t)sfe->AutorangeDisable) << 2));
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_SFE_VERIFYSENSORID:
-      {
-        mask = TMR_makeBitMask(0, 2);
-        sfe->raw &= ~mask;
-        sfe->raw |= ((uint64_t)(((uint64_t)sfe->VerifySensorID) << 0));
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_SFE_VERIFYSENSORID:
+  {
+    mask = TMR_makeBitMask(0, 2);
+    sfe->raw &= ~mask;
+    sfe->raw |= ((uint64_t)(((uint64_t)sfe->VerifySensorID) << 0));
 
-        break;
-      }
-    default: 
-      break;
+    break;
+  }
+  default:
+    break;
   }
   return TMR_SUCCESS;
 }
@@ -3511,89 +3536,89 @@ TMR_update_GEN2_IDS_SL900A_CalibrationData(TMR_TagOp_GEN2_IDS_SL900A_Calibration
   /* Update the raw value as per the  field set by the user */
   switch (cal->type)
   {
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_COARSE1:
-      {
-        mask = TMR_makeBitMask(48, 3);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->Coarse1) << 48));
-        cal->raw = cal->raw;
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_COARSE1:
+  {
+    mask = TMR_makeBitMask(48, 3);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->Coarse1) << 48));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_COARSE2:
-      {
-        mask = TMR_makeBitMask(40, 3);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->Coarse2) << 40));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_COARSE2:
+  {
+    mask = TMR_makeBitMask(40, 3);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->Coarse2) << 40));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_GNDSWITCH:
-      {
-        mask = TMR_makeBitMask(39, 1);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->GndSwitch) << 39));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_GNDSWITCH:
+  {
+    mask = TMR_makeBitMask(39, 1);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->GndSwitch) << 39));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_SELP12:
-      {
-        mask = TMR_makeBitMask(37, 2);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->Selp12) << 37));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_SELP12:
+  {
+    mask = TMR_makeBitMask(37, 2);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->Selp12) << 37));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_DF:
-      {
-        mask = TMR_makeBitMask(24, 8);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->Df) << 24));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_DF:
+  {
+    mask = TMR_makeBitMask(24, 8);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->Df) << 24));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_SWEXTEN:
-      {
-        mask = TMR_makeBitMask(23, 1);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->SwExtEn) << 23));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_SWEXTEN:
+  {
+    mask = TMR_makeBitMask(23, 1);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->SwExtEn) << 23));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_SELP22:
-      {
-        mask = TMR_makeBitMask(21, 2);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->Selp22) << 21));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_SELP22:
+  {
+    mask = TMR_makeBitMask(21, 2);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->Selp22) << 21));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_IRLEV:
-      {
-        mask = TMR_makeBitMask(19, 2);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->Irlev) << 19));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_IRLEV:
+  {
+    mask = TMR_makeBitMask(19, 2);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->Irlev) << 19));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    case TMR_GEN2_IDS_SL900A_CALIBRATION_EXCRES:
-      {
-        mask = TMR_makeBitMask(2, 1);
-        cal->raw &= ~mask;
-        cal->raw |= ((uint64_t)(((uint64_t)cal->ExcRes) << 2));
-        cal->raw = cal->raw;
+    break;
+  }
+  case TMR_GEN2_IDS_SL900A_CALIBRATION_EXCRES:
+  {
+    mask = TMR_makeBitMask(2, 1);
+    cal->raw &= ~mask;
+    cal->raw |= ((uint64_t)(((uint64_t)cal->ExcRes) << 2));
+    cal->raw = cal->raw;
 
-        break;
-      }
-    default: 
-      break;
+    break;
+  }
+  default:
+    break;
   }
   return TMR_SUCCESS;
 }
@@ -3610,17 +3635,18 @@ TMR_init_GEN2_IDS_SL900A_CalibrationData(uint8_t byte[7], TMR_TagOp_GEN2_IDS_SL9
      * ToU64 requires 8 bytes of input, but CalibrationData is only 7 bytes long
      * Create a temporary array to provide the necessary padding.
      */
-    uint8_t tmp[] = {0,0,0,0,0,0,0,0,};
-    memcpy(tmp+1, byte, 7);
-    cal->raw = (uint64_t)(0
-        | ((uint64_t)(tmp[ 0]) << 56)
-        | ((uint64_t)(tmp[ 1]) << 48)
-        | ((uint64_t)(tmp[ 2]) << 40)
-        | ((uint64_t)(tmp[3]) << 32)
-        | ((uint64_t)(tmp[4]) << 24)
-        | ((uint64_t)(tmp[5]) << 16)
-        | ((uint64_t)(tmp[ 6]) << 8)
-        | ((uint64_t)(tmp[7]) << 0));
+    uint8_t tmp[] = {
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    };
+    memcpy(tmp + 1, byte, 7);
+    cal->raw = (uint64_t)(0 | ((uint64_t)(tmp[0]) << 56) | ((uint64_t)(tmp[1]) << 48) | ((uint64_t)(tmp[2]) << 40) | ((uint64_t)(tmp[3]) << 32) | ((uint64_t)(tmp[4]) << 24) | ((uint64_t)(tmp[5]) << 16) | ((uint64_t)(tmp[6]) << 8) | ((uint64_t)(tmp[7]) << 0));
 
     cal->raw &= (uint64_t)0x00FFFFFFFFFFFFFFLL;
   }
@@ -3651,7 +3677,7 @@ TMR_init_GEN2_IDS_SL900A_SfeParameters(uint8_t byte[2], TMR_TagOp_GEN2_IDS_SL900
  */
 TMR_Status
 TMR_init_GEN2_IDS_SL900A_SensorReading(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900A_SensorReading *sensor)
-{  
+{
 
   if (2 != reply->len)
   {
@@ -3661,8 +3687,8 @@ TMR_init_GEN2_IDS_SL900A_SensorReading(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_
   sensor->reply = reply->list[0] << 8 | reply->list[1];
   sensor->Raw = sensor->reply;
   sensor->ADError = (((sensor->reply >> 15) & 0x1) != 0);
-  sensor->RangeLimit = (uint8_t) ((sensor->reply >> 10) & 0x1F);
-  sensor->Value = ((sensor->reply >> 0 ) & 0x3FF);
+  sensor->RangeLimit = (uint8_t)((sensor->reply >> 10) & 0x1F);
+  sensor->Value = ((sensor->reply >> 0) & 0x3FF);
 
   return TMR_SUCCESS;
 }
@@ -3754,11 +3780,11 @@ TMR_init_GEN2_IDS_SL900A_CalSfe(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900A_
  * @param reply instance of TMR_uint8List
  * @param battery instance of TMR_TagOp_GEN2_IDS_SL900A_BatteryLevelReading,
  * the reply structure of getBatteryLevel
- */ 
+ */
 
 TMR_Status
 TMR_init_GEN2_IDS_SL900A_BatteryLevelReading(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900A_BatteryLevelReading *battery)
-{  
+{
 
   if (2 != reply->len)
   {
@@ -3767,8 +3793,8 @@ TMR_init_GEN2_IDS_SL900A_BatteryLevelReading(TMR_uint8List *reply, TMR_TagOp_GEN
   }
   battery->reply = (uint16_t)(reply->list[0] << 8 | reply->list[1]);
   battery->ADError = (bool)(((battery->reply >> 15) & 0x1) != 0);
-  battery->BatteryType = (uint8_t) ((battery->reply >> 14) & 0x1);
-  battery->Value = (uint16_t)((battery->reply >> 0 ) & 0x3FF);
+  battery->BatteryType = (uint8_t)((battery->reply >> 14) & 0x1);
+  battery->Value = (uint16_t)((battery->reply >> 0) & 0x3FF);
 
   return TMR_SUCCESS;
 }
@@ -3776,7 +3802,7 @@ TMR_init_GEN2_IDS_SL900A_BatteryLevelReading(TMR_uint8List *reply, TMR_TagOp_GEN
  * Initialize TMR_GEN2_SL900A_FifoStatus to Get status of fifo reply
  * @param statusReply instance of TMR_uint8List
  * @param status instance of TMR_TagOp_GEN2_IDS_SL900A_FifoStatus,
- * the reply structure of sl900A fifistatus command. 
+ * the reply structure of sl900A fifistatus command.
  */
 TMR_Status
 TMR_init_GEN2_IDS_SL900A_FifoStatus(TMR_uint8List *statusReply, TMR_TagOp_GEN2_IDS_SL900A_FifoStatus *status)
@@ -3806,10 +3832,10 @@ TMR_init_GEN2_IDS_SL900A_FifoStatus(TMR_uint8List *statusReply, TMR_TagOp_GEN2_I
  */
 TMR_Status
 TMR_init_GEN2_IDS_SL900A_LogState(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900A_LogState *log)
-{  
+{
 
   uint32_t offset = 0;
-  uint32_t raw;  
+  uint32_t raw;
   if ((9 != reply->len) && (20 != reply->len))
   {
     /* GetLogState replies must be 9 or 21 bytes in length */
@@ -3818,7 +3844,7 @@ TMR_init_GEN2_IDS_SL900A_LogState(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900
 
   if (9 == reply->len)
   {
-    log->limitCount.extremeLower = reply->list[offset + 0];    
+    log->limitCount.extremeLower = reply->list[offset + 0];
     log->limitCount.lower = reply->list[offset + 1];
     log->limitCount.upper = reply->list[offset + 2];
     log->limitCount.extremeUpper = reply->list[offset + 3];
@@ -3826,8 +3852,8 @@ TMR_init_GEN2_IDS_SL900A_LogState(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900
     offset += 4;
     raw = TMR_byteArrayToInt(reply->list, offset);
     log->statStatus.MeasurementAddressPointer = (uint16_t)((raw >> 22) & 0x1FF);
-    log->statStatus.NumMemReplacements = (uint8_t) ((raw >> 16) & 0x3F);
-    log->statStatus.NumMeasurements = (uint16_t) ((raw >> 1) & 0x7FFF);
+    log->statStatus.NumMemReplacements = (uint8_t)((raw >> 16) & 0x3F);
+    log->statStatus.NumMeasurements = (uint16_t)((raw >> 1) & 0x7FFF);
     log->statStatus.Active = (bool)(0 != (raw & 0x1));
     offset += 4;
   }
@@ -3841,17 +3867,17 @@ TMR_init_GEN2_IDS_SL900A_LogState(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900
   log->statFlag.Active = (bool)(0 != ((raw >> 7) & 1));
   log->statFlag.Full = (bool)(0 != ((raw >> 6) & 1));
   log->statFlag.Overwritten = (bool)(0 != ((raw >> 5) & 1));
-  log->statFlag.ADError = (bool) (0 != ((raw >> 4) & 1));
-  log->statFlag.LowBattery = (bool) (0 != ((raw >> 3) & 1));
-  log->statFlag.ShelfLifeLow = (bool) (0 != ((raw >> 2) & 1));
+  log->statFlag.ADError = (bool)(0 != ((raw >> 4) & 1));
+  log->statFlag.LowBattery = (bool)(0 != ((raw >> 3) & 1));
+  log->statFlag.ShelfLifeLow = (bool)(0 != ((raw >> 2) & 1));
   log->statFlag.ShelfLifeHigh = (bool)(0 != ((raw >> 1) & 1));
   log->statFlag.ShelfLifeExpired = (bool)(0 != ((raw >> 0) & 1));
-  
+
   return TMR_SUCCESS;
 }
 
 /**
- * Initialize TMR_TagOp_GEN2_IDS_SL900A_MeasurementSetupData to Get measurment setup data 
+ * Initialize TMR_TagOp_GEN2_IDS_SL900A_MeasurementSetupData to Get measurment setup data
  * Value response.
  * @param reply instance of TMR_uint8List
  * @param measurement instance of TMR_TagOp_GEN2_IDS_SL900A_MeasurementSetupData,
@@ -3860,7 +3886,7 @@ TMR_init_GEN2_IDS_SL900A_LogState(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900
 TMR_Status
 TMR_init_GEN2_IDS_SL900A_MeasurementSetupData(TMR_uint8List *reply, TMR_TagOp_GEN2_IDS_SL900A_MeasurementSetupData *measurement)
 {
-  if(16 != reply->len)
+  if (16 != reply->len)
   {
     /* MeasurementSetupData value must be exactly 16 byte long */
     return TMR_ERROR_MSG_INVALID_PARAMETER_VALUE;
@@ -3868,18 +3894,18 @@ TMR_init_GEN2_IDS_SL900A_MeasurementSetupData(TMR_uint8List *reply, TMR_TagOp_GE
 
   memcpy(measurement->Raw, reply->list, reply->len);
 
-  //get the start time
+  // get the start time
   {
     uint32_t temp;
     temp = TMR_byteArrayToInt(reply->list, 0);
-    measurement->startTime.tm_year = (int)(2010+((temp >> 26) & 0x3F));
+    measurement->startTime.tm_year = (int)(2010 + ((temp >> 26) & 0x3F));
     measurement->startTime.tm_mon = (int)((temp >> 22) & 0xF);
     measurement->startTime.tm_mday = (int)((temp >> 17) & 0x1F);
     measurement->startTime.tm_hour = (int)((temp >> 12) & 0x1F);
     measurement->startTime.tm_min = (int)((temp >> 6) & 0x3F);
     measurement->startTime.tm_sec = (int)((temp >> 0) & 0x3F);
   }
-  //get the log limits
+  // get the log limits
   {
     int offset = 4;
     uint64_t value = 0;
@@ -3887,16 +3913,16 @@ TMR_init_GEN2_IDS_SL900A_MeasurementSetupData(TMR_uint8List *reply, TMR_TagOp_GE
      * extract that from the response
      */
     value = TMR_byteArrayToLong(reply->list, offset);
-    /* 
+    /*
      * Indivisual field in LogLimits is of 10 bits
      * masking each of them to a 16 bit value for convinence
      */
-    measurement->loglimit.extremeLower = (uint16_t) ((value >> 54) & 0x03FF);
-    measurement->loglimit.lower = (uint16_t) ((value >> 44) & 0x03FF);
-    measurement->loglimit.upper = (uint16_t) ((value >> 34) & 0x03FF);
-    measurement->loglimit.extremeUpper = (uint16_t) ((value >> 24) & 0x03FF);
+    measurement->loglimit.extremeLower = (uint16_t)((value >> 54) & 0x03FF);
+    measurement->loglimit.lower = (uint16_t)((value >> 44) & 0x03FF);
+    measurement->loglimit.upper = (uint16_t)((value >> 34) & 0x03FF);
+    measurement->loglimit.extremeUpper = (uint16_t)((value >> 24) & 0x03FF);
   }
-  //get log mode
+  // get log mode
   {
     uint8_t temp = (uint8_t)reply->list[9];
     measurement->logModeData.Raw = temp;
@@ -3905,26 +3931,26 @@ TMR_init_GEN2_IDS_SL900A_MeasurementSetupData(TMR_uint8List *reply, TMR_TagOp_GE
     measurement->logModeData.Ext1Enable = (0 != ((temp >> 3) & 1));
     measurement->logModeData.Ext2Enable = (0 != ((temp >> 2) & 1));
     measurement->logModeData.TempEnable = (0 != ((temp >> 1) & 1));
-    measurement->logModeData.BattEnable = (0 != ((temp>> 0) & 1));
+    measurement->logModeData.BattEnable = (0 != ((temp >> 0) & 1));
   }
-  //log interval
+  // log interval
   {
     uint16_t temp;
     temp = TMR_byteArrayToShort(reply->list, 10);
     temp = ((temp >> 1) & 0x7FFF);
     measurement->logInterval = temp;
   }
-  //delay time
+  // delay time
   {
     uint16_t temp;
     temp = TMR_byteArrayToShort(reply->list, 12);
     measurement->delyTime.raw = temp;
     measurement->delyTime.Mode = (0 == ((temp >> 1) & 0x1)) ? TMR_GEN2_IDS_SL900A_DELAYMODE_TIMER
-                                                           : TMR_GEN2_IDS_SL900A_DELAYMODE_EXTSWITCH;
+                                                            : TMR_GEN2_IDS_SL900A_DELAYMODE_EXTSWITCH;
     measurement->delyTime.Time = (uint16_t)((temp >> 4) & 0xFFF);
     measurement->delyTime.IrqTimerEnable = (0 != (temp & 0x1));
   }
-  //application data
+  // application data
   {
     uint16_t temp;
     temp = TMR_byteArrayToShort(reply->list, 14);
@@ -3937,8 +3963,7 @@ TMR_init_GEN2_IDS_SL900A_MeasurementSetupData(TMR_uint8List *reply, TMR_TagOp_GE
 }
 
 #endif /* TMR_ENABLE_GEN2_CUSTOM_TAGOPS  */
-void
-TMR_paramProbe(struct TMR_Reader *reader, TMR_Param key)
+void TMR_paramProbe(struct TMR_Reader *reader, TMR_Param key)
 {
 
   /* buf is at least as large as the largest parameter, with all values 0
@@ -3965,7 +3990,6 @@ TMR_paramProbe(struct TMR_Reader *reader, TMR_Param key)
   }
 }
 
-
 /**
  * Get a list of the parameters available
  * @reader pointer of reader object
@@ -3980,7 +4004,7 @@ TMR_paramList(struct TMR_Reader *reader, TMR_Param *keys, uint32_t *len)
 
   max = *len;
   count = 0;
-  for (i = TMR_PARAM_MIN; i <= TMR_PARAM_MAX ; i++)
+  for (i = TMR_PARAM_MIN; i <= TMR_PARAM_MAX; i++)
   {
     if (TMR_READER_TYPE_SERIAL == reader->readerType)
     {
@@ -4039,7 +4063,7 @@ TMR_receiveAutonomousReading(struct TMR_Reader *reader, TMR_TagReadData *trd, TM
      *      *     * create the thread
      *           *         */
     ret = pthread_create(&reader->autonomousBackgroundReader, NULL,
-        do_background_receiveAutonomousReading, reader);
+                         do_background_receiveAutonomousReading, reader);
     if (0 != ret)
     {
       return TMR_ERROR_NO_THREADS;
@@ -4051,7 +4075,7 @@ TMR_receiveAutonomousReading(struct TMR_Reader *reader, TMR_TagReadData *trd, TM
 #else
   {
     /* This will add support for non thread platform */
-    ret =  TMR_SR_receiveAutonomousReading(reader, trd, stats);
+    ret = TMR_SR_receiveAutonomousReading(reader, trd, stats);
   }
 #endif
 
@@ -4066,7 +4090,7 @@ TMR_TagOp_init_GEN2_fdn_ReadREG(TMR_TagOp *tagop, TMR_GEN2_Password accessPasswo
   tagop->u.gen2.u.custom.u.fdn.u.ReadREG.AccessPassword = accessPassword;
   tagop->u.gen2.u.custom.u.fdn.u.ReadREG.CommandCode = 0x0009;
   tagop->u.gen2.u.custom.u.fdn.u.ReadREG.RegAddress = RegAddress;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4079,7 +4103,7 @@ TMR_TagOp_init_GEN2_fdn_WriteREG(TMR_TagOp *tagop, TMR_GEN2_Password accessPassw
   tagop->u.gen2.u.custom.u.fdn.u.WriteREG.CommandCode = 0x0008;
   tagop->u.gen2.u.custom.u.fdn.u.WriteREG.RegAddress = RegAddress;
   tagop->u.gen2.u.custom.u.fdn.u.WriteREG.RegWriteData = RegWriteData;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4091,7 +4115,7 @@ TMR_TagOp_init_GEN2_fdn_LoadREG(TMR_TagOp *tagop, TMR_GEN2_Password accessPasswo
   tagop->u.gen2.u.custom.u.fdn.u.LoadREG.AccessPassword = accessPassword;
   tagop->u.gen2.u.custom.u.fdn.u.LoadREG.CommandCode = 0x0011;
   tagop->u.gen2.u.custom.u.fdn.u.LoadREG.CmdCfg = CmdCfg;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4104,7 +4128,7 @@ TMR_TagOp_init_GEN2_fdn_StartStopLOG(TMR_TagOp *tagop, TMR_GEN2_Password accessP
   tagop->u.gen2.u.custom.u.fdn.u.StartStopLOG.CommandCode = 0x0006;
   tagop->u.gen2.u.custom.u.fdn.u.StartStopLOG.CmdCfg = CmdCfg;
   tagop->u.gen2.u.custom.u.fdn.u.StartStopLOG.FlagResetPassword = FlagResetPassword;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4117,7 +4141,7 @@ TMR_TagOp_init_GEN2_fdn_Auth(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword,
   tagop->u.gen2.u.custom.u.fdn.u.Auth.CommandCode = 0x0002;
   tagop->u.gen2.u.custom.u.fdn.u.Auth.CmdCfg = CmdCfg;
   tagop->u.gen2.u.custom.u.fdn.u.Auth.AuthPassword = AuthPassword;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4130,7 +4154,7 @@ TMR_TagOp_init_GEN2_fdn_ReadMEM(TMR_TagOp *tagop, TMR_GEN2_Password accessPasswo
   tagop->u.gen2.u.custom.u.fdn.u.ReadMEM.CommandCode = 0x0000;
   tagop->u.gen2.u.custom.u.fdn.u.ReadMEM.StartAddress = StartAddress;
   tagop->u.gen2.u.custom.u.fdn.u.ReadMEM.len = len;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4143,7 +4167,7 @@ TMR_TagOp_init_GEN2_fdn_WriteMEM(TMR_TagOp *tagop, TMR_GEN2_Password accessPassw
   tagop->u.gen2.u.custom.u.fdn.u.WriteMEM.CommandCode = 0x0001;
   tagop->u.gen2.u.custom.u.fdn.u.WriteMEM.StartAddress = StartAddress;
   tagop->u.gen2.u.custom.u.fdn.u.WriteMEM.data = Writedata;
-  
+
   return TMR_SUCCESS;
 }
 
@@ -4166,7 +4190,7 @@ TMR_TagOp_init_GEN2_ILN_TagSelectCommand(TMR_TagOp *tagop, TMR_GEN2_Password acc
   tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_ILIAN_LED_SILICON;
   tagop->u.gen2.u.custom.u.ilian.u.IlianTagSelect.AccessPassword = accessPassword;
   tagop->u.gen2.u.custom.u.ilian.u.IlianTagSelect.CommandCode = 0x0001;
-  
+
   return TMR_SUCCESS;
 }
 TMR_Status
@@ -4186,10 +4210,10 @@ TMR_TagOp_init_GEN2_EM4325_GetSensorData(TMR_TagOp *tagop, TMR_GEN2_Password acc
 {
   uint8_t bitsToSet = 0;
 
-  tagop->type                                                              = TMR_TagOP_GEN2_EM4325_GET_SENSOR_DATA;
-  tagop->u.gen2.u.custom.chipType                                          = TMR_SR_GEN2_EMMICRO_EM4325_SILICON;
+  tagop->type = TMR_TagOP_GEN2_EM4325_GET_SENSOR_DATA;
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_EMMICRO_EM4325_SILICON;
   tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.getSensorData.AccessPassword = accessPassword;
-  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.getSensorData.CommandCode    = 0x0001;
+  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.getSensorData.CommandCode = 0x0001;
 
   /* Set appropriate bits based on sendUid and sendNewSample flags.
    * a) sendUid flag.
@@ -4200,20 +4224,20 @@ TMR_TagOp_init_GEN2_EM4325_GetSensorData(TMR_TagOp *tagop, TMR_GEN2_Password acc
    * If true  : gets the new sample.
    * If false : gets the last sample.
    */
-  bitsToSet  = (uint8_t)(sendUID ? 0x80 : 0);
+  bitsToSet = (uint8_t)(sendUID ? 0x80 : 0);
   bitsToSet |= (uint8_t)(sendNewSample ? 0x40 : 0);
-  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.getSensorData.bitsToSet      = bitsToSet;
+  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.getSensorData.bitsToSet = bitsToSet;
 
   return TMR_SUCCESS;
 }
 TMR_Status
 TMR_TagOp_init_GEN2_EM4325_ResetAlarms(TMR_TagOp *tagop, TMR_GEN2_Password accessPassword)
 {
-  tagop->type                                                            = TMR_TagOP_GEN2_EM4325_RESET_ALARMS;
-  tagop->u.gen2.u.custom.chipType                                        = TMR_SR_GEN2_EMMICRO_EM4325_SILICON;
+  tagop->type = TMR_TagOP_GEN2_EM4325_RESET_ALARMS;
+  tagop->u.gen2.u.custom.chipType = TMR_SR_GEN2_EMMICRO_EM4325_SILICON;
   tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.resetAlarms.AccessPassword = accessPassword;
-  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.resetAlarms.CommandCode    = 0x0004;
-  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.resetAlarms.fillValue      = 0x50;
+  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.resetAlarms.CommandCode = 0x0004;
+  tagop->u.gen2.u.custom.u.emmicro.u.em4325.u.resetAlarms.fillValue = 0x50;
 
   return TMR_SUCCESS;
 }
@@ -4223,7 +4247,7 @@ TMR_TagOp_init_GEN2_EM4325_ResetAlarms(TMR_TagOp *tagop, TMR_GEN2_Password acces
 /**
  * Initialize an access password in TMR_TagOp with the provided parameters.
  *
- * @param tagop Pointer to the tagop structure to initialize 
+ * @param tagop Pointer to the tagop structure to initialize
  * @param accessPassword access password.
  */
 TMR_Status
@@ -4243,15 +4267,15 @@ TMR_set_accessPassword(TMR_TagOp *tagop, TMR_uint8List *accessPassword)
  */
 TMR_Status
 TMR_TagOp_init_WriteMemory(TMR_TagOp *tagop, TMR_Memory_Type memType, uint32_t address,
-                                     TMR_uint8List *data)
+                           TMR_uint8List *data)
 {
-  tagop->type                          = TMR_TAGOP_WRITE_MEMORY;
-  tagop->u.extTagOp.accessPassword     = NULL;
-  tagop->u.extTagOp.writeMem.memType   = memType;
-  tagop->u.extTagOp.writeMem.address   = address;
-  tagop->u.extTagOp.writeMem.data.len  = data->len;
+  tagop->type = TMR_TAGOP_WRITE_MEMORY;
+  tagop->u.extTagOp.accessPassword = NULL;
+  tagop->u.extTagOp.writeMem.memType = memType;
+  tagop->u.extTagOp.writeMem.address = address;
+  tagop->u.extTagOp.writeMem.data.len = data->len;
   tagop->u.extTagOp.writeMem.data.list = data->list;
-  tagop->u.extTagOp.writeMem.data.max  = data->max;
+  tagop->u.extTagOp.writeMem.data.max = data->max;
 
   return TMR_SUCCESS;
 }
@@ -4266,11 +4290,11 @@ TMR_TagOp_init_WriteMemory(TMR_TagOp *tagop, TMR_Memory_Type memType, uint32_t a
 TMR_Status
 TMR_TagOp_init_ReadMemory(TMR_TagOp *tagop, TMR_Memory_Type memType, uint32_t address, uint8_t len)
 {
-  tagop->type                         = TMR_TAGOP_READ_MEMORY;
-  tagop->u.extTagOp.accessPassword    = NULL;
-  tagop->u.extTagOp.readMem.memType   = memType;
-  tagop->u.extTagOp.readMem.address   = address;
-  tagop->u.extTagOp.readMem.len       = len;
+  tagop->type = TMR_TAGOP_READ_MEMORY;
+  tagop->u.extTagOp.accessPassword = NULL;
+  tagop->u.extTagOp.readMem.memType = memType;
+  tagop->u.extTagOp.readMem.address = address;
+  tagop->u.extTagOp.readMem.len = len;
 
   return TMR_SUCCESS;
 }
@@ -4284,7 +4308,7 @@ TMR_TagOp_init_ReadMemory(TMR_TagOp *tagop, TMR_Memory_Type memType, uint32_t ad
  */
 TMR_Status
 TMR_TagOp_init_PassThrough(TMR_TagOp *tagop, uint32_t timeout,
-                             uint32_t configFlags, TMR_uint8List *buffer)
+                           uint32_t configFlags, TMR_uint8List *buffer)
 {
   tagop->type = TMR_TAGOP_PASS_THROUGH;
   tagop->u.passThrough.timeout = timeout;
@@ -4299,7 +4323,7 @@ TMR_TagOp_init_PassThrough(TMR_TagOp *tagop, uint32_t timeout,
 /**
  * Initialize a TMR_Filter structure as an UID select filter with the
  * provided parameters.
- * 
+ *
  * @param filter Pointer to the filter structure to initialize
  * @param UIDMask the mask of the bytes to compare
  * @param UIDMaskBitLen length of UIDMask
@@ -4316,7 +4340,7 @@ TMR_Status TMR_TF_init_uid_select(TMR_TagFilter *filter, uint8_t UIDMaskBitLen, 
 /**
  * Initialize a TMR_Filter structure as a TAGTYPE select filter with the
  * provided parameters.
- * 
+ *
  * @param filter Pointer to the filter structure to initialize
  * @param tagType the protocol specific tagtype to be matched
  */
@@ -4329,17 +4353,17 @@ TMR_Status TMR_TF_init_tagtype_select(TMR_TagFilter *filter, uint64_t tagType)
 }
 #endif /* TMR_ENABLE_HF_LF */
 
-/** Convert value to Extensible bit vectors(EBV) format 
-  * Set value in 1-10 bytes, dynamically based on value 
-  */
+/** Convert value to Extensible bit vectors(EBV) format
+ * Set value in 1-10 bytes, dynamically based on value
+ */
 TMR_Status
-TMR_SR_convertToEBV(uint8_t* msg, uint8_t* i, uint64_t value)
+TMR_SR_convertToEBV(uint8_t *msg, uint8_t *i, uint64_t value)
 {
-  uint8_t bytes[10];    // Max 9 bytes buffer, though 64-bit fits up to 8 bytes
+  uint8_t bytes[10]; // Max 9 bytes buffer, though 64-bit fits up to 8 bytes
   uint8_t numBytes = 0;
   uint8_t idx = 0;
 
-  //Special case: all bits set -> output 8 bytes directly
+  // Special case: all bits set -> output 8 bytes directly
   if (value == 0xFFFFFFFFFFFFFFFFULL)
   {
     numBytes = 8;
@@ -4350,14 +4374,14 @@ TMR_SR_convertToEBV(uint8_t* msg, uint8_t* i, uint64_t value)
     }
   }
 
-  //Encode EBV: extract 7-bit groups, least significant first
+  // Encode EBV: extract 7-bit groups, least significant first
   do
   {
     bytes[numBytes++] = value & 0x7F;
     value >>= 7;
   } while (value > 0);
 
-  //Set MSB (continuation bit) on all but last byte
+  // Set MSB (continuation bit) on all but last byte
   idx = numBytes;
   while (idx > 1)
   {
@@ -4365,7 +4389,7 @@ TMR_SR_convertToEBV(uint8_t* msg, uint8_t* i, uint64_t value)
     bytes[idx] |= 0x80;
   }
 
-  //Output bytes in MSB-first order
+  // Output bytes in MSB-first order
   idx = numBytes;
   while (idx > 0)
   {
@@ -4377,30 +4401,30 @@ TMR_SR_convertToEBV(uint8_t* msg, uint8_t* i, uint64_t value)
 
 /** Convert from 1-10 bytes of EBV formated value */
 TMR_Status
-TMR_SR_convertFromEBV(uint8_t* msg, uint8_t length, uint64_t *value)
+TMR_SR_convertFromEBV(uint8_t *msg, uint8_t length, uint64_t *value)
 {
   uint8_t byte = 0;
   uint8_t i;
 
-  //Reset value.
+  // Reset value.
   *value = 0;
 
-  //Length should be between 1 and 10
+  // Length should be between 1 and 10
   if (length == 0 || length > 10)
   {
     return TMR_ERROR_INVALID;
   }
 
-  //Read bytes one by one, extracting 7-bit chunks
+  // Read bytes one by one, extracting 7-bit chunks
   for (i = 0; i < length; i++)
   {
     byte = msg[i];
 
-    //Mask out the continuation bit
+    // Mask out the continuation bit
     *value = ((*value) << 7) | (byte & 0x7F);
 
-    //If MSB (continuation bit) is zero, this is the last byte
-    if((byte & 0x80) == 0)
+    // If MSB (continuation bit) is zero, this is the last byte
+    if ((byte & 0x80) == 0)
     {
       break;
     }
@@ -4411,15 +4435,15 @@ TMR_SR_convertFromEBV(uint8_t* msg, uint8_t length, uint64_t *value)
 #ifndef BARE_METAL
 /**
  * Convert the tag timestamp to readable format
- * 
+ *
  * @param rp pointer to reader structure
  * @param read pointer to tag read data structure
  * @param timeString string to contain converted timestamp
  */
 void TMR_getTimeStamp(struct TMR_Reader *rp, const struct TMR_TagReadData *read, char *timeString)
 {
-  char* timeEnd;
-  char* end;
+  char *timeEnd;
+  char *end;
   char timeStr[128];
 
 #ifdef WIN32
@@ -4431,12 +4455,12 @@ void TMR_getTimeStamp(struct TMR_Reader *rp, const struct TMR_TagReadData *read,
     utc.dwHighDateTime = read->timestampHigh;
     utc.dwLowDateTime = read->timestampLow;
 
-    FileTimeToLocalFileTime( &utc, &ft );
-    FileTimeToSystemTime( &ft, &st );
-    timeEnd = timeStr + sizeof(timeStr)/sizeof(timeStr[0]);
+    FileTimeToLocalFileTime(&utc, &ft);
+    FileTimeToSystemTime(&ft, &st);
+    timeEnd = timeStr + sizeof(timeStr) / sizeof(timeStr[0]);
     end = timeStr;
-    end += sprintf(end, "%d-%d-%d", st.wYear,st.wMonth,st.wDay);
-    end += sprintf(end, "T%d:%d:%d.%03d", st.wHour,st.wMinute,st.wSecond, st.wMilliseconds);
+    end += sprintf(end, "%d-%d-%d", st.wYear, st.wMonth, st.wDay);
+    end += sprintf(end, "T%d:%d:%d.%03d", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
   }
   else
   {
@@ -4446,9 +4470,9 @@ void TMR_getTimeStamp(struct TMR_Reader *rp, const struct TMR_TagReadData *read,
     int micros;
 
     shift = 32;
-    timestamp = ((uint64_t)read->timestampHigh<<shift) | read->timestampLow;
+    timestamp = ((uint64_t)read->timestampHigh << shift) | read->timestampLow;
     seconds = timestamp / 1000;
-    micros = (int) ((timestamp % 1000) * 1000);
+    micros = (int)((timestamp % 1000) * 1000);
 
     /*
      * Timestamp already includes millisecond part of dspMicros,
@@ -4457,13 +4481,13 @@ void TMR_getTimeStamp(struct TMR_Reader *rp, const struct TMR_TagReadData *read,
     micros -= read->dspMicros / 1000;
     micros += read->dspMicros;
 
-    timeEnd = timeStr + sizeof(timeStr)/sizeof(timeStr[0]);
+    timeEnd = timeStr + sizeof(timeStr) / sizeof(timeStr[0]);
     end = timeStr;
-    end += strftime(end, timeEnd-end, "%Y-%m-%dT%H:%M:%S", localtime(&seconds));
-    end += snprintf(end, timeEnd-end, ".%06d", micros);
-    //end += strftime(end, timeEnd-end, "%z", localtime(&seconds));
+    end += strftime(end, timeEnd - end, "%Y-%m-%dT%H:%M:%S", localtime(&seconds));
+    end += snprintf(end, timeEnd - end, ".%06d", micros);
+    // end += strftime(end, timeEnd-end, "%z", localtime(&seconds));
   }
-  #else
+#else
   {
     uint8_t shift;
     uint64_t timestamp;
@@ -4471,7 +4495,7 @@ void TMR_getTimeStamp(struct TMR_Reader *rp, const struct TMR_TagReadData *read,
     int micros;
 
     shift = 32;
-    timestamp = ((uint64_t)read->timestampHigh<<shift) | read->timestampLow;
+    timestamp = ((uint64_t)read->timestampHigh << shift) | read->timestampLow;
     seconds = timestamp / 1000;
     micros = (timestamp % 1000) * 1000;
 
@@ -4482,63 +4506,72 @@ void TMR_getTimeStamp(struct TMR_Reader *rp, const struct TMR_TagReadData *read,
     micros -= read->dspMicros / 1000;
     micros += read->dspMicros;
 
-    timeEnd = timeStr + (sizeof(timeStr)/sizeof(timeStr[0]));
+    timeEnd = timeStr + (sizeof(timeStr) / sizeof(timeStr[0]));
     end = timeStr;
-    end += strftime(end, timeEnd-end, "%Y-%m-%dT%H:%M:%S", localtime(&seconds));
-    end += snprintf(end, timeEnd-end, ".%06d", micros);
-    end += strftime(end, timeEnd-end, "%z", localtime(&seconds));
+    end += strftime(end, timeEnd - end, "%Y-%m-%dT%H:%M:%S", localtime(&seconds));
+    end += snprintf(end, timeEnd - end, ".%06d", micros);
+    end += strftime(end, timeEnd - end, "%z", localtime(&seconds));
   }
 #endif
-  memcpy(timeString, timeStr, (sizeof(timeStr)/sizeof(timeStr[0])));
+  memcpy(timeString, timeStr, (sizeof(timeStr) / sizeof(timeStr[0])));
 }
 #endif /* BARE_METAL */
 
-/** 
- * This is used to return the errors to user which is/are received 
+/**
+ * This is used to return the errors to user which is/are received
  * from the reader as part of read data tag operation.
  * These errors determine the status of tag operation - failure/success.
  *
- * @param memError The error code from the module 
+ * @param memError The error code from the module
  */
-void TMR_getReadMemoryErrors(int8_t memError) {
+void TMR_getReadMemoryErrors(int8_t memError)
+{
 
 #if defined(TMR_ENABLE_ERROR_STRINGS)
 
   switch (memError)
   {
-    case 0: printf("Full Data is received\n");
-      break;
-    case 1: printf("Partial Data is received\n");
-      break;
-    case 2: printf("No Data is received\n");
-      break;
-    case 3: fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_OTHER_ERROR));
-      break;
-    case 4: fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_MEMORY_OVERRUN_BAD_PC));
-      break;
-    case 5: fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_MEMORY_LOCKED));
-      break;
-    case 6: fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_INSUFFICIENT_POWER));
-      break;
-    case 7: fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_NON_SPECIFIC_ERROR));
-      break;
-    default:
-      printf("Unknown Error\n");
+  case 0:
+    printf("Full Data is received\n");
+    break;
+  case 1:
+    printf("Partial Data is received\n");
+    break;
+  case 2:
+    printf("No Data is received\n");
+    break;
+  case 3:
+    fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_OTHER_ERROR));
+    break;
+  case 4:
+    fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_MEMORY_OVERRUN_BAD_PC));
+    break;
+  case 5:
+    fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_MEMORY_LOCKED));
+    break;
+  case 6:
+    fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_INSUFFICIENT_POWER));
+    break;
+  case 7:
+    fprintf(stdout, "%s\n", TMR_strerror(TMR_ERROR_GEN2_PROTOCOL_NON_SPECIFIC_ERROR));
+    break;
+  default:
+    printf("Unknown Error\n");
   }
 #endif /* defined(TMR_ENABLE_ERROR_STRINGS) */
 }
 
 /**
  * @fn void* TMR_idleHandler(void *arg)
- * @brief In case if there is any busy loop situation occurs in the API, 
+ * @brief In case if there is any busy loop situation occurs in the API,
  *	user can use this function to put their code or delay.
  *
  * @param arg : void pointer
  * @return void*
  */
-void* TMR_idleHandler(void *arg)
+void *TMR_idleHandler(void *arg)
 {
-  //Do other work here
+  // Do other work here
   tmr_sleep(1);
   return NULL;
 }

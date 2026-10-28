@@ -1,0 +1,20 @@
+LIBRARY libmercuryapi
+EXPORTS
+    ACUPAD_TMR_create_alloc
+    ACUPAD_TMR_connect
+    ACUPAD_TMR_destroy
+    ACUPAD_TMR_read
+    ACUPAD_TMR_hasMoreTags
+    ACUPAD_TMR_getNextTag
+    ACUPAD_TMR_writeTag
+    ACUPAD_TMR_readTagMemBytes
+    ACUPAD_TMR_writeTagMemBytes
+    ACUPAD_TMR_gpoSet
+    ACUPAD_TMR_paramSet
+    ACUPAD_TMR_paramGet
+    ACUPAD_TMR_paramID
+    ACUPAD_TMR_TF_init_gen2_select
+    ACUPAD_TMR_RP_init_simple
+    ACUPAD_TMR_TRD_init
+    ACUPAD_TMR_TagOp_init_GEN2_ReadData
+    ACUPAD_TMR_strerror
