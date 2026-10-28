@@ -96,6 +96,7 @@ def include_all_routers(current_path: str, app, router_prefix: str | list = ["/a
 
             except Exception as e:
                 logging.error(f"❌ Error loading {current_path}/{file_path.name}: {e}", exc_info=True)
+                raise e
 
 
 def load_file(file_path: str | Path) -> str:
