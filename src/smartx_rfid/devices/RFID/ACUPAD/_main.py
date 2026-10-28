@@ -1198,6 +1198,8 @@ class ACUPAD(DeviceBase):
 
             antenna = int(trd.antenna) if trd.antenna > 0 else None
             rssi = int(trd.rssi) if trd.rssi != 0 else None
+            if self.read_tid and not (isinstance(tid, str) or not len(tid) == 24):
+                continue
             tags.append((epc, tid, antenna, rssi))
 
         if tags:
