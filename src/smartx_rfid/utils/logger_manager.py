@@ -379,6 +379,7 @@ class LoggerManager:
             "exception": logging.Formatter().formatException(record.exc_info) if record.exc_info else None,
             "extra": json.dumps(extra, ensure_ascii=False) if extra else None,
         }
+        data.update({key: value for key, value in extra.items() if key in self._db_columns and key not in data})
         row = {}
         for key, value in data.items():
             if key not in self._db_columns:

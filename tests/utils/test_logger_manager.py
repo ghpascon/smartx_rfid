@@ -27,6 +27,8 @@ class CustomLog(CustomBase):
     timestamp = Column(DateTime, nullable=False)
     level = Column(String(5), nullable=False)
     message = Column(String(20), nullable=False)
+    company_id = Column(Integer, nullable=True)
+    user_id = Column(Integer, nullable=True)
 
 
 def _transient_error() -> DatabaseOperationError:
@@ -290,13 +292,15 @@ def test_custom_model_only_fills_existing_columns_and_truncates(create_logger, d
     manager = create_logger(database_url=db_url, database_model=CustomLog)
     assert manager.wait_until_ready()
 
-    logging.info("x" * 100)
+    logging.info("x" * 100, extra={"company_id": 5, "user_id": 10, "unknown": "ignored"})
     assert manager.flush()
 
     rows = manager.db_manager.get_all(CustomLog)
     row = next(r for r in rows if r.message.startswith("x"))
     assert row.message == "x" * 20
     assert row.level == "INFO"
+    assert row.company_id == 5
+    assert row.user_id == 10
 
 
 def test_external_database_manager_is_not_closed(create_logger, db_url):
