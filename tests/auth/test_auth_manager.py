@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 import pytest
+from fastapi import Request
 
 from smartx_rfid.auth.main import AuthManager
 
@@ -23,6 +24,15 @@ def auth() -> AuthManager:
 @pytest.fixture
 def expired_auth() -> AuthManager:
     return AuthManager(secret=SECRET, expiration_minutes=-1)
+
+
+def make_request(*, authorization: str | None = None, authorization_cookie: str | None = None) -> Request:
+    headers: list[tuple[bytes, bytes]] = []
+    if authorization is not None:
+        headers.append((b"authorization", authorization.encode()))
+    if authorization_cookie is not None:
+        headers.append((b"cookie", f"Authorization={authorization_cookie}".encode()))
+    return Request({"type": "http", "headers": headers})
 
 
 # =====================================================
@@ -200,3 +210,80 @@ def test_decode_token_garbage_string(auth: AuthManager):
     ok, payload = auth.decode_token("not.a.token")
     assert ok is False
     assert payload is None
+
+
+# =====================================================
+# get_user
+# =====================================================
+
+
+def test_get_user_from_bearer_header(auth: AuthManager):
+    token = auth.create_token({"user_id": 7, "roles": ["admin"]})
+
+    user = auth.get_user(make_request(authorization=f"Bearer {token}"))
+
+    assert user is not None
+    assert user["user_id"] == 7
+    assert user["roles"] == ["admin"]
+
+
+def test_get_user_from_raw_authorization_header(auth: AuthManager):
+    token = auth.create_token({"user_id": 8})
+
+    user = auth.get_user(make_request(authorization=token))
+
+    assert user is not None
+    assert user["user_id"] == 8
+
+
+def test_get_user_from_authorization_cookie(auth: AuthManager):
+    token = auth.create_token({"user_id": 9})
+
+    user = auth.get_user(make_request(authorization_cookie=token))
+
+    assert user is not None
+    assert user["user_id"] == 9
+
+
+@pytest.mark.parametrize(
+    "request_obj",
+    [
+        make_request(),
+        make_request(authorization="Bearer invalid-token"),
+    ],
+)
+def test_get_user_returns_none_without_valid_token(auth: AuthManager, request_obj: Request):
+    assert auth.get_user(request_obj) is None
+
+
+# =====================================================
+# validate_role
+# =====================================================
+
+
+def test_validate_role_accepts_matching_role_string(auth: AuthManager):
+    token = auth.create_token({"roles": ["admin", "operator"]})
+
+    assert auth.validate_role(make_request(authorization=f"Bearer {token}"), "admin") is True
+
+
+def test_validate_role_accepts_any_matching_role(auth: AuthManager):
+    token = auth.create_token({"roles": ["operator"]})
+
+    assert auth.validate_role(make_request(authorization=f"Bearer {token}"), ["admin", "operator"]) is True
+
+
+def test_validate_role_rejects_non_matching_role(auth: AuthManager):
+    token = auth.create_token({"roles": ["operator"]})
+
+    assert auth.validate_role(make_request(authorization=f"Bearer {token}"), "admin") is False
+
+
+def test_validate_role_rejects_missing_roles(auth: AuthManager):
+    token = auth.create_token({"user_id": 1})
+
+    assert auth.validate_role(make_request(authorization=f"Bearer {token}"), "admin") is False
+
+
+def test_validate_role_rejects_unauthenticated_request(auth: AuthManager):
+    assert auth.validate_role(make_request(), "admin") is False

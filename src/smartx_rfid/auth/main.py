@@ -2,6 +2,7 @@ import re
 import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
+from fastapi import Request
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHash
@@ -156,3 +157,26 @@ class AuthManager:
             return True, payload
         except jwt.PyJWTError:
             return False, None
+
+    def get_user(self, request: Request) -> Optional[Dict[str, Any]]:
+        """Return the decoded user claims from the request's Authorization token."""
+        token = request.cookies.get("Authorization") or request.headers.get("Authorization")
+        if not token:
+            return None
+
+        if token.startswith("Bearer "):
+            token = token[7:]
+
+        valid, user = self.decode_token(token)
+        return user if valid else None
+
+    def validate_role(self, request: Request, required_role: str | list[str]) -> bool:
+        """Check whether the authenticated user has any required role."""
+        user = self.get_user(request)
+        if not user:
+            return False
+
+        roles = user.get("roles", [])
+        if isinstance(required_role, str):
+            return required_role in roles
+        return any(role in roles for role in required_role)
