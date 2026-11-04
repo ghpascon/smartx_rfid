@@ -1,5 +1,6 @@
 from smartx_rfid.clients.renner import (
     get_renner_sku,
+    renner_get_epc_from_sku,
     renner_get_address_by_epc,
     renner_serialize_epc_by_address,
 )
@@ -16,6 +17,13 @@ class TestRennerSku:
         invalid_epc = "INVALID_EPC_123456"
         sku_invalid = get_renner_sku(invalid_epc)
         assert sku_invalid is None
+
+    def test_get_epc_from_sku_with_serial(self):
+        epc = renner_get_epc_from_sku("41214356835904", serial=0x1A85)
+
+        assert epc == "0000257bf7194e4000001a85"
+        assert len(epc) == 24
+        assert get_renner_sku(epc) == "41214356835904"
 
 
 class TestRennerAddress:

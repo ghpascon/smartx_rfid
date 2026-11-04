@@ -7,6 +7,16 @@ def get_renner_sku(epc: str) -> str | None:
     return str(int(epc[4:16], 16))
 
 
+def renner_get_epc_from_sku(sku: str, serial=1) -> str:
+    sku_value = int(sku)
+    serial_value = int(serial)
+    if not 0 <= sku_value < 16**12:
+        raise ValueError("SKU must fit in 12 hexadecimal characters")
+    if not 0 <= serial_value < 16**8:
+        raise ValueError("Serial must fit in 8 hexadecimal characters")
+    return f"0000{sku_value:012x}{serial_value:08x}"
+
+
 def renner_serialize_epc_by_address(address: str) -> str:
     # EN0.C131.S002.N1.0
     parts = address.split(".")
