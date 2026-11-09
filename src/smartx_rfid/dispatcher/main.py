@@ -1456,7 +1456,11 @@ class EventDispatcher:
             self._start_task = asyncio.create_task(self.start())
 
     def _sync_shutdown(self, reason: str = "unknown") -> None:
-        if self._shutdown_started:
+        # Every instance registers this callback, including dispatchers that
+        # were already stopped (or never started). Do not log during late
+        # interpreter shutdown in that case: pytest and other runners may have
+        # already closed their logging streams.
+        if self._shutdown_started or not self._started:
             return
         self._shutdown_started = True
         logger.info("EventDispatcher shutdown triggered | reason=%s", reason)

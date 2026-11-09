@@ -11,6 +11,17 @@ def _write_dispatch(path, content):
     path.write_text(json.dumps(content, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def test_shutdown_callback_is_noop_when_dispatcher_is_not_running(tmp_path, monkeypatch):
+    dispatcher = EventDispatcher(dispatches_path=str(tmp_path / "dispatches"))
+
+    def fail_if_logged(*args, **kwargs):
+        raise AssertionError("shutdown callback must not log for a stopped dispatcher")
+
+    monkeypatch.setattr("smartx_rfid.dispatcher.main.logger.info", fail_if_logged)
+
+    dispatcher._sync_shutdown("atexit")
+
+
 class _DummyClient:
     async def aclose(self):
         return None
