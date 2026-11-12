@@ -484,6 +484,16 @@ async def test_queries(device, fake):
 
 
 @pytest.mark.asyncio
+async def test_manager_read_rfid(device):
+    manager = DeviceManager(devices_path="unused")
+    manager.devices = [device]
+    ok, tag = await manager.read_rfid("SBPL-TEST", ("epc",))
+    assert ok and tag["epc"] == "E2000000AAAA"
+    ok, msg = await manager.read_rfid("missing")
+    assert not ok and "not found" in msg
+
+
+@pytest.mark.asyncio
 async def test_settings_and_control_commands(device, fake):
     assert await device.set_settings({"SB": {"SPEED": 4}})
     assert any(c.startswith(DC2 + b"PA,") and b"SPEED:4" in c for c in fake.commands)

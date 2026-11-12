@@ -748,9 +748,8 @@ class DeviceManager:
     async def _call_or_run(func, *args, **kwargs):
         """Await func if async, otherwise run it in a thread."""
         if asyncio.iscoroutinefunction(func) or inspect.iscoroutinefunction(func):
-            await func(*args, **kwargs)
-        else:
-            await asyncio.to_thread(func, *args, **kwargs)
+            return await func(*args, **kwargs)
+        return await asyncio.to_thread(func, *args, **kwargs)
 
     # ------------------------------------------------------------------
     # GPO
@@ -814,6 +813,32 @@ class DeviceManager:
         except Exception as e:
             logging.error(f"❌ Error adding to print queue on '{device_name}': {e}")
             return False
+
+    async def read_rfid(
+        self, device_name: str, areas: tuple[str, ...] = ("epc",), option: str = "NO"
+    ) -> Tuple[bool, dict | str | None]:
+        """Read the RFID tag in front of a printer antenna (e.g. SATO_SBPL).
+
+        Returns ``(True, tag_data)`` with keys like ``epc``, ``tid``, ``user``, ``pc``, ``rssi``,
+        ``error``; or ``(False, error_message)``.
+        """
+        device = self.get_device(device_name)
+        if device is None:
+            return False, f"Device '{device_name}' not found."
+        if getattr(device, "device_type", "").lower() != "printer":
+            return False, f"Device '{device_name}' is not a printer."
+        if not getattr(device, "read_rfid", None):
+            return False, f"Device '{device_name}' does not support reading RFID."
+        if not getattr(device, "is_connected", False):
+            return False, f"Device '{device_name}' is not connected."
+        try:
+            tag = await self._call_or_run(device.read_rfid, areas, option)
+        except Exception as e:
+            logging.error(f"❌ Error reading RFID on '{device_name}': {e}")
+            return False, str(e)
+        if tag is None:
+            return False, f"No reply from '{device_name}' (printer busy or timeout)."
+        return True, tag
 
     # ------------------------------------------------------------------
     # Serial number
