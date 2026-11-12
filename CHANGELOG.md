@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `SatoSbplPrinter` (`SATO_SBPL` in `DeviceManager`): SATO CL4NX Plus / CL6NX Plus driver over SBPL (TCP 9100). Status polling via `DC2 PG`, tracked print jobs with queue, RFID result (`DC2 PK`), and SBPL-only features: `SbplLabel` builder (scalable fonts, 1D/2D/Aztec/GS1 codes, shapes, form overlays, RFID `<IP0>`), device/sensor/settings queries, `set_settings`, `cancel_print`, file management, feed/reprint/cut and RFID read (`DC2 PJ`). Includes `devices/SATO_SBPL.json`, examples and tests.
 - `LoggerManager` can log to a database (`database_url` or `database_manager`, optional `database_model`), alone or together with the file system. Rows are queued and inserted in batches via `DatabaseManager.bulk_insert` in a background thread, with bounded buffering, retry with backoff and poison-row isolation. New helpers: `flush()`, `wait_until_ready()`, `get_stats()`.
 - `LoggerManager` defaults `base_filename` to the executed script name.
 

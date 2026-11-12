@@ -23,7 +23,7 @@ poetry install
 - smartx_rfid.devices
   - RFID: X714, R700_IOT, R420, ACUPAD
   - Generic: SERIAL, TCP
-  - Printers: SatoPrinter, SatoWs4Printer
+  - Printers: SatoPrinter, SatoWs4Printer, SatoSbplPrinter
   - DeviceManager
 - smartx_rfid.webhook
   - WebhookManager

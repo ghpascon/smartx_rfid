@@ -13,6 +13,7 @@ from .RFID.R420._main import R420
 # PRINTER DEVICES
 from .printer.SATO._main import SatoPrinter
 from .printer.SATO_WS4._main import SatoWs4Printer
+from .printer.SATO_SBPL._main import SatoSbplPrinter
 from .printer.PRINTRONIX._main import PrintronixPrinter
 
 
