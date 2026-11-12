@@ -196,6 +196,7 @@ class Helpers:
             )
             if result is None:
                 failures += 1
+                logging.warning(f"[{self.name}] no status reply ({failures}/{self.max_status_failures})")
                 if failures >= self.max_status_failures:
                     logging.error(f"[{self.name}] no status reply ({failures} attempts), reconnecting")
                     self.is_connected = False
@@ -259,7 +260,20 @@ class Helpers:
                 if result is not None:
                     self.emit_event("rfid_result", {"id": print_id, **result.as_dict()})
 
+    def _log_queue_blocked(self) -> None:
+        """Explain (at most every 5 s) why queued jobs are waiting."""
+        now = time.monotonic()
+        if now - self._queue_blocked_logged_at < 5.0:
+            return
+        self._queue_blocked_logged_at = now
+        status = self.last_status
+        reason = "waiting for the current job to finish" if self._print_sent else "printer not ready"
+        detail = status.as_dict() if status is not None else "no status received yet"
+        logging.warning(f"{self.name} - {len(self._to_print)} job(s) waiting in the queue: {reason}. Status: {detail}")
+
     async def _process_queue(self) -> None:
+        if self._to_print and (self._print_sent or not self.can_print):
+            self._log_queue_blocked()
         if self._to_print and self.can_print and not self._print_sent:
             print_id, job = self._to_print.pop(0)
             logging.info(f"{self.name} - Sending: Print ID: {print_id}, {len(self._to_print)} left.")

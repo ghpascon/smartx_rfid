@@ -90,6 +90,7 @@ class SatoSbplPrinter(DeviceBase, Helpers):
         self._print_sent_at = 0.0
         self._print_id: Optional[str] = None
         self._print_has_rfid = False
+        self._queue_blocked_logged_at = 0.0
 
     # ------------------------------------------------------------------ #
     # Connection
