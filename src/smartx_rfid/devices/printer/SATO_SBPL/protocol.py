@@ -211,7 +211,7 @@ class PrinterStatus:
     job_id: str | None = None
     job_name: str | None = None
     halted: bool = False
-    source: str = "dc2"
+    source: str = field(default="dc2", compare=False)
     raw: str = field(default="", compare=False)
 
     @property

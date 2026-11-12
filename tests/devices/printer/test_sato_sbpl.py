@@ -484,6 +484,15 @@ async def test_queries(device, fake):
 
 
 @pytest.mark.asyncio
+async def test_status_info_only_emitted_on_change(device):
+    await asyncio.sleep(0.4)  # several polls on an unchanged printer
+    assert len(device.events.get("status_info")) == 1
+    before = list(device.events.items)
+    device._on_message("frame", b"01A000000")  # unsolicited ENQ-format status (dc2 mode): ignored
+    assert device.events.items == before
+
+
+@pytest.mark.asyncio
 async def test_manager_read_rfid(device):
     manager = DeviceManager(devices_path="unused")
     manager.devices = [device]

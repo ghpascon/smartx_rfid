@@ -142,6 +142,10 @@ class Helpers:
             return
 
         if is_dc2_status_frame(payload) or is_enq_status_frame(payload):
+            # Only the configured format is used. The printer may push the other format by itself
+            # (Status3/4 auto-return); mixing both would make the state flip between two sources.
+            if is_dc2_status_frame(payload) != (self.status_mode == "dc2"):
+                return
             if pending is not None and pending.kind == "status" and self._resolve("frame", payload):
                 return
             try:
