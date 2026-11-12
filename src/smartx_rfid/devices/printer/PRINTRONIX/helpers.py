@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import re
-from smartx_rfid.utils import get_hash
 
 
 class Helpers:
@@ -95,13 +94,11 @@ class Helpers:
 
             await self.write(get_status_cmd, verbose=False)
             if len(self._to_print) > 0 and self.can_print:
-                zpl = self._to_print.pop(0)
-                logging.info(f"{self.name} - Sending: ZPL ID: {get_hash(zpl)}, {len(self._to_print)} left.")
-                status, msg = self.print(zpl)
+                print_id, zpl = self._to_print.pop(0)
+                logging.info(f"{self.name} - Sending: Print ID: {print_id}, {len(self._to_print)} left.")
+                status, msg = self.print(zpl, print_id=print_id)
                 if not status:
-                    self.emit_event("print_sent_error", msg)
-                if status:
-                    self.emit_event("print_sent", msg)
+                    self.emit_event("print_sent_error", {"id": print_id, "error": msg})
 
     async def receive_data(self):
         """Receive and process incoming TCP data."""

@@ -1,10 +1,10 @@
 import asyncio
 import logging
+import uuid
 from typing import Optional
 
 from smartx_rfid.devices._base import DeviceBase
 from .helpers import Helpers
-from smartx_rfid.utils import get_hash
 
 
 class PrintronixPrinter(DeviceBase, Helpers):
@@ -41,7 +41,7 @@ class PrintronixPrinter(DeviceBase, Helpers):
         self.last_status = None
         self.last_can_print = False
 
-        self._to_print: list[str] = []
+        self._to_print: list[tuple[str, str]] = []
 
         # Success on print
         self._print_sent = False
@@ -99,7 +99,7 @@ class PrintronixPrinter(DeviceBase, Helpers):
 
         await self.shutdown()
 
-    async def write(self, data: str, verbose=True):
+    async def write(self, data: str, verbose=True) -> bool:
         """
         Send data through TCP connection.
 
@@ -114,26 +114,41 @@ class PrintronixPrinter(DeviceBase, Helpers):
                 await self.writer.drain()
                 if verbose:
                     logging.info(f"[{self.name}] [SENT] {data.strip()}")
+                return True
             except Exception as e:
                 logging.warning(f"[{self.name}] [SEND ERROR] data={data.strip()} error={e}")
                 if self.is_connected:
                     self.is_connected = False
+        return False
 
-    def print(self, zpl: str):
+    def print(self, zpl: str, print_id: str | None = None):
         """Send ZPL command to printer."""
         if not self.is_connected:
             return False, "Printer not connected."
         if not self.can_print:
             return False, "Printer not ready."
-        asyncio.create_task(self.write(zpl))
+        print_id = print_id or uuid.uuid4().hex
         self._print_sent = True
-        self._zpl_id = get_hash(zpl)
-        return True, self._zpl_id
+        self._zpl_id = print_id
+        asyncio.create_task(self._send_print(zpl, print_id))
+        return True, print_id
 
-    def add_to_print_queue(self, zpl: str | list[str]):
-        """Add ZPL command to the print queue."""
-        if isinstance(zpl, list):
-            self._to_print = self._to_print + zpl
+    async def _send_print(self, zpl: str, print_id: str) -> None:
+        if await self.write(zpl):
+            self.emit_event("print_sent", print_id)
         else:
-            self._to_print.append(zpl)
+            if self._zpl_id == print_id:
+                self._print_sent = False
+                self._zpl_id = None
+            self.emit_event("print_sent_error", {"id": print_id, "error": "Failed to send print data."})
+
+    def add_to_print_queue(self, zpl: str | list[str]) -> str | list[str]:
+        """Queue one or more ZPL jobs and return their unique IDs."""
+        jobs = [zpl] if isinstance(zpl, str) else zpl
+        print_ids = []
+        for item in jobs:
+            print_id = uuid.uuid4().hex
+            self._to_print.append((print_id, item))
+            print_ids.append(print_id)
         logging.info(f"{self.name} - Added to print queue. {len(self._to_print)} total.")
+        return print_ids[0] if isinstance(zpl, str) else print_ids

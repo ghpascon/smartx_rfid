@@ -799,7 +799,7 @@ class DeviceManager:
         except Exception as e:
             return False, str(e)
 
-    def add_to_print_queue(self, device_name: str, zpl: str | list[str]) -> bool:
+    def add_to_print_queue(self, device_name: str, zpl: str | list[str]) -> str | list[str] | bool:
         device = self.get_device(device_name)
         if device is None:
             logging.error(f"❌ Device '{device_name}' not found.")
@@ -807,12 +807,8 @@ class DeviceManager:
         if not getattr(device, "add_to_print_queue", None):
             logging.error(f"❌ Device '{device_name}' does not support print queue.")
             return False
-        if not getattr(device, "is_connected", False):
-            logging.error(f"❌ Device '{device_name}' is not connected.")
-            return False
         try:
-            device.add_to_print_queue(zpl)
-            return True
+            return device.add_to_print_queue(zpl)
         except Exception as e:
             logging.error(f"❌ Error adding to print queue on '{device_name}': {e}")
             return False
