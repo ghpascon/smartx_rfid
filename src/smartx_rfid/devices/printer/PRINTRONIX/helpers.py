@@ -164,11 +164,11 @@ class Helpers:
 
         if self._print_sent and self.can_print:
             print_sent = True
-            self.emit_event("print_success", f"{self._zpl_id}")
+            self.emit_event("print_success", {"id": self._zpl_id})
             self._print_sent = False
             self._zpl_id = None
         elif self._print_sent and hard_error:
-            self.emit_event("print_error", f"{self._zpl_id}")
+            self.emit_event("print_error", {"id": self._zpl_id})
             self._print_sent = False
             self._zpl_id = None
 

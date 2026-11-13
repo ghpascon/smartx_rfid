@@ -135,7 +135,7 @@ class SatoWs4Printer(DeviceBase, Helpers):
 
     async def _send_print(self, zpl: str, print_id: str) -> None:
         if await self.write(zpl):
-            self.emit_event("print_sent", print_id)
+            self.emit_event("print_sent", {"id": print_id})
         else:
             if self._zpl_id == print_id:
                 self._print_sent = False

@@ -35,6 +35,8 @@ class SatoSbplPrinter(DeviceBase, Helpers):
         print_settle_time: Seconds to wait before accepting an idle printer as "job done" when
             the job was never seen busy (very fast jobs).
         auto_rfid_result: Read ``DC2 PK`` after a successful job that wrote an RFID tag.
+        read_before_print: Read EPC and TID with ``DC2 PJ`` before sending each print job and
+            include them in the ``print_sent`` event.
     """
 
     def __init__(
@@ -50,6 +52,7 @@ class SatoSbplPrinter(DeviceBase, Helpers):
         max_status_failures: int = 3,
         print_settle_time: float = 1.5,
         auto_rfid_result: bool = False,
+        read_before_print: bool = False,
         **kwargs,
     ):
         DeviceBase.__init__(self)
@@ -67,6 +70,7 @@ class SatoSbplPrinter(DeviceBase, Helpers):
         self.max_status_failures = max_status_failures
         self.print_settle_time = print_settle_time
         self.auto_rfid_result = auto_rfid_result
+        self.read_before_print = read_before_print
 
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
@@ -185,7 +189,7 @@ class SatoSbplPrinter(DeviceBase, Helpers):
         print_id = print_id or uuid.uuid4().hex
         self._print_sent = True
         self._print_started = False
-        self._print_sent_at = time.monotonic()
+        self._print_sent_at = 0.0
         self._print_id = print_id
         self._print_has_rfid = b"\x1bIP0" in job
         self.can_print = False
@@ -193,8 +197,17 @@ class SatoSbplPrinter(DeviceBase, Helpers):
         return True, print_id
 
     async def _send_print(self, job: bytes, print_id: str) -> None:
+        rfid_data = {"epc": None, "tid": None}
+        if self.read_before_print:
+            result = await self.read_rfid(("epc", "tid"))
+            if result is not None:
+                rfid_data.update({key: result.get(key) for key in ("epc", "tid")})
         if await self._send(job):
-            self.emit_event("print_sent", print_id)
+            self._print_sent_at = time.monotonic()
+            event_data = {"id": print_id}
+            if self.read_before_print:
+                event_data.update(rfid_data)
+            self.emit_event("print_sent", event_data)
             return
         if self._print_id == print_id:
             self._reset_print_tracking()

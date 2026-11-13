@@ -75,7 +75,7 @@ class Helpers:
 
             if self._print_sent:
                 print_sent = True
-                self.emit_event("print_success", f"{self._zpl_id}")
+                self.emit_event("print_success", {"id": self._zpl_id})
                 self._print_sent = False
                 self._zpl_id = None
             if not self.last_can_print or print_sent:
@@ -83,7 +83,7 @@ class Helpers:
         # error:
         elif status == "00001":
             if self._print_sent:
-                self.emit_event("print_error", f"{self._zpl_id}")
+                self.emit_event("print_error", {"id": self._zpl_id})
                 self._print_sent = False
                 self._zpl_id = None
             self.emit_event("status", f"error: {status}")

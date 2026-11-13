@@ -67,7 +67,7 @@ class Helpers:
         if "a000000" == cmd:
             self.can_print = True
             if self._print_sent:
-                self.emit_event("print_success", f"{self._zpl_id}")
+                self.emit_event("print_success", {"id": self._zpl_id})
                 self._print_sent = False
                 self._zpl_id = None
             self.emit_event("status", "ready")
@@ -80,7 +80,7 @@ class Helpers:
         # error:
         elif cmd.startswith("e") or cmd.startswith("f"):
             if self._print_sent:
-                self.emit_event("print_error", f"{self._zpl_id}")
+                self.emit_event("print_error", {"id": self._zpl_id})
                 self._print_sent = False
                 self._zpl_id = None
             self.emit_event("status", f"error: {cmd}")

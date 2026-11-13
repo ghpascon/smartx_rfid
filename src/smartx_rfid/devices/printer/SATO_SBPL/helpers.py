@@ -241,11 +241,13 @@ class Helpers:
         """Decide whether the job in progress finished, failed or is still running."""
         if not self._print_sent:
             return
+        if self._print_sent_at == 0.0:
+            return  # RFID pre-read or socket send is still in progress.
         status = self.last_status
         print_id = self._print_id
         if status.has_error:
             self._reset_print_tracking()
-            self.emit_event("print_error", f"{print_id}")
+            self.emit_event("print_error", {"id": print_id})
             return
         if status.is_busy:
             self._print_started = True
@@ -254,7 +256,7 @@ class Helpers:
         if status.is_idle and (self._print_started or settled):
             has_rfid = self._print_has_rfid
             self._reset_print_tracking()
-            self.emit_event("print_success", f"{print_id}")
+            self.emit_event("print_success", {"id": print_id})
             if has_rfid and self.auto_rfid_result:
                 result = await self.read_rfid_result()
                 if result is not None:

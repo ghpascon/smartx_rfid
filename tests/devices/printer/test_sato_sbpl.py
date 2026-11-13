@@ -422,8 +422,8 @@ async def test_print_label_success(device, fake):
     assert device.print("again") == (False, "Printer busy.")
 
     await wait_for(lambda: device.events.get("print_success"))
-    assert device.events.get("print_sent") == [print_id]
-    assert device.events.get("print_success") == [print_id]
+    assert device.events.get("print_sent") == [{"id": print_id}]
+    assert device.events.get("print_success") == [{"id": print_id}]
     assert fake.jobs and b"XMHELLO" in fake.jobs[0]
     assert "printing" in device.events.get("status")
     await wait_for(lambda: device.can_print)
@@ -457,7 +457,7 @@ async def test_print_error_event(device, fake):
     ok, print_id = device.print("x")
     assert ok
     await wait_for(lambda: device.events.get("print_error"))
-    assert device.events.get("print_error") == [print_id]
+    assert device.events.get("print_error") == [{"id": print_id}]
     assert any(label.startswith("error: tag_write_error") for label in device.events.get("status"))
     assert not device.can_print
 
@@ -467,7 +467,7 @@ async def test_print_queue_is_processed_in_order(device, fake):
     fake.print_time = 0.15
     ids = device.add_to_print_queue([SbplLabel().text("ONE", "XM"), SbplLabel().text("TWO", "XM")])
     await wait_for(lambda: len(device.events.get("print_success")) == 2, timeout=10)
-    assert device.events.get("print_success") == ids
+    assert device.events.get("print_success") == [{"id": print_id} for print_id in ids]
     assert b"XMONE" in fake.jobs[0] and b"XMTWO" in fake.jobs[1]
     assert device.print_queue_size == 0
 
@@ -480,7 +480,7 @@ async def test_queries(device, fake):
     assert (await device.get_sensor_info())["GAP"] == "0.9/SL1.0"
     assert await device.get_label_pitch() == {"dpi": 203, "pitch_dots": 2172}
     assert (await device.read_rfid_result()).epc == "E2000000AAAA"
-    assert (await device.read_rfid())["epc"] == "E2000000AAAA"
+    assert (await device.read_rfid())["epc"] == "e2000000aaaa"
 
 
 @pytest.mark.asyncio
@@ -497,7 +497,7 @@ async def test_manager_read_rfid(device):
     manager = DeviceManager(devices_path="unused")
     manager.devices = [device]
     ok, tag = await manager.read_rfid("SBPL-TEST", ("epc",))
-    assert ok and tag["epc"] == "E2000000AAAA"
+    assert ok and tag["epc"] == "e2000000aaaa"
     ok, msg = await manager.read_rfid("missing")
     assert not ok and "not found" in msg
 

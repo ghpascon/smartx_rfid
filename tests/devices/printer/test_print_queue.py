@@ -58,8 +58,8 @@ async def test_queue_id_is_used_for_send_and_completion_events(printer_class, mo
     await _report_print_success(printer)
 
     assert "label with EPC" in written
-    assert ("print_sent", print_id) in events
-    assert ("print_success", print_id) in events
+    assert ("print_sent", {"id": print_id}) in events
+    assert ("print_success", {"id": print_id}) in events
 
 
 @pytest.mark.asyncio

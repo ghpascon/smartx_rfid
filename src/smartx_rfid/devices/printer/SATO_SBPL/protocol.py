@@ -621,7 +621,7 @@ def parse_rfid_read(payload: bytes | str) -> dict[str, Any]:
         name, sep, value = item.partition(":")
         key = names.get(name.strip())
         if sep and key:
-            result[key] = value.strip() or None
+            result[key] = value.strip().lower() or None
     return result
 
 
