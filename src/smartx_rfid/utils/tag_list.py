@@ -3,9 +3,9 @@ from typing import Literal, Dict, Any, Optional, Tuple, Callable
 from datetime import datetime
 from threading import Lock
 import logging
-from pyepc import SGTIN
 from smartx_rfid.schemas.tag import TagSchema
 from smartx_rfid.utils.event import normalize_device
+from smartx_rfid.utils.gtin import get_gtin_from_epc
 
 
 class TagList:
@@ -184,10 +184,7 @@ class TagList:
         """
         now = datetime.now()
 
-        try:
-            gtin = SGTIN.decode(tag.get("epc")).gtin
-        except Exception:
-            gtin = None
+        gtin = get_gtin_from_epc(tag.get("epc"))
 
         tid_val = tag.get("tid")
         tid_key = "Unknown"
@@ -239,10 +236,7 @@ class TagList:
             current["device_serial_number"] = device.get("serial_number")
         if not tag.get("epc") == current.get("epc"):
             current["epc"] = tag.get("epc")
-            try:
-                gtin = SGTIN.decode(tag.get("epc")).gtin
-            except Exception:
-                gtin = None
+            gtin = get_gtin_from_epc(tag.get("epc"))
             current["gtin"] = gtin
         if not tag.get("protected") == current.get("protected"):
             current["protected"] = tag.get("protected")
