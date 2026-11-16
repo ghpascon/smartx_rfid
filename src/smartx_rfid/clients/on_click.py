@@ -70,6 +70,7 @@ class OnClickClient:
                     "aux_code": product.get("produto_codauxiliar"),
                     "description": product.get("descricao"),
                     "qty": product.get("qtde"),
+                    "price": float(product.get("basecalculo")) or 0.0,
                 }
             )
 
