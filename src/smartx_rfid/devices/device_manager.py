@@ -814,6 +814,20 @@ class DeviceManager:
             logging.error(f"❌ Error adding to print queue on '{device_name}': {e}")
             return False
 
+    def clear_print_queue(self, device_name: str) -> bool:
+        device = self.get_device(device_name)
+        if device is None:
+            logging.error(f"❌ Device '{device_name}' not found.")
+            return False
+        if not getattr(device, "clear_print_queue", None):
+            logging.error(f"❌ Device '{device_name}' does not support clearing print queue.")
+            return False
+        try:
+            return device.clear_print_queue()
+        except Exception as e:
+            logging.error(f"❌ Error clearing print queue on '{device_name}': {e}")
+            return False
+
     async def read_rfid(
         self, device_name: str, areas: tuple[str, ...] = ("epc",), option: str = "NO"
     ) -> Tuple[bool, dict | str | None]:
