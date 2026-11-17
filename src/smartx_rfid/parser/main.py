@@ -35,3 +35,30 @@ def serialize_gtin(gtin: str, serial: str) -> str:
     sgtin = SGTIN.from_sgtin(gtin.zfill(14), serial, 7)
     sgtin = sgtin.encode().lower()
     return sgtin
+
+
+def serialize_split(product_code: str, serial: str, product_code_length: int = 12) -> str:
+    """
+    Serialize product code and serial number into a single string.
+    """
+    serial = str(serial)
+    if len(product_code) > product_code_length:
+        raise ValueError(f"Product code length exceeds the specified limit of {product_code_length}")
+    if len(serial) + len(product_code) > 24:
+        raise ValueError("Combined length of product code and serial number exceeds 24 characters")
+
+    epc = f"{product_code.zfill(product_code_length)}{serial.zfill(24 - product_code_length)}"
+    if not regex_hex(epc, 24):
+        raise ValueError("Serialized string must be exactly 24 hexadecimal characters long")
+    return epc
+
+
+def deserialize_split(serialized: str, product_code_length: int = 12) -> tuple[str, str]:
+    """
+    Deserialize a serialized string into product code and serial number.
+    """
+    if not regex_hex(serialized, 24):
+        raise ValueError("Serialized string must be exactly 24 hexadecimal characters long")
+    product_code = serialized[:product_code_length].lstrip("0")
+    serial = serialized[product_code_length:].lstrip("0")
+    return product_code, serial
