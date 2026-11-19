@@ -6,6 +6,9 @@ import logging
 from smartx_rfid.schemas.tag import TagSchema
 from smartx_rfid.utils.event import normalize_device
 from smartx_rfid.utils.gtin import get_gtin_from_epc
+from smartx_rfid.clients.rchlo import rchlo_get_sku_from_epc
+from smartx_rfid.clients.renner import get_renner_sku
+from smartx_rfid.parser.main import deserialize_split
 
 
 class TagList:
@@ -338,6 +341,57 @@ class TagList:
 
         return gtin_counts
 
+    def _count_by_epc(self, extractor: Callable[[str], Optional[str]]) -> Dict[str, int]:
+        """
+        Count tags grouped by a key extracted from the EPC.
+
+        Tags whose EPC is missing, invalid or for which the extractor
+        returns an empty value are grouped under "UNKNOWN".
+        """
+        with self._lock:
+            epcs = [tag.get("epc") for tag in self._tags.values()]
+
+        counts: Dict[str, int] = {}
+        for epc in epcs:
+            key = None
+            if epc:
+                try:
+                    key = extractor(epc)
+                except ValueError:
+                    key = None
+            if not key:
+                key = "UNKNOWN"
+            counts[key] = counts.get(key, 0) + 1
+
+        return counts
+
+    def get_rchlo_counts(self) -> Dict[str, int]:
+        """
+        Retrieve counts of tags grouped by RCHLO SKU.
+
+        Returns:
+            A dictionary mapping SKUs to their respective counts.
+        """
+        return self._count_by_epc(rchlo_get_sku_from_epc)
+
+    def get_renner_counts(self) -> Dict[str, int]:
+        """
+        Retrieve counts of tags grouped by Renner SKU.
+
+        Returns:
+            A dictionary mapping SKUs to their respective counts.
+        """
+        return self._count_by_epc(get_renner_sku)
+
+    def get_split_counts(self) -> Dict[str, int]:
+        """
+        Retrieve counts of tags grouped by split product code.
+
+        Returns:
+            A dictionary mapping product codes to their respective counts.
+        """
+        return self._count_by_epc(lambda epc: deserialize_split(epc)[0])
+
     ### REMOVE
     def _remove_where(self, predicate: Callable[[Dict[str, Any]], bool]) -> list[Dict[str, Any]]:
         """
@@ -412,3 +466,24 @@ class TagList:
         device_name = normalize_device(device).get("name")
         with self._lock:
             return self._remove_where(lambda tag: tag.get("device") == device_name)
+
+    def get_quantity_by_strategy(self, strategy: Literal["gtin", "rchlo", "renner", "split"]) -> dict[str, int]:
+        """
+
+        Count the quantity of tags based on the specified strategy.
+
+        Args:
+            strategy: The strategy to count tags for ("gtin", "rchlo", "renner", "split").
+
+        Returns:
+            A dictionary with the strategy as the key and the count as the value.
+        """
+        if strategy == "gtin":
+            return self.get_gtin_counts()
+        if strategy == "rchlo":
+            return self.get_rchlo_counts()
+        if strategy == "renner":
+            return self.get_renner_counts()
+        if strategy == "split":
+            return self.get_split_counts()
+        return {}

@@ -73,6 +73,56 @@ class TestSERIAL:
         assert gtin_counts.get("80614141123458") == 2
         assert gtin_counts.get("UNKNOWN") == 1
 
+    def test_rchlo_counts(self):
+        tags = TagList()
+        tags.add({"epc": "12345678901234567890abcd"})
+        tags.add({"epc": "12345678901234567890abce"})
+        tags.add({"epc": "abcd"})
+        counts = tags.get_rchlo_counts()
+        assert counts.get("45678901234") == 2
+        assert counts.get("UNKNOWN") == 1
+        assert len(counts) == 2
+
+    def test_renner_counts(self):
+        tags = TagList()
+        tags.add({"epc": "000000000000007b00000001"})
+        tags.add({"epc": "000000000000007b00000002"})
+        tags.add({"epc": "abcd"})
+        counts = tags.get_renner_counts()
+        assert counts.get("123") == 2
+        assert counts.get("UNKNOWN") == 1
+        assert len(counts) == 2
+
+    def test_split_counts(self):
+        tags = TagList()
+        tags.add({"epc": "000000000123000000000001"})
+        tags.add({"epc": "000000000123000000000002"})
+        tags.add({"epc": "000000000456000000000001"})
+        tags.add({"epc": "000000000000000000000001"})
+        tags.add({"epc": "abcd"})
+        counts = tags.get_split_counts()
+        assert counts.get("123") == 2
+        assert counts.get("456") == 1
+        assert counts.get("UNKNOWN") == 2
+
+    def test_counts_empty(self):
+        tags = TagList()
+        assert tags.get_rchlo_counts() == {}
+        assert tags.get_renner_counts() == {}
+        assert tags.get_split_counts() == {}
+
+    def test_get_quantity_by_strategy(self):
+        tags = TagList()
+        tags.add({"epc": "3074257bf7194e4000001a85"})
+        tags.add({"epc": "000000000123000000000001"})
+
+        assert tags.get_quantity_by_strategy("gtin") == tags.get_gtin_counts()
+        assert tags.get_quantity_by_strategy("rchlo") == tags.get_rchlo_counts()
+        assert tags.get_quantity_by_strategy("renner") == tags.get_renner_counts()
+        assert tags.get_quantity_by_strategy("split") == tags.get_split_counts()
+        assert tags.get_quantity_by_strategy("split").get("123") == 1
+        assert tags.get_quantity_by_strategy("invalid") == {}
+
     def test_prefix(self):
         tags = TagList(prefix="3074257bf7")
         tags.add({"epc": "3074257bf7194e4000001a85"})
